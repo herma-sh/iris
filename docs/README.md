@@ -1,6 +1,6 @@
 # Iris
 
-Iris is the embeddable terminal platform for Hermes.
+Iris is the embeddable terminal platform for [Herma](../../README.md).
 
 ## Overview
 
@@ -10,6 +10,17 @@ Iris is a cross-platform terminal emulator designed for two modes:
 2. **Embedded** - A terminal surface embedded in Hermes via Tauri
 
 **Windows, Linux, and macOS are all first-class targets. Windows receives explicit priority.**
+
+## Packages
+
+Iris is published as `@iris/*` packages:
+
+| Package | Description |
+|---------|-------------|
+| `@iris/core` | Terminal state, parser, buffer (no windowing dependencies) |
+| `@iris/platform` | PTY, clipboard, IME, fonts (platform-specific) |
+| `@iris/render` | GPU rendering via wgpu |
+| `@iris/standalone` | Binary entry point for standalone terminal |
 
 ## Design Reference
 
@@ -29,6 +40,7 @@ Iris is a cross-platform terminal emulator designed for two modes:
 | [phases.md](./phases.md) | Development phases and timeline |
 | [code-style.md](./code-style.md) | Coding standards: minimal, fast, maintainable, readable |
 | [innovation.md](./innovation.md) | Emerging features and unique differentiators |
+| [security-threat-model.md](./security-threat-model.md) | Security threats and mitigations |
 
 ## Quick Links
 

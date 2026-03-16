@@ -12,9 +12,10 @@ Ghostty is a quality benchmark for speed, smoothness, restraint, and rendering f
 
 ## Naming model
 
-- `Hermes`: the product and company-facing application
-- `Iris`: the embeddable terminal platform
-- `imux`: the primary Hermes workspace shell/window that hosts Iris alongside git, browser, and related tools
+- **Herma**: The organization (herma-sh on GitHub, herma.sh domain)
+- **Hermes**: The product and company-facing application - `@hermes/*` packages
+- **Iris**: The embeddable terminal platform - `@iris/*` packages
+- `imux`: The primary Hermes workspace shell/window that hosts Iris alongside git, browser, and related tools
 
 ## Stack position
 
@@ -213,14 +214,14 @@ This does not need to happen in one migration, but the end state should look rou
 
 ```text
 packages/
-  terminal-contract/   shared TypeScript contracts for the host API
-  terminal-react/      React host components for Hermes
-  terminal-theme/      Hermes Terminal themes, typography, and tokens
+  terminal-contract/   @iris/contract - shared TypeScript contracts for the host API
+  terminal-react/      @iris/react - React host components for Hermes
+  terminal-theme/      @iris/theme - Hermes Terminal themes, typography, and tokens
 
 crates/
-  iris-core/           terminal core logic and shared runtime types
-  iris-platform/       PTY/platform integration
-  iris-render/         renderer implementation(s)
+  iris-core/           @iris/core - terminal core logic and shared runtime types
+  iris-platform/       @iris/platform - PTY/platform integration
+  iris-render/         @iris/render - renderer implementation(s)
 ```
 
 Notes:
