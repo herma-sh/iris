@@ -217,6 +217,11 @@ impl Grid {
         self.damage.take(self.cols())
     }
 
+    /// Marks the entire visible grid as damaged without modifying cell data.
+    pub fn mark_all_damage(&mut self) {
+        self.damage.mark_all();
+    }
+
     fn clear_wide_span_at(&mut self, row: usize, col: usize) {
         if let Some(index) = self.index_of(row, col) {
             match self.cells[index].width {

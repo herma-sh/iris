@@ -191,3 +191,22 @@ fn parser_recovers_after_dcs_and_ignored_string_sequences() {
         Some('E')
     );
 }
+
+#[test]
+fn parser_switches_between_primary_and_alternate_screen() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A").unwrap();
+    parser
+        .advance(&mut terminal, b"\x1b[?1049hB\x1b[?1049l")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert!(!terminal.modes.alternate_screen);
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 1);
+}

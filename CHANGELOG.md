@@ -39,6 +39,7 @@ Target release: `0.1.0`
 - Corrected parser string-state cleanup so finishing DCS leaves ignored-string tracking untouched and finishing ignored strings no longer clears unrelated OSC or DCS buffers.
 - Adjusted OSC overflow recovery to reset parser state while reprocessing the current byte in ground state instead of dropping it.
 - Split the parser state machine into focused submodules so escape handling, string-state handling, UTF-8 decoding, and state tests are easier to maintain.
+- DEC private mode `1049` now switches between the primary and alternate screen buffers in `iris-core`, restoring the saved primary cursor when returning to the main screen.
 
 ## 0.0.1 - 2026-03-17
 

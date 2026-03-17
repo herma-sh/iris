@@ -22,6 +22,8 @@ pub struct Terminal {
     pub window_title: Option<String>,
     /// The active OSC 8 hyperlink metadata.
     pub active_hyperlink: Option<Hyperlink>,
+    primary_grid: Option<Grid>,
+    alternate_screen_cursor: Option<SavedCursor>,
     saved_cursor: Option<SavedCursor>,
 }
 
@@ -44,6 +46,8 @@ impl Terminal {
             attrs: CellAttrs::default(),
             window_title: None,
             active_hyperlink: None,
+            primary_grid: None,
+            alternate_screen_cursor: None,
             saved_cursor: None,
         })
     }
@@ -113,8 +117,8 @@ impl Terminal {
                     Some(Hyperlink { id, uri })
                 };
             }
-            Action::SetModes { private, modes } => self.apply_modes(false, private, &modes),
-            Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes),
+            Action::SetModes { private, modes } => self.apply_modes(false, private, &modes)?,
+            Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes)?,
         }
 
         Ok(())
@@ -402,7 +406,7 @@ impl Terminal {
         }
     }
 
-    fn apply_modes(&mut self, reset: bool, private: bool, params: &[u16]) {
+    fn apply_modes(&mut self, reset: bool, private: bool, params: &[u16]) -> Result<()> {
         for &param in params {
             let mode = if private {
                 Mode::from_dec_private_param(param)
@@ -411,12 +415,17 @@ impl Terminal {
             };
 
             if let Some(mode) = mode {
-                self.modes.set_mode(mode, !reset);
+                let enabled = !reset;
+                match mode {
+                    Mode::AlternateScreen => self.set_alternate_screen(enabled)?,
+                    _ => self.modes.set_mode(mode, enabled),
+                }
             }
         }
 
         self.cursor.visible = self.modes.cursor_visible;
         self.cursor.blinking = self.modes.cursor_blink;
+        Ok(())
     }
 
     fn line_feed(&mut self) -> Result<()> {
@@ -442,6 +451,53 @@ impl Terminal {
         let current = self.cursor.position.col;
         let next_tab_stop = ((current / TAB_WIDTH) + 1) * TAB_WIDTH;
         self.cursor.position.col = next_tab_stop.min(cols.saturating_sub(1));
+    }
+
+    fn set_alternate_screen(&mut self, enabled: bool) -> Result<()> {
+        if enabled {
+            self.enter_alternate_screen()
+        } else {
+            self.exit_alternate_screen();
+            Ok(())
+        }
+    }
+
+    fn enter_alternate_screen(&mut self) -> Result<()> {
+        if self.modes.alternate_screen {
+            return Ok(());
+        }
+
+        let size = self.grid.size();
+        let mut alternate_grid = Grid::new(size)?;
+        alternate_grid.mark_all_damage();
+
+        self.primary_grid = Some(std::mem::replace(&mut self.grid, alternate_grid));
+        self.alternate_screen_cursor = Some(self.cursor.save());
+        self.cursor = Cursor::new();
+        self.saved_cursor = None;
+        self.modes.alternate_screen = true;
+        Ok(())
+    }
+
+    fn exit_alternate_screen(&mut self) {
+        if !self.modes.alternate_screen {
+            return;
+        }
+
+        if let Some(mut primary_grid) = self.primary_grid.take() {
+            primary_grid.mark_all_damage();
+            self.grid = primary_grid;
+        }
+
+        if let Some(saved_cursor) = self.alternate_screen_cursor.take() {
+            self.cursor.restore(saved_cursor);
+            self.move_cursor(self.cursor.position.row, self.cursor.position.col);
+        } else {
+            self.cursor = Cursor::new();
+        }
+
+        self.saved_cursor = None;
+        self.modes.alternate_screen = false;
     }
 }
 
@@ -589,6 +645,42 @@ mod tests {
             })
             .unwrap();
         assert!(terminal.modes.insert);
+    }
+
+    #[test]
+    fn terminal_switches_between_primary_and_alternate_screen() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+        terminal.write_char('A').unwrap();
+        terminal.move_cursor(1, 2);
+
+        terminal
+            .apply_action(Action::SetModes {
+                private: true,
+                modes: vec![1049],
+            })
+            .unwrap();
+        terminal.write_char('B').unwrap();
+
+        assert!(terminal.modes.alternate_screen);
+        assert_eq!(
+            terminal.grid.cell(0, 0).map(|cell| cell.character),
+            Some('B')
+        );
+
+        terminal
+            .apply_action(Action::ResetModes {
+                private: true,
+                modes: vec![1049],
+            })
+            .unwrap();
+
+        assert!(!terminal.modes.alternate_screen);
+        assert_eq!(
+            terminal.grid.cell(0, 0).map(|cell| cell.character),
+            Some('A')
+        );
+        assert_eq!(terminal.cursor.position.row, 1);
+        assert_eq!(terminal.cursor.position.col, 2);
     }
 
     #[test]
