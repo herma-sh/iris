@@ -106,7 +106,13 @@ impl Terminal {
             Action::EraseCharacters(count) => self.erase_characters(count)?,
             Action::SetGraphicsRendition(renditions) => self.apply_sgr(&renditions),
             Action::SetWindowTitle(title) => self.window_title = Some(title),
-            Action::SetHyperlink { id, uri } => self.active_hyperlink = Some(Hyperlink { id, uri }),
+            Action::SetHyperlink { id, uri } => {
+                self.active_hyperlink = if uri.is_empty() {
+                    None
+                } else {
+                    Some(Hyperlink { id, uri })
+                };
+            }
             Action::SetModes { private, modes } => self.apply_modes(false, private, &modes),
             Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes),
         }
@@ -607,5 +613,13 @@ mod tests {
                 uri: "https://example.com".to_string(),
             })
         );
+
+        terminal
+            .apply_action(Action::SetHyperlink {
+                id: None,
+                uri: String::new(),
+            })
+            .unwrap();
+        assert_eq!(terminal.active_hyperlink, None);
     }
 }

@@ -21,7 +21,7 @@ pub fn parse_osc(payload: &[u8]) -> Vec<Action> {
 }
 
 fn parse_hyperlink(data: &[u8]) -> Vec<Action> {
-    let mut parts = data.splitn(3, |&byte| byte == b';');
+    let mut parts = data.splitn(2, |&byte| byte == b';');
     let params = parts.next().unwrap_or_default();
     let uri = parts.next().unwrap_or_default();
 

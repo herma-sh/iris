@@ -241,7 +241,9 @@ impl Parser {
             return self.finish_osc();
         }
 
-        if self.osc_buffer.len() >= self.config.max_osc_bytes {
+        if self.osc_buffer.len().saturating_add(2) > self.config.max_osc_bytes {
+            // Drop the truncated OSC payload, including the pending ESC, and
+            // resume parsing from the current byte in ground state.
             self.reset();
             return self.parse_ground(byte);
         }
@@ -518,7 +520,10 @@ mod tests {
         });
 
         assert!(parser.parse(b"\x1b]2;h").is_empty());
-        assert_eq!(parser.parse(b"ello"), vec![Action::Print('l'), Action::Print('o')]);
+        assert_eq!(
+            parser.parse(b"ello"),
+            vec![Action::Print('l'), Action::Print('o')]
+        );
         assert_eq!(parser.state(), ParserState::Ground);
     }
 }

@@ -153,4 +153,7 @@ fn parser_applies_osc_title_and_hyperlink_actions() {
             .map(|link| link.uri.as_str()),
         Some("https://example.com")
     );
+
+    parser.advance(&mut terminal, b"\x1b]8;;\x1b\\").unwrap();
+    assert_eq!(terminal.active_hyperlink, None);
 }
