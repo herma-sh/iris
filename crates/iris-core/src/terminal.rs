@@ -22,15 +22,14 @@ pub struct Terminal {
 
 impl Terminal {
     /// Creates a terminal with the provided visible dimensions.
-    #[must_use]
-    pub fn new(rows: usize, cols: usize) -> Self {
-        Self {
-            grid: Grid::new(GridSize { rows, cols }),
+    pub fn new(rows: usize, cols: usize) -> Result<Self> {
+        Ok(Self {
+            grid: Grid::new(GridSize { rows, cols })?,
             cursor: Cursor::new(),
             modes: TerminalModes::new(),
             attrs: CellAttrs::default(),
             saved_cursor: None,
-        }
+        })
     }
 
     /// Writes a printable character at the cursor and advances the cursor.
@@ -105,6 +104,7 @@ impl Terminal {
     pub fn restore_cursor(&mut self) {
         if let Some(saved_cursor) = self.saved_cursor {
             self.cursor.restore(saved_cursor);
+            self.move_cursor(self.cursor.position.row, self.cursor.position.col);
         }
     }
 
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn terminal_write_advances_cursor() {
-        let mut terminal = Terminal::new(3, 4);
+        let mut terminal = Terminal::new(3, 4).unwrap();
         terminal.write_char('A').unwrap();
         assert_eq!(
             terminal.grid.cell(0, 0).map(|cell| cell.character),
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn terminal_line_feed_scrolls_at_bottom() {
-        let mut terminal = Terminal::new(2, 4);
+        let mut terminal = Terminal::new(2, 4).unwrap();
         terminal.move_cursor(1, 0);
         terminal.write_char('Z').unwrap();
         terminal.execute_control(0x0a).unwrap();
@@ -186,9 +186,20 @@ mod tests {
 
     #[test]
     fn terminal_resize_clamps_cursor() {
-        let mut terminal = Terminal::new(8, 8);
+        let mut terminal = Terminal::new(8, 8).unwrap();
         terminal.move_cursor(7, 7);
         terminal.resize(2, 2).unwrap();
+        assert_eq!(terminal.cursor.position.row, 1);
+        assert_eq!(terminal.cursor.position.col, 1);
+    }
+
+    #[test]
+    fn terminal_restore_cursor_clamps_after_resize() {
+        let mut terminal = Terminal::new(8, 8).unwrap();
+        terminal.move_cursor(7, 7);
+        terminal.save_cursor();
+        terminal.resize(2, 2).unwrap();
+        terminal.restore_cursor();
         assert_eq!(terminal.cursor.position.row, 1);
         assert_eq!(terminal.cursor.position.col, 1);
     }

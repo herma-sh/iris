@@ -34,7 +34,7 @@ mod tests {
     #[test]
     fn parser_handles_basic_control_characters() {
         let mut parser = Parser::new();
-        let mut terminal = Terminal::new(3, 8);
+        let mut terminal = Terminal::new(3, 8).unwrap();
 
         parser.advance(&mut terminal, b"ab\x08c\t\rZ\nQ").unwrap();
 

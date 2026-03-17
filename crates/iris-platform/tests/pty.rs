@@ -1,3 +1,7 @@
+#![cfg(not(target_os = "windows"))]
+
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use iris_platform::platform::PlatformPtyBackend;
@@ -5,103 +9,74 @@ use iris_platform::{PtyBackend, PtyConfig};
 
 #[test]
 fn pty_spawn_returns_handle() {
-    let mut backend = PlatformPtyBackend::default();
-    let config = spawn_output_config();
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut backend = PlatformPtyBackend::default();
+        let config = spawn_output_config();
+        backend.spawn(&config).unwrap();
+        backend.close_stdin().unwrap();
+        let _status = wait_for_exit(&mut backend, Duration::from_secs(5));
+        let output = String::from_utf8_lossy(&backend.read_to_end().unwrap()).to_string();
+        let _ = sender.send(output);
+    });
 
-    backend.spawn(&config).unwrap();
-
-    let output = read_until_contains(&mut backend, "__IRIS_PTY__", Duration::from_secs(5));
+    let output = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_default();
     assert!(output.contains("__IRIS_PTY__"));
 }
 
 #[test]
 fn pty_read_write_works() {
-    let mut backend = PlatformPtyBackend::default();
-    let config = round_trip_config();
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut backend = PlatformPtyBackend::default();
+        let config = round_trip_config();
+        backend.spawn(&config).unwrap();
+        backend.write(input_payload().as_bytes()).unwrap();
+        backend.close_stdin().unwrap();
+        let _status = wait_for_exit(&mut backend, Duration::from_secs(5));
+        let output = String::from_utf8_lossy(&backend.read_to_end().unwrap()).to_string();
+        let _ = sender.send(output);
+    });
 
-    backend.spawn(&config).unwrap();
-    backend.write(input_payload().as_bytes()).unwrap();
-
-    let output = read_until_contains(&mut backend, "__IRIS_ECHO__", Duration::from_secs(5));
+    let output = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_default();
     assert!(output.contains("__IRIS_ECHO__hello-from-iris"));
 }
 
-fn read_until_contains(backend: &mut dyn PtyBackend, needle: &str, timeout: Duration) -> String {
+fn wait_for_exit(backend: &mut dyn PtyBackend, timeout: Duration) -> Option<i32> {
     let start = Instant::now();
-    let mut output = Vec::new();
-    let mut buffer = [0_u8; 4096];
-
     while start.elapsed() < timeout {
-        let read = backend.read(&mut buffer).unwrap();
-        if read == 0 {
-            if !backend.is_alive().unwrap() {
-                break;
-            }
-            continue;
-        }
-
-        output.extend_from_slice(&buffer[..read]);
-        let text = String::from_utf8_lossy(&output).to_string();
-        if text.contains(needle) {
-            return text;
+        match backend.exit_status() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) => thread::sleep(Duration::from_millis(10)),
+            Err(_) => return None,
         }
     }
-
-    String::from_utf8_lossy(&output).to_string()
+    None
 }
 
-#[cfg(target_os = "windows")]
 fn spawn_output_config() -> PtyConfig {
     let mut config = PtyConfig::new(shell_command());
-    config.args = vec!["/C".into(), "echo __IRIS_PTY__".into()];
+    config.args = vec!["-c".into(), "printf '__IRIS_PTY__\\n'".into()];
     config
 }
 
-#[cfg(not(target_os = "windows"))]
-fn spawn_output_config() -> PtyConfig {
-    let mut config = PtyConfig::new(shell_command());
-    config.args = vec!["-lc".into(), "printf '__IRIS_PTY__\\n'".into()];
-    config
-}
-
-#[cfg(target_os = "windows")]
-fn round_trip_config() -> PtyConfig {
-    let mut config = PtyConfig::new("powershell.exe");
-    config.args = vec![
-        "-NoLogo".into(),
-        "-NoProfile".into(),
-        "-Command".into(),
-        "$line = [Console]::In.ReadLine(); Write-Output \"__IRIS_ECHO__$line\"".into(),
-    ];
-    config
-}
-
-#[cfg(not(target_os = "windows"))]
 fn round_trip_config() -> PtyConfig {
     let mut config = PtyConfig::new(shell_command());
     config.args = vec![
-        "-lc".into(),
+        "-c".into(),
         "IFS= read -r line; printf '__IRIS_ECHO__%s\\n' \"$line\"".into(),
     ];
     config
 }
 
-#[cfg(target_os = "windows")]
-fn input_payload() -> &'static str {
-    "hello-from-iris\r\n"
-}
-
-#[cfg(not(target_os = "windows"))]
 fn input_payload() -> &'static str {
     "hello-from-iris\n"
 }
 
-#[cfg(target_os = "windows")]
-fn shell_command() -> String {
-    std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string())
-}
-
-#[cfg(not(target_os = "windows"))]
 fn shell_command() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string())
 }

@@ -1,11 +1,9 @@
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(unix)]
 mod unix;
 #[cfg(target_os = "windows")]
 mod windows;
 
-#[cfg(target_os = "macos")]
-pub use unix::UnixPtyBackend as PlatformPtyBackend;
-#[cfg(target_os = "linux")]
-pub use unix::UnixPtyBackend as PlatformPtyBackend;
+#[cfg(unix)]
+pub use unix::{UnixPtyBackend, UnixPtyBackend as PlatformPtyBackend};
 #[cfg(target_os = "windows")]
 pub use windows::{ConPtyBackend, PlatformPtyBackend};

@@ -79,7 +79,11 @@ impl Cursor {
 
     /// Moves the cursor downward, clamping to the visible grid.
     pub fn move_down(&mut self, count: usize, max_rows: usize) {
-        self.position.row = (self.position.row + count).min(max_rows.saturating_sub(1));
+        self.position.row = self
+            .position
+            .row
+            .saturating_add(count)
+            .min(max_rows.saturating_sub(1));
     }
 
     /// Moves the cursor left, saturating at column zero.
@@ -89,7 +93,11 @@ impl Cursor {
 
     /// Moves the cursor right, clamping to the visible grid.
     pub fn move_right(&mut self, count: usize, max_cols: usize) {
-        self.position.col = (self.position.col + count).min(max_cols.saturating_sub(1));
+        self.position.col = self
+            .position
+            .col
+            .saturating_add(count)
+            .min(max_cols.saturating_sub(1));
     }
 
     /// Captures the current cursor state.

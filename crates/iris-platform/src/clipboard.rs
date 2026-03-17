@@ -7,6 +7,9 @@ pub trait Clipboard {
 
     /// Replaces the clipboard contents.
     fn set_text(&mut self, text: &str) -> Result<()>;
+
+    /// Clears the clipboard contents.
+    fn clear(&mut self) -> Result<()>;
 }
 
 /// Fallback clipboard implementation used until platform integration lands.
@@ -21,11 +24,12 @@ impl Clipboard for NoopClipboard {
     }
 
     fn set_text(&mut self, text: &str) -> Result<()> {
-        if text.is_empty() {
-            self.text = None;
-        } else {
-            self.text = Some(text.to_string());
-        }
+        self.text = Some(text.to_string());
+        Ok(())
+    }
+
+    fn clear(&mut self) -> Result<()> {
+        self.text = None;
         Ok(())
     }
 }

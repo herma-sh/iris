@@ -2,7 +2,7 @@ use iris_core::{DamageRegion, Parser, Terminal};
 
 #[test]
 fn parser_and_terminal_update_damage_and_cursor_state() {
-    let mut terminal = Terminal::new(2, 6);
+    let mut terminal = Terminal::new(2, 6).unwrap();
     let mut parser = Parser::new();
 
     parser.advance(&mut terminal, b"hi\r\nx").unwrap();
@@ -29,7 +29,7 @@ fn parser_and_terminal_update_damage_and_cursor_state() {
 
 #[test]
 fn save_and_restore_cursor_round_trip_across_writes() {
-    let mut terminal = Terminal::new(3, 3);
+    let mut terminal = Terminal::new(3, 3).unwrap();
 
     terminal.write_char('A').unwrap();
     terminal.save_cursor();

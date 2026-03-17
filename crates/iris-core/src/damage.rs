@@ -44,6 +44,7 @@ impl DamageTracker {
     /// Resizes the internal row tracking to match the grid height.
     pub fn resize(&mut self, rows: usize) {
         self.rows.resize(rows, None);
+        self.rows.fill(None);
         self.all_damaged = true;
     }
 
@@ -64,7 +65,7 @@ impl DamageTracker {
     pub fn mark_row(&mut self, row: usize, cols: usize) {
         if let Some(slot) = self.rows.get_mut(row) {
             if cols == 0 {
-                *slot = Some((0, 0));
+                *slot = None;
             } else {
                 *slot = Some((0, cols.saturating_sub(1)));
             }
@@ -87,7 +88,7 @@ impl DamageTracker {
     pub fn take(&mut self, cols: usize) -> Vec<DamageRegion> {
         if self.all_damaged {
             self.all_damaged = false;
-            if self.rows.is_empty() {
+            if self.rows.is_empty() || cols == 0 {
                 return Vec::new();
             }
 
@@ -135,9 +136,23 @@ mod tests {
     }
 
     #[test]
+    fn damage_mark_row_ignores_zero_width_rows() {
+        let mut tracker = DamageTracker::new(2);
+        tracker.mark_row(0, 0);
+        assert!(tracker.take(0).is_empty());
+    }
+
+    #[test]
     fn damage_mark_all_returns_single_full_region() {
         let mut tracker = DamageTracker::new(3);
         tracker.mark_all();
         assert_eq!(tracker.take(6), vec![DamageRegion::new(0, 2, 0, 5)]);
+    }
+
+    #[test]
+    fn damage_mark_all_ignores_zero_width_grids() {
+        let mut tracker = DamageTracker::new(3);
+        tracker.mark_all();
+        assert!(tracker.take(0).is_empty());
     }
 }

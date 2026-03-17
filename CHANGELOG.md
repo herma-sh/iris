@@ -39,6 +39,9 @@ This project uses a phase-based versioning scheme:
 
 ### Changed
 
+- Hardened phase-0 core invariants around grid sizing, wide-cell normalization, damage tracking, and cursor restore clamping based on review follow-up.
+- Updated CI to pin third-party action revisions by commit SHA and to keep an explicit workspace build step before tests.
+- Updated the platform layer to `portable-pty` `0.9.0`, preserved empty clipboard writes, and made the PTY integration tests timeout-aware.
 - Agent documentation structure now follows a lightweight root entrypoint plus modular `.agents/` references.
 - Release documentation now explicitly allows unsigned development and preview builds, with signing deferred to later distribution-quality releases.
 - Rust agent and rule documents now explicitly incorporate the local Rust best-practices standard.

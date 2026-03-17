@@ -55,8 +55,14 @@ pub trait PtyBackend: Send {
     /// Reads PTY output into the provided buffer.
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize>;
 
+    /// Reads the remaining PTY output until EOF.
+    fn read_to_end(&mut self) -> Result<Vec<u8>>;
+
     /// Writes bytes to the PTY input stream.
     fn write(&mut self, data: &[u8]) -> Result<usize>;
+
+    /// Closes the PTY stdin stream, signaling EOF to the child.
+    fn close_stdin(&mut self) -> Result<()>;
 
     /// Resizes the PTY viewport.
     fn resize(&mut self, rows: u16, cols: u16) -> Result<()>;
@@ -104,20 +110,6 @@ impl PortablePtyBackend {
     fn writer_mut(&mut self) -> Result<&mut (dyn Write + Send + '_)> {
         match self.writer {
             Some(ref mut writer) => Ok(writer.as_mut()),
-            None => Err(PtyError::NotActive.into()),
-        }
-    }
-
-    fn master_mut(&mut self) -> Result<&mut (dyn MasterPty + Send + '_)> {
-        match self.master {
-            Some(ref mut master) => Ok(master.as_mut()),
-            None => Err(PtyError::NotActive.into()),
-        }
-    }
-
-    fn child_mut(&mut self) -> Result<&mut (dyn Child + Send + Sync + '_)> {
-        match self.child {
-            Some(ref mut child) => Ok(child.as_mut()),
             None => Err(PtyError::NotActive.into()),
         }
     }
@@ -184,6 +176,16 @@ impl PtyBackend for PortablePtyBackend {
         })
     }
 
+    fn read_to_end(&mut self) -> Result<Vec<u8>> {
+        let mut output = Vec::new();
+        self.reader_mut()?
+            .read_to_end(&mut output)
+            .map_err(|error| PtyError::ReadFailed {
+                reason: error.to_string(),
+            })?;
+        Ok(output)
+    }
+
     fn write(&mut self, data: &[u8]) -> Result<usize> {
         let writer = self.writer_mut()?;
         let written = writer.write(data).map_err(|error| PtyError::WriteFailed {
@@ -195,8 +197,18 @@ impl PtyBackend for PortablePtyBackend {
         Ok(written)
     }
 
+    fn close_stdin(&mut self) -> Result<()> {
+        self.writer.take();
+        Ok(())
+    }
+
     fn resize(&mut self, rows: u16, cols: u16) -> Result<()> {
-        self.master_mut()?
+        let master = match self.master {
+            Some(ref mut master) => master,
+            None => return Err(PtyError::NotActive.into()),
+        };
+
+        master
             .resize(PtySize {
                 rows,
                 cols,
@@ -216,7 +228,12 @@ impl PtyBackend for PortablePtyBackend {
     }
 
     fn exit_status(&mut self) -> Result<Option<i32>> {
-        self.child_mut()?
+        let child = match self.child {
+            Some(ref mut child) => child,
+            None => return Err(PtyError::NotActive.into()),
+        };
+
+        child
             .try_wait()
             .map(|status| status.map(|exit| i32::try_from(exit.exit_code()).unwrap_or(i32::MAX)))
             .map_err(|error| {
