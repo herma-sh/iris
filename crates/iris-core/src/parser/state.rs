@@ -1,5 +1,6 @@
 use super::control::parse_control;
 use super::csi::parse_csi;
+use super::dcs::parse_dcs;
 use super::osc::parse_osc;
 use super::Action;
 use crate::error::Result;
@@ -16,6 +17,14 @@ pub enum ParserState {
     OscString,
     /// `OSC` escape terminator after `ESC`.
     OscEscape,
+    /// `DCS` string collection.
+    DcsString,
+    /// `DCS` escape terminator after `ESC`.
+    DcsEscape,
+    /// Ignored SOS/PM/APC string collection.
+    IgnoreString,
+    /// Ignored SOS/PM/APC escape terminator after `ESC`.
+    IgnoreStringEscape,
     /// `CSI` entry after `ESC [`.
     CsiEntry,
     /// `CSI` parameter collection.
@@ -29,6 +38,10 @@ pub struct ParserConfig {
     pub max_params: usize,
     /// Maximum OSC payload size retained.
     pub max_osc_bytes: usize,
+    /// Maximum DCS payload size retained.
+    pub max_dcs_bytes: usize,
+    /// Maximum SOS/PM/APC payload size skipped before resetting.
+    pub max_ignored_string_bytes: usize,
 }
 
 impl Default for ParserConfig {
@@ -36,6 +49,8 @@ impl Default for ParserConfig {
         Self {
             max_params: 16,
             max_osc_bytes: 4096,
+            max_dcs_bytes: 4096,
+            max_ignored_string_bytes: 4096,
         }
     }
 }
@@ -49,6 +64,8 @@ pub struct Parser {
     current_param: Option<u16>,
     private_marker: Option<u8>,
     osc_buffer: Vec<u8>,
+    dcs_buffer: Vec<u8>,
+    ignored_string_len: usize,
     utf8_buffer: [u8; 4],
     utf8_len: usize,
     utf8_expected: usize,
@@ -76,6 +93,8 @@ impl Parser {
             current_param: None,
             private_marker: None,
             osc_buffer: Vec::with_capacity(config.max_osc_bytes.min(256)),
+            dcs_buffer: Vec::with_capacity(config.max_dcs_bytes.min(256)),
+            ignored_string_len: 0,
             utf8_buffer: [0; 4],
             utf8_len: 0,
             utf8_expected: 0,
@@ -96,6 +115,8 @@ impl Parser {
         self.current_param = None;
         self.private_marker = None;
         self.osc_buffer.clear();
+        self.dcs_buffer.clear();
+        self.ignored_string_len = 0;
         self.reset_utf8();
     }
 
@@ -124,6 +145,10 @@ impl Parser {
             ParserState::Escape => self.parse_escape(byte),
             ParserState::OscString => self.parse_osc_string(byte),
             ParserState::OscEscape => self.parse_osc_escape(byte),
+            ParserState::DcsString => self.parse_dcs_string(byte),
+            ParserState::DcsEscape => self.parse_dcs_escape(byte),
+            ParserState::IgnoreString => self.parse_ignored_string(byte),
+            ParserState::IgnoreStringEscape => self.parse_ignored_string_escape(byte),
             ParserState::CsiEntry => self.parse_csi_entry(byte),
             ParserState::CsiParam => self.parse_csi_param(byte),
         }
@@ -170,6 +195,16 @@ impl Parser {
             b']' => {
                 self.state = ParserState::OscString;
                 self.osc_buffer.clear();
+                Vec::new()
+            }
+            b'P' => {
+                self.state = ParserState::DcsString;
+                self.dcs_buffer.clear();
+                Vec::new()
+            }
+            b'X' | b'^' | b'_' => {
+                self.state = ParserState::IgnoreString;
+                self.ignored_string_len = 0;
                 Vec::new()
             }
             b'D' => vec![Action::Index],
@@ -251,6 +286,78 @@ impl Parser {
         self.osc_buffer.push(0x1b);
         self.osc_buffer.push(byte);
         self.state = ParserState::OscString;
+        Vec::new()
+    }
+
+    fn parse_dcs_string(&mut self, byte: u8) -> Vec<Action> {
+        match byte {
+            0x1b => {
+                self.state = ParserState::DcsEscape;
+                Vec::new()
+            }
+            _ => {
+                if self.dcs_buffer.len() >= self.config.max_dcs_bytes {
+                    self.reset();
+                    return self.parse_ground(byte);
+                }
+
+                self.dcs_buffer.push(byte);
+                Vec::new()
+            }
+        }
+    }
+
+    fn parse_dcs_escape(&mut self, byte: u8) -> Vec<Action> {
+        if byte == b'\\' {
+            return self.finish_dcs();
+        }
+
+        if self.dcs_buffer.len().saturating_add(2) > self.config.max_dcs_bytes {
+            // Drop the truncated DCS payload, including the pending ESC, and
+            // resume parsing from the current byte in ground state.
+            self.reset();
+            return self.parse_ground(byte);
+        }
+
+        self.dcs_buffer.push(0x1b);
+        self.dcs_buffer.push(byte);
+        self.state = ParserState::DcsString;
+        Vec::new()
+    }
+
+    fn parse_ignored_string(&mut self, byte: u8) -> Vec<Action> {
+        match byte {
+            0x1b => {
+                self.state = ParserState::IgnoreStringEscape;
+                Vec::new()
+            }
+            _ => {
+                if self.ignored_string_len >= self.config.max_ignored_string_bytes {
+                    self.reset();
+                    return self.parse_ground(byte);
+                }
+
+                self.ignored_string_len += 1;
+                Vec::new()
+            }
+        }
+    }
+
+    fn parse_ignored_string_escape(&mut self, byte: u8) -> Vec<Action> {
+        if byte == b'\\' {
+            self.finish_ignored_string();
+            return Vec::new();
+        }
+
+        if self.ignored_string_len.saturating_add(2) > self.config.max_ignored_string_bytes {
+            // Drop the truncated ignored string, including the pending ESC, and
+            // resume parsing from the current byte in ground state.
+            self.reset();
+            return self.parse_ground(byte);
+        }
+
+        self.ignored_string_len += 2;
+        self.state = ParserState::IgnoreString;
         Vec::new()
     }
 
@@ -361,6 +468,26 @@ impl Parser {
         self.private_marker = None;
         self.reset_utf8();
         parse_osc(&payload)
+    }
+
+    fn finish_dcs(&mut self) -> Vec<Action> {
+        let payload = std::mem::take(&mut self.dcs_buffer);
+        self.state = ParserState::Ground;
+        self.current_param = None;
+        self.private_marker = None;
+        self.ignored_string_len = 0;
+        self.reset_utf8();
+        parse_dcs(&payload)
+    }
+
+    fn finish_ignored_string(&mut self) {
+        self.state = ParserState::Ground;
+        self.current_param = None;
+        self.private_marker = None;
+        self.osc_buffer.clear();
+        self.dcs_buffer.clear();
+        self.ignored_string_len = 0;
+        self.reset_utf8();
     }
 }
 
@@ -513,16 +640,80 @@ mod tests {
     }
 
     #[test]
+    fn parser_handles_dcs_with_st_terminator() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.parse(b"\x1bPqignored\x1b\\A"),
+            vec![Action::Print('A')]
+        );
+        assert_eq!(parser.state(), ParserState::Ground);
+    }
+
+    #[test]
+    fn parser_handles_partial_dcs_across_chunks() {
+        let mut parser = Parser::new();
+        assert!(parser.parse(b"\x1bPqhello").is_empty());
+        assert_eq!(parser.state(), ParserState::DcsString);
+        assert_eq!(parser.parse(b"\x1b\\Z"), vec![Action::Print('Z')]);
+        assert_eq!(parser.state(), ParserState::Ground);
+    }
+
+    #[test]
+    fn parser_ignores_sos_pm_and_apc_strings() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.parse(b"\x1bXone\x1b\\A\x1b^two\x1b\\B\x1b_three\x1b\\C"),
+            vec![Action::Print('A'), Action::Print('B'), Action::Print('C')]
+        );
+    }
+
+    #[test]
     fn parser_limits_osc_payload_growth() {
         let mut parser = Parser::with_config(ParserConfig {
             max_params: 16,
             max_osc_bytes: 4,
+            max_dcs_bytes: 4,
+            max_ignored_string_bytes: 4,
         });
 
         assert!(parser.parse(b"\x1b]2;h").is_empty());
         assert_eq!(
             parser.parse(b"ello"),
             vec![Action::Print('l'), Action::Print('o')]
+        );
+        assert_eq!(parser.state(), ParserState::Ground);
+    }
+
+    #[test]
+    fn parser_limits_dcs_payload_growth() {
+        let mut parser = Parser::with_config(ParserConfig {
+            max_params: 16,
+            max_osc_bytes: 4,
+            max_dcs_bytes: 4,
+            max_ignored_string_bytes: 4,
+        });
+
+        assert!(parser.parse(b"\x1bPabcd").is_empty());
+        assert_eq!(
+            parser.parse(b"ef"),
+            vec![Action::Print('e'), Action::Print('f')]
+        );
+        assert_eq!(parser.state(), ParserState::Ground);
+    }
+
+    #[test]
+    fn parser_limits_ignored_string_growth() {
+        let mut parser = Parser::with_config(ParserConfig {
+            max_params: 16,
+            max_osc_bytes: 4,
+            max_dcs_bytes: 4,
+            max_ignored_string_bytes: 4,
+        });
+
+        assert!(parser.parse(b"\x1bXabcd").is_empty());
+        assert_eq!(
+            parser.parse(b"ef"),
+            vec![Action::Print('e'), Action::Print('f')]
         );
         assert_eq!(parser.state(), ParserState::Ground);
     }

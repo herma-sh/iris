@@ -3,6 +3,7 @@
 mod actions;
 mod control;
 mod csi;
+mod dcs;
 mod osc;
 mod state;
 
