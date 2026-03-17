@@ -31,6 +31,8 @@ Target release: `0.1.0`
 
 - Began the phase-1 ANSI/VT parser implementation in `iris-core` with a modular parser state machine, CSI parsing, SGR decoding, and parser-driven terminal action application.
 - Extended the phase-1 parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
+- Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
+- Added bounded phase-1 handling for DCS, SOS, PM, and APC string states so unsupported payloads terminate cleanly and resume normal parsing without unbounded growth.
 
 ## 0.0.1 - 2026-03-17
 

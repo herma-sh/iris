@@ -55,6 +55,10 @@ pub enum Action {
     EraseCharacters(u16),
     /// Apply SGR attributes.
     SetGraphicsRendition(Vec<GraphicsRendition>),
+    /// Update the terminal window title.
+    SetWindowTitle(String),
+    /// Update the active hyperlink target.
+    SetHyperlink { id: Option<String>, uri: String },
     /// Enable ANSI or DEC terminal modes.
     SetModes { private: bool, modes: Vec<u16> },
     /// Disable ANSI or DEC terminal modes.

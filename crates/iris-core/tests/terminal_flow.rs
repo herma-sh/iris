@@ -131,3 +131,63 @@ fn parser_writes_utf8_text_across_input_boundaries() {
         Some('中')
     );
 }
+
+#[test]
+fn parser_applies_osc_title_and_hyperlink_actions() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"\x1b]2;Iris\x07").unwrap();
+    parser
+        .advance(
+            &mut terminal,
+            b"\x1b]8;id=prompt-1;https://example.com\x1b\\",
+        )
+        .unwrap();
+
+    assert_eq!(terminal.window_title.as_deref(), Some("Iris"));
+    assert_eq!(
+        terminal
+            .active_hyperlink
+            .as_ref()
+            .map(|link| link.uri.as_str()),
+        Some("https://example.com")
+    );
+
+    parser.advance(&mut terminal, b"\x1b]8;;\x1b\\").unwrap();
+    assert_eq!(terminal.active_hyperlink, None);
+}
+
+#[test]
+fn parser_recovers_after_dcs_and_ignored_string_sequences() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(
+            &mut terminal,
+            b"A\x1bPqignored\x1b\\B\x1bXskip\x1b\\C\x1b^hide\x1b\\D\x1b_drop\x1b\\E",
+        )
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 4).map(|cell| cell.character),
+        Some('E')
+    );
+}

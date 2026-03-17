@@ -18,7 +18,20 @@ pub struct Terminal {
     pub modes: TerminalModes,
     /// Active attributes used for printed text.
     pub attrs: CellAttrs,
+    /// The last OSC window title observed by the parser.
+    pub window_title: Option<String>,
+    /// The active OSC 8 hyperlink metadata.
+    pub active_hyperlink: Option<Hyperlink>,
     saved_cursor: Option<SavedCursor>,
+}
+
+/// Hyperlink metadata emitted by OSC 8 sequences.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hyperlink {
+    /// Optional hyperlink identifier.
+    pub id: Option<String>,
+    /// Target URI for the hyperlink.
+    pub uri: String,
 }
 
 impl Terminal {
@@ -29,6 +42,8 @@ impl Terminal {
             cursor: Cursor::new(),
             modes: TerminalModes::new(),
             attrs: CellAttrs::default(),
+            window_title: None,
+            active_hyperlink: None,
             saved_cursor: None,
         })
     }
@@ -90,6 +105,14 @@ impl Terminal {
             Action::EraseLine(mode) => self.erase_line_mode(mode)?,
             Action::EraseCharacters(count) => self.erase_characters(count)?,
             Action::SetGraphicsRendition(renditions) => self.apply_sgr(&renditions),
+            Action::SetWindowTitle(title) => self.window_title = Some(title),
+            Action::SetHyperlink { id, uri } => {
+                self.active_hyperlink = if uri.is_empty() {
+                    None
+                } else {
+                    Some(Hyperlink { id, uri })
+                };
+            }
             Action::SetModes { private, modes } => self.apply_modes(false, private, &modes),
             Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes),
         }
@@ -566,5 +589,37 @@ mod tests {
             })
             .unwrap();
         assert!(terminal.modes.insert);
+    }
+
+    #[test]
+    fn terminal_tracks_osc_metadata_actions() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+
+        terminal
+            .apply_action(Action::SetWindowTitle("Iris".to_string()))
+            .unwrap();
+        terminal
+            .apply_action(Action::SetHyperlink {
+                id: Some("prompt-1".to_string()),
+                uri: "https://example.com".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(terminal.window_title.as_deref(), Some("Iris"));
+        assert_eq!(
+            terminal.active_hyperlink,
+            Some(super::Hyperlink {
+                id: Some("prompt-1".to_string()),
+                uri: "https://example.com".to_string(),
+            })
+        );
+
+        terminal
+            .apply_action(Action::SetHyperlink {
+                id: None,
+                uri: String::new(),
+            })
+            .unwrap();
+        assert_eq!(terminal.active_hyperlink, None);
     }
 }
