@@ -1,9 +1,8 @@
 [package]
 name = "iris-render-wgpu"
-version = "0.0.1"
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 iris-core = { path = "../iris-core" }
-

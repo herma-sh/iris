@@ -1,7 +1,7 @@
 //! Terminal state and buffer primitives for Iris.
 //!
 //! `iris-core` owns the terminal grid, cursor state, damage tracking, mode
-//! flags, and the phase-0 parser for basic control characters.
+//! flags, and the current parser implementation.
 
 pub mod cell;
 pub mod cursor;
@@ -19,5 +19,5 @@ pub use damage::{DamageRegion, DamageTracker};
 pub use error::{Error, Result};
 pub use grid::{Grid, GridSize};
 pub use modes::{Mode, TerminalModes};
-pub use parser::Parser;
+pub use parser::{Action, GraphicsRendition, Parser, ParserConfig, ParserState};
 pub use terminal::Terminal;

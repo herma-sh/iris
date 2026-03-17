@@ -1,4 +1,4 @@
-/// Phase-0 terminal modes required by the core terminal state.
+/// Terminal modes required by the core terminal state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TerminalModes {
     /// Whether origin mode is active.
@@ -13,6 +13,14 @@ pub struct TerminalModes {
     pub cursor_visible: bool,
     /// Whether cursor blinking is enabled.
     pub cursor_blink: bool,
+    /// Whether the alternate screen buffer is active.
+    pub alternate_screen: bool,
+    /// Whether bracketed paste mode is active.
+    pub bracketed_paste: bool,
+    /// Whether focus events should be reported.
+    pub focus_event: bool,
+    /// Whether synchronized output mode is active.
+    pub synchronized_output: bool,
 }
 
 impl TerminalModes {
@@ -26,6 +34,10 @@ impl TerminalModes {
             newline: false,
             cursor_visible: true,
             cursor_blink: true,
+            alternate_screen: false,
+            bracketed_paste: false,
+            focus_event: false,
+            synchronized_output: false,
         }
     }
 
@@ -38,6 +50,10 @@ impl TerminalModes {
             Mode::Newline => self.newline = enabled,
             Mode::CursorVisible => self.cursor_visible = enabled,
             Mode::CursorBlink => self.cursor_blink = enabled,
+            Mode::AlternateScreen => self.alternate_screen = enabled,
+            Mode::BracketedPaste => self.bracketed_paste = enabled,
+            Mode::FocusEvent => self.focus_event = enabled,
+            Mode::SynchronizedOutput => self.synchronized_output = enabled,
         }
     }
 }
@@ -48,7 +64,7 @@ impl Default for TerminalModes {
     }
 }
 
-/// Supported mode identifiers for phase 0.
+/// Supported ANSI and DEC mode identifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Origin mode.
@@ -63,6 +79,42 @@ pub enum Mode {
     CursorVisible,
     /// Cursor blinking.
     CursorBlink,
+    /// Alternate screen buffer.
+    AlternateScreen,
+    /// Bracketed paste mode.
+    BracketedPaste,
+    /// Focus event reporting.
+    FocusEvent,
+    /// Synchronized output mode.
+    SynchronizedOutput,
+}
+
+impl Mode {
+    /// Maps an ANSI mode parameter to a known mode.
+    #[must_use]
+    pub const fn from_ansi_param(param: u16) -> Option<Self> {
+        match param {
+            4 => Some(Self::Insert),
+            20 => Some(Self::Newline),
+            _ => None,
+        }
+    }
+
+    /// Maps a DEC private mode parameter to a known mode.
+    #[must_use]
+    pub const fn from_dec_private_param(param: u16) -> Option<Self> {
+        match param {
+            6 => Some(Self::Origin),
+            7 => Some(Self::Wrap),
+            12 => Some(Self::CursorBlink),
+            25 => Some(Self::CursorVisible),
+            1004 => Some(Self::FocusEvent),
+            1049 => Some(Self::AlternateScreen),
+            2004 => Some(Self::BracketedPaste),
+            2026 => Some(Self::SynchronizedOutput),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -82,5 +134,15 @@ mod tests {
         let mut modes = TerminalModes::new();
         modes.set_mode(Mode::Wrap, false);
         assert!(!modes.wrap);
+
+        modes.set_mode(Mode::BracketedPaste, true);
+        assert!(modes.bracketed_paste);
+    }
+
+    #[test]
+    fn mode_parsing_maps_known_parameters() {
+        assert_eq!(Mode::from_ansi_param(4), Some(Mode::Insert));
+        assert_eq!(Mode::from_dec_private_param(25), Some(Mode::CursorVisible));
+        assert_eq!(Mode::from_dec_private_param(9999), None);
     }
 }

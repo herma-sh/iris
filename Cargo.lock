@@ -57,7 +57,7 @@ dependencies = [
 
 [[package]]
 name = "iris-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bitflags 2.11.0",
  "pretty_assertions",
@@ -67,7 +67,7 @@ dependencies = [
 
 [[package]]
 name = "iris-platform"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "portable-pty",
  "pretty_assertions",
@@ -76,7 +76,7 @@ dependencies = [
 
 [[package]]
 name = "iris-render-wgpu"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "iris-core",
 ]

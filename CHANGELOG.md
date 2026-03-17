@@ -25,8 +25,19 @@ This project uses a phase-based versioning scheme:
 
 ## Unreleased
 
+Target release: `0.1.0`
+
 ### Added
 
+- Began the phase-1 ANSI/VT parser implementation in `iris-core` with a modular parser state machine, CSI parsing, SGR decoding, and parser-driven terminal action application.
+
+## 0.0.1 - 2026-03-17
+
+### Added
+
+- Root [README.md](./README.md) for Iris with project overview, architecture, targets, roadmap, and documentation links.
+- Initial [CHANGELOG.md](./CHANGELOG.md) with phase-based version mapping.
+- Agent rule updates requiring changelog maintenance on every meaningful project update.
 - Cargo workspace for phase 0 with `iris-core`, `iris-platform`, and `iris-render-wgpu`.
 - Phase-0 `iris-core` implementation covering cells, grid storage, damage tracking, cursor state, terminal modes, terminal state, and a basic control-character parser.
 - Phase-0 `iris-platform` abstractions for PTY, clipboard, fonts, and IME, plus a native-backed cross-platform PTY implementation and integration tests.
@@ -47,11 +58,3 @@ This project uses a phase-based versioning scheme:
 - Rust agent and rule documents now explicitly incorporate the local Rust best-practices standard.
 - Rust agent and rule documents now explicitly incorporate the local Rust API guideline standard.
 - Local Rust standards now explicitly defer to Iris-specific API and code-style docs when tradeoffs around minimalism, public fields, generics, or trait surface area arise.
-
-## 0.0.1 - 2026-03-17
-
-### Added
-
-- Root [README.md](./README.md) for Iris with project overview, architecture, targets, roadmap, and documentation links.
-- Initial [CHANGELOG.md](./CHANGELOG.md) with phase-based version mapping.
-- Agent rule updates requiring changelog maintenance on every meaningful project update.
