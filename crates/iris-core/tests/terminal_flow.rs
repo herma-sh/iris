@@ -47,3 +47,87 @@ fn save_and_restore_cursor_round_trip_across_writes() {
     );
     assert_eq!(terminal.cursor.position.col, 2);
 }
+
+#[test]
+fn parser_handles_csi_cursor_and_erase_sequences() {
+    let mut terminal = Terminal::new(3, 6).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"abc\x1b[1;2H\x1b[KZ")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('a')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('Z')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some(' ')
+    );
+}
+
+#[test]
+fn parser_applies_sgr_attributes_to_printed_cells() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"\x1b[1;38;2;4;5;6mA\x1b[0mB")
+        .unwrap();
+
+    let styled = terminal.grid.cell(0, 0).copied().unwrap();
+    let plain = terminal.grid.cell(0, 1).copied().unwrap();
+
+    assert_eq!(styled.character, 'A');
+    assert_eq!(plain.character, 'B');
+    assert_ne!(styled.attrs, plain.attrs);
+}
+
+#[test]
+fn parser_handles_escape_index_sequences() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"A\x1bEB\x1b[1;1H\x1bM")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('A')
+    );
+}
+
+#[test]
+fn parser_writes_utf8_text_across_input_boundaries() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, &[0xe2, 0x82]).unwrap();
+    parser
+        .advance(&mut terminal, &[0xac, b' ', 0xe4, 0xb8])
+        .unwrap();
+    parser.advance(&mut terminal, &[0xad]).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('€')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('中')
+    );
+}

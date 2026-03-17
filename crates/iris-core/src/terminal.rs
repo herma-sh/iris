@@ -1,9 +1,10 @@
-use crate::cell::{Cell, CellAttrs};
+use crate::cell::{Cell, CellAttrs, CellFlags};
 use crate::cursor::{Cursor, SavedCursor};
 use crate::damage::DamageRegion;
 use crate::error::Result;
 use crate::grid::{Grid, GridSize};
-use crate::modes::TerminalModes;
+use crate::modes::{Mode, TerminalModes};
+use crate::parser::{Action, GraphicsRendition};
 use crate::utils::TAB_WIDTH;
 
 /// The visible terminal state used by Iris core.
@@ -62,17 +63,52 @@ impl Terminal {
         Ok(())
     }
 
-    /// Executes a single control character.
-    pub fn execute_control(&mut self, byte: u8) -> Result<()> {
-        match byte {
-            0x08 => self.backspace(),
-            0x09 => self.tab(),
-            0x0a..=0x0c => self.line_feed()?,
-            0x0d => self.carriage_return(),
-            _ => {}
+    /// Applies a parser-emitted terminal action.
+    pub fn apply_action(&mut self, action: Action) -> Result<()> {
+        match action {
+            Action::Print(character) => self.write_char(character)?,
+            Action::Bell => {}
+            Action::Backspace => self.backspace(),
+            Action::Tab => self.tab(),
+            Action::LineFeed | Action::VerticalTab | Action::FormFeed => self.line_feed()?,
+            Action::CarriageReturn => self.carriage_return(),
+            Action::Index => self.index(),
+            Action::NextLine => self.next_line()?,
+            Action::ReverseIndex => self.reverse_index(),
+            Action::SaveCursor => self.save_cursor(),
+            Action::RestoreCursor => self.restore_cursor(),
+            Action::CursorUp(count) => self.cursor_up(count),
+            Action::CursorDown(count) => self.cursor_down(count),
+            Action::CursorForward(count) => self.cursor_forward(count),
+            Action::CursorBack(count) => self.cursor_back(count),
+            Action::CursorNextLine(count) => self.cursor_next_line(count),
+            Action::CursorPreviousLine(count) => self.cursor_previous_line(count),
+            Action::CursorColumn(column) => self.cursor_column(column),
+            Action::CursorPosition { row, col } => self.cursor_position(row, col),
+            Action::VerticalPosition(row) => self.vertical_position(row),
+            Action::EraseDisplay(mode) => self.erase_display(mode)?,
+            Action::EraseLine(mode) => self.erase_line_mode(mode)?,
+            Action::EraseCharacters(count) => self.erase_characters(count)?,
+            Action::SetGraphicsRendition(renditions) => self.apply_sgr(&renditions),
+            Action::SetModes { private, modes } => self.apply_modes(false, private, &modes),
+            Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes),
         }
 
         Ok(())
+    }
+
+    /// Executes a single control character.
+    pub fn execute_control(&mut self, byte: u8) -> Result<()> {
+        self.apply_action(match byte {
+            0x07 => Action::Bell,
+            0x08 => Action::Backspace,
+            0x09 => Action::Tab,
+            0x0a => Action::LineFeed,
+            0x0b => Action::VerticalTab,
+            0x0c => Action::FormFeed,
+            0x0d => Action::CarriageReturn,
+            _ => return Ok(()),
+        })
     }
 
     /// Moves the cursor to an absolute position inside the visible grid.
@@ -121,9 +157,9 @@ impl Terminal {
         self.cursor.position.col = 0;
     }
 
-    fn line_feed(&mut self) -> Result<()> {
+    fn index(&mut self) {
         if self.grid.rows() == 0 {
-            return Ok(());
+            return;
         }
 
         if self.cursor.position.row + 1 >= self.grid.rows() {
@@ -131,6 +167,241 @@ impl Terminal {
         } else {
             self.cursor.move_down(1, self.grid.rows());
         }
+    }
+
+    fn next_line(&mut self) -> Result<()> {
+        self.carriage_return();
+        self.line_feed()
+    }
+
+    fn reverse_index(&mut self) {
+        if self.grid.rows() == 0 {
+            return;
+        }
+
+        if self.cursor.position.row == 0 {
+            self.grid.scroll_down(1);
+        } else {
+            self.cursor.move_up(1);
+        }
+    }
+
+    fn cursor_up(&mut self, count: u16) {
+        self.cursor.move_up(usize::from(count.max(1)));
+    }
+
+    fn cursor_down(&mut self, count: u16) {
+        if self.grid.rows() == 0 {
+            return;
+        }
+
+        self.cursor
+            .move_down(usize::from(count.max(1)), self.grid.rows());
+    }
+
+    fn cursor_forward(&mut self, count: u16) {
+        if self.grid.cols() == 0 {
+            return;
+        }
+
+        self.cursor
+            .move_right(usize::from(count.max(1)), self.grid.cols());
+    }
+
+    fn cursor_back(&mut self, count: u16) {
+        self.cursor.move_left(usize::from(count.max(1)));
+    }
+
+    fn cursor_next_line(&mut self, count: u16) {
+        self.cursor_down(count);
+        self.carriage_return();
+    }
+
+    fn cursor_previous_line(&mut self, count: u16) {
+        self.cursor_up(count);
+        self.carriage_return();
+    }
+
+    fn cursor_column(&mut self, column: u16) {
+        if self.grid.cols() == 0 {
+            self.cursor.position.col = 0;
+            return;
+        }
+
+        self.cursor.position.col =
+            usize::from(column.saturating_sub(1)).min(self.grid.cols().saturating_sub(1));
+    }
+
+    fn vertical_position(&mut self, row: u16) {
+        if self.grid.rows() == 0 {
+            self.cursor.position.row = 0;
+            return;
+        }
+
+        self.cursor.position.row =
+            usize::from(row.saturating_sub(1)).min(self.grid.rows().saturating_sub(1));
+    }
+
+    fn cursor_position(&mut self, row: u16, col: u16) {
+        self.move_cursor(
+            usize::from(row.saturating_sub(1)),
+            usize::from(col.saturating_sub(1)),
+        );
+    }
+
+    fn erase_display(&mut self, mode: u16) -> Result<()> {
+        if self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return Ok(());
+        }
+
+        let row = self
+            .cursor
+            .position
+            .row
+            .min(self.grid.rows().saturating_sub(1));
+        let col = self
+            .cursor
+            .position
+            .col
+            .min(self.grid.cols().saturating_sub(1));
+
+        match mode {
+            0 => {
+                self.clear_row_range(row, col, self.grid.cols().saturating_sub(1))?;
+                for clear_row in (row + 1)..self.grid.rows() {
+                    self.grid.clear_row(clear_row)?;
+                }
+            }
+            1 => {
+                for clear_row in 0..row {
+                    self.grid.clear_row(clear_row)?;
+                }
+                self.clear_row_range(row, 0, col)?;
+            }
+            2 | 3 => self.grid.clear(),
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn erase_line_mode(&mut self, mode: u16) -> Result<()> {
+        if self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return Ok(());
+        }
+
+        let row = self
+            .cursor
+            .position
+            .row
+            .min(self.grid.rows().saturating_sub(1));
+        let col = self
+            .cursor
+            .position
+            .col
+            .min(self.grid.cols().saturating_sub(1));
+
+        match mode {
+            0 => self.clear_row_range(row, col, self.grid.cols().saturating_sub(1))?,
+            1 => self.clear_row_range(row, 0, col)?,
+            2 => self.grid.clear_row(row)?,
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn erase_characters(&mut self, count: u16) -> Result<()> {
+        if self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return Ok(());
+        }
+
+        let row = self
+            .cursor
+            .position
+            .row
+            .min(self.grid.rows().saturating_sub(1));
+        let start = self
+            .cursor
+            .position
+            .col
+            .min(self.grid.cols().saturating_sub(1));
+        let end = start
+            .saturating_add(usize::from(count.max(1)))
+            .saturating_sub(1)
+            .min(self.grid.cols().saturating_sub(1));
+        self.clear_row_range(row, start, end)
+    }
+
+    fn clear_row_range(&mut self, row: usize, start_col: usize, end_col: usize) -> Result<()> {
+        if start_col > end_col {
+            return Ok(());
+        }
+
+        for col in start_col..=end_col {
+            self.grid.write(row, col, Cell::default())?;
+        }
+
+        Ok(())
+    }
+
+    fn apply_sgr(&mut self, renditions: &[GraphicsRendition]) {
+        for rendition in renditions {
+            match *rendition {
+                GraphicsRendition::Reset => self.attrs = CellAttrs::default(),
+                GraphicsRendition::Bold(enabled) => {
+                    self.attrs.flags.set(CellFlags::BOLD, enabled);
+                }
+                GraphicsRendition::Dim(enabled) => {
+                    self.attrs.flags.set(CellFlags::DIM, enabled);
+                }
+                GraphicsRendition::Italic(enabled) => {
+                    self.attrs.flags.set(CellFlags::ITALIC, enabled);
+                }
+                GraphicsRendition::Underline(enabled) => {
+                    self.attrs.flags.set(CellFlags::UNDERLINE, enabled);
+                }
+                GraphicsRendition::Blink(enabled) => {
+                    self.attrs.flags.set(CellFlags::BLINK, enabled);
+                }
+                GraphicsRendition::Inverse(enabled) => {
+                    self.attrs.flags.set(CellFlags::INVERSE, enabled);
+                }
+                GraphicsRendition::Hidden(enabled) => {
+                    self.attrs.flags.set(CellFlags::HIDDEN, enabled);
+                }
+                GraphicsRendition::Strikethrough(enabled) => {
+                    self.attrs.flags.set(CellFlags::STRIKETHROUGH, enabled);
+                }
+                GraphicsRendition::Foreground(color) => self.attrs.fg = color,
+                GraphicsRendition::Background(color) => self.attrs.bg = color,
+            }
+        }
+    }
+
+    fn apply_modes(&mut self, reset: bool, private: bool, params: &[u16]) {
+        for &param in params {
+            let mode = if private {
+                Mode::from_dec_private_param(param)
+            } else {
+                Mode::from_ansi_param(param)
+            };
+
+            if let Some(mode) = mode {
+                self.modes.set_mode(mode, !reset);
+            }
+        }
+
+        self.cursor.visible = self.modes.cursor_visible;
+        self.cursor.blinking = self.modes.cursor_blink;
+    }
+
+    fn line_feed(&mut self) -> Result<()> {
+        if self.grid.rows() == 0 {
+            return Ok(());
+        }
+
+        self.index();
 
         if self.modes.newline {
             self.carriage_return();
@@ -154,6 +425,8 @@ impl Terminal {
 #[cfg(test)]
 mod tests {
     use super::Terminal;
+    use crate::cell::{CellFlags, Color};
+    use crate::parser::{Action, GraphicsRendition};
 
     #[test]
     fn terminal_write_advances_cursor() {
@@ -202,5 +475,96 @@ mod tests {
         terminal.restore_cursor();
         assert_eq!(terminal.cursor.position.row, 1);
         assert_eq!(terminal.cursor.position.col, 1);
+    }
+
+    #[test]
+    fn terminal_applies_cursor_and_erase_actions() {
+        let mut terminal = Terminal::new(3, 5).unwrap();
+        terminal.write_char('A').unwrap();
+        terminal.write_char('B').unwrap();
+        terminal.write_char('C').unwrap();
+
+        terminal
+            .apply_action(Action::CursorPosition { row: 1, col: 2 })
+            .unwrap();
+        terminal.apply_action(Action::EraseLine(0)).unwrap();
+
+        assert_eq!(
+            terminal.grid.cell(0, 0).map(|cell| cell.character),
+            Some('A')
+        );
+        assert_eq!(
+            terminal.grid.cell(0, 1).map(|cell| cell.character),
+            Some(' ')
+        );
+        assert_eq!(
+            terminal.grid.cell(0, 2).map(|cell| cell.character),
+            Some(' ')
+        );
+    }
+
+    #[test]
+    fn terminal_applies_sgr_and_modes() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+        terminal
+            .apply_action(Action::SetGraphicsRendition(vec![
+                GraphicsRendition::Bold(true),
+                GraphicsRendition::Foreground(Color::Indexed(33)),
+            ]))
+            .unwrap();
+        terminal.write_char('X').unwrap();
+        terminal
+            .apply_action(Action::ResetModes {
+                private: true,
+                modes: vec![25],
+            })
+            .unwrap();
+
+        let cell = terminal.grid.cell(0, 0).copied().unwrap();
+        assert!(cell.attrs.flags.contains(CellFlags::BOLD));
+        assert_eq!(cell.attrs.fg, Color::Indexed(33));
+        assert!(!terminal.cursor.visible);
+    }
+
+    #[test]
+    fn terminal_next_line_and_reverse_index_follow_escape_semantics() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+        terminal.write_char('A').unwrap();
+        terminal.apply_action(Action::NextLine).unwrap();
+        terminal.write_char('B').unwrap();
+
+        assert_eq!(terminal.cursor.position.row, 1);
+        assert_eq!(
+            terminal.grid.cell(1, 0).map(|cell| cell.character),
+            Some('B')
+        );
+
+        terminal.move_cursor(0, 0);
+        terminal.apply_action(Action::ReverseIndex).unwrap();
+        assert_eq!(
+            terminal.grid.cell(1, 0).map(|cell| cell.character),
+            Some('A')
+        );
+    }
+
+    #[test]
+    fn terminal_mode_application_respects_private_marker() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+
+        terminal
+            .apply_action(Action::SetModes {
+                private: false,
+                modes: vec![4],
+            })
+            .unwrap();
+        assert!(terminal.modes.insert);
+
+        terminal
+            .apply_action(Action::ResetModes {
+                private: true,
+                modes: vec![4],
+            })
+            .unwrap();
+        assert!(terminal.modes.insert);
     }
 }
