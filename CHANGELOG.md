@@ -33,7 +33,12 @@ Target release: `0.1.0`
 - Extended the phase-1 parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
 - Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
 - Added bounded phase-1 handling for DCS, SOS, PM, and APC string states so unsupported payloads terminate cleanly and resume normal parsing without unbounded growth.
-- Split the parser state machine into focused submodules so escape handling, string-state handling, UTF-8 decoding, and state tests are easier to maintain without changing parser behavior.
+
+### Changed
+
+- Corrected parser string-state cleanup so finishing DCS leaves ignored-string tracking untouched and finishing ignored strings no longer clears unrelated OSC or DCS buffers.
+- Adjusted OSC overflow recovery to reset parser state while reprocessing the current byte in ground state instead of dropping it.
+- Split the parser state machine into focused submodules so escape handling, string-state handling, UTF-8 decoding, and state tests are easier to maintain.
 
 ## 0.0.1 - 2026-03-17
 
