@@ -1,0 +1,429 @@
+use super::Terminal;
+use crate::cell::{CellFlags, Color};
+use crate::parser::{Action, GraphicsRendition};
+
+#[test]
+fn terminal_write_advances_cursor() {
+    let mut terminal = Terminal::new(3, 4).unwrap();
+    terminal.write_char('A').unwrap();
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(terminal.cursor.position.col, 1);
+}
+
+#[test]
+fn terminal_line_feed_scrolls_at_bottom() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal.move_cursor(1, 0);
+    terminal.write_char('Z').unwrap();
+    terminal.execute_control(0x0a).unwrap();
+    terminal.write_char('Q').unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('Z')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 1).map(|cell| cell.character),
+        Some('Q')
+    );
+}
+
+#[test]
+fn terminal_resize_clamps_cursor() {
+    let mut terminal = Terminal::new(8, 8).unwrap();
+    terminal.move_cursor(7, 7);
+    terminal.resize(2, 2).unwrap();
+    assert_eq!(terminal.cursor.position.row, 1);
+    assert_eq!(terminal.cursor.position.col, 1);
+}
+
+#[test]
+fn terminal_restore_cursor_clamps_after_resize() {
+    let mut terminal = Terminal::new(8, 8).unwrap();
+    terminal.move_cursor(7, 7);
+    terminal.save_cursor();
+    terminal.resize(2, 2).unwrap();
+    terminal.restore_cursor();
+    assert_eq!(terminal.cursor.position.row, 1);
+    assert_eq!(terminal.cursor.position.col, 1);
+}
+
+#[test]
+fn terminal_applies_cursor_and_erase_actions() {
+    let mut terminal = Terminal::new(3, 5).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.write_char('C').unwrap();
+
+    terminal
+        .apply_action(Action::CursorPosition { row: 1, col: 2 })
+        .unwrap();
+    terminal.apply_action(Action::EraseLine(0)).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some(' ')
+    );
+}
+
+#[test]
+fn terminal_applies_sgr_and_modes() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .apply_action(Action::SetGraphicsRendition(vec![
+            GraphicsRendition::Bold(true),
+            GraphicsRendition::Foreground(Color::Indexed(33)),
+        ]))
+        .unwrap();
+    terminal.write_char('X').unwrap();
+    terminal
+        .apply_action(Action::ResetModes {
+            private: true,
+            modes: vec![25],
+        })
+        .unwrap();
+
+    let cell = terminal.grid.cell(0, 0).copied().unwrap();
+    assert!(cell.attrs.flags.contains(CellFlags::BOLD));
+    assert_eq!(cell.attrs.fg, Color::Indexed(33));
+    assert!(!terminal.cursor.visible);
+}
+
+#[test]
+fn terminal_next_line_and_reverse_index_follow_escape_semantics() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    terminal.write_char('B').unwrap();
+
+    assert_eq!(terminal.cursor.position.row, 1);
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('B')
+    );
+
+    terminal.move_cursor(0, 0);
+    terminal.apply_action(Action::ReverseIndex).unwrap();
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('A')
+    );
+}
+
+#[test]
+fn terminal_mode_application_respects_private_marker() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: false,
+            modes: vec![4],
+        })
+        .unwrap();
+    assert!(terminal.modes.insert);
+
+    terminal
+        .apply_action(Action::ResetModes {
+            private: true,
+            modes: vec![4],
+        })
+        .unwrap();
+    assert!(terminal.modes.insert);
+}
+
+#[test]
+fn terminal_scrolls_within_active_region() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('C').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('D').unwrap();
+
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal.apply_action(Action::ScrollUp(1)).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(3, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+}
+
+#[test]
+fn terminal_index_scrolls_inside_active_region() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('C').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('D').unwrap();
+
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal.move_cursor(3, 0);
+    terminal.apply_action(Action::Index).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(3, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+}
+
+#[test]
+fn terminal_switches_between_primary_and_alternate_screen() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.move_cursor(1, 2);
+    terminal.scroll_region = Some((0, 1));
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![1049],
+        })
+        .unwrap();
+    terminal.write_char('B').unwrap();
+
+    assert!(terminal.modes.alternate_screen);
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('B')
+    );
+
+    terminal
+        .apply_action(Action::ResetModes {
+            private: true,
+            modes: vec![1049],
+        })
+        .unwrap();
+
+    assert!(!terminal.modes.alternate_screen);
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(terminal.scroll_region, Some((0, 1)));
+    assert_eq!(terminal.cursor.position.row, 1);
+    assert_eq!(terminal.cursor.position.col, 2);
+}
+
+#[test]
+fn terminal_tracks_osc_metadata_actions() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+
+    terminal
+        .apply_action(Action::SetWindowTitle("Iris".to_string()))
+        .unwrap();
+    terminal
+        .apply_action(Action::SetHyperlink {
+            id: Some("prompt-1".to_string()),
+            uri: "https://example.com".to_string(),
+        })
+        .unwrap();
+
+    assert_eq!(terminal.window_title.as_deref(), Some("Iris"));
+    assert_eq!(
+        terminal.active_hyperlink,
+        Some(super::Hyperlink {
+            id: Some("prompt-1".to_string()),
+            uri: "https://example.com".to_string(),
+        })
+    );
+
+    terminal
+        .apply_action(Action::SetHyperlink {
+            id: None,
+            uri: String::new(),
+        })
+        .unwrap();
+    assert_eq!(terminal.active_hyperlink, None);
+}
+
+#[test]
+fn terminal_tab_uses_default_stops() {
+    let mut terminal = Terminal::new(2, 20).unwrap();
+
+    terminal.apply_action(Action::Tab).unwrap();
+    assert_eq!(terminal.cursor.position.col, 8);
+
+    terminal.apply_action(Action::Tab).unwrap();
+    assert_eq!(terminal.cursor.position.col, 16);
+}
+
+#[test]
+fn terminal_custom_tab_stop_and_back_tab_round_trip() {
+    let mut terminal = Terminal::new(1, 16).unwrap();
+    terminal.move_cursor(0, 4);
+
+    terminal.apply_action(Action::SetTabStop).unwrap();
+    terminal.apply_action(Action::CarriageReturn).unwrap();
+    terminal.apply_action(Action::Tab).unwrap();
+    assert_eq!(terminal.cursor.position.col, 4);
+
+    terminal.write_char('X').unwrap();
+    terminal.apply_action(Action::BackTab(1)).unwrap();
+    assert_eq!(terminal.cursor.position.col, 4);
+
+    terminal.write_char('Y').unwrap();
+    assert_eq!(
+        terminal.grid.cell(0, 4).map(|cell| cell.character),
+        Some('Y')
+    );
+}
+
+#[test]
+fn terminal_clears_current_and_all_tab_stops() {
+    let mut terminal = Terminal::new(1, 16).unwrap();
+    terminal.move_cursor(0, 4);
+
+    terminal.apply_action(Action::SetTabStop).unwrap();
+    terminal.apply_action(Action::ClearTabStop(0)).unwrap();
+    terminal.apply_action(Action::CarriageReturn).unwrap();
+    terminal.apply_action(Action::Tab).unwrap();
+    assert_eq!(terminal.cursor.position.col, 8);
+
+    terminal.apply_action(Action::ClearTabStop(3)).unwrap();
+    terminal.apply_action(Action::CarriageReturn).unwrap();
+    terminal.apply_action(Action::Tab).unwrap();
+    assert_eq!(terminal.cursor.position.col, 15);
+}
+
+#[test]
+fn terminal_inserts_and_deletes_characters() {
+    let mut terminal = Terminal::new(1, 6).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.write_char('C').unwrap();
+    terminal.write_char('D').unwrap();
+
+    terminal.move_cursor(0, 1);
+    terminal.apply_action(Action::InsertCharacters(2)).unwrap();
+    terminal.write_char('X').unwrap();
+    terminal.write_char('Y').unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('X')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('Y')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some('B')
+    );
+
+    terminal.move_cursor(0, 2);
+    terminal.apply_action(Action::DeleteCharacters(2)).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('X')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('C')
+    );
+}
+
+#[test]
+fn terminal_inserts_and_deletes_lines_within_scroll_region() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('C').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('D').unwrap();
+
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal.move_cursor(1, 0);
+    terminal.apply_action(Action::InsertLines(1)).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('B')
+    );
+
+    terminal.apply_action(Action::DeleteLines(1)).unwrap();
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('C')
+    );
+}
+
+#[test]
+fn terminal_insert_and_delete_lines_noop_on_zero_row_grids() {
+    let mut terminal = Terminal::new(0, 4).unwrap();
+
+    terminal.apply_action(Action::InsertLines(1)).unwrap();
+    terminal.apply_action(Action::DeleteLines(1)).unwrap();
+
+    assert_eq!(terminal.grid.rows(), 0);
+}

@@ -191,3 +191,123 @@ fn parser_recovers_after_dcs_and_ignored_string_sequences() {
         Some('E')
     );
 }
+
+#[test]
+fn parser_switches_between_primary_and_alternate_screen() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A").unwrap();
+    parser
+        .advance(&mut terminal, b"\x1b[?1049hB\x1b[?1049l")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert!(!terminal.modes.alternate_screen);
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 1);
+}
+
+#[test]
+fn parser_applies_scroll_region_and_scroll_commands() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\r\nB\r\nC\r\nD").unwrap();
+    parser.advance(&mut terminal, b"\x1b[2;4r\x1b[S").unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(3, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+}
+
+#[test]
+fn parser_applies_tab_stop_sequences() {
+    let mut terminal = Terminal::new(1, 16).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"ABCD\x1bH\r\tX\x1b[ZY")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 4).map(|cell| cell.character),
+        Some('Y')
+    );
+    assert_eq!(terminal.cursor.position.col, 5);
+}
+
+#[test]
+fn parser_applies_insert_and_delete_character_sequences() {
+    let mut terminal = Terminal::new(4, 6).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"ABCD\x1b[1;2H\x1b[2@XY\x1b[2P")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('X')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('Y')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some('D')
+    );
+}
+
+#[test]
+fn parser_applies_insert_line_sequences_within_scroll_region() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\r\nB\r\nC\r\nD").unwrap();
+    parser
+        .advance(&mut terminal, b"\x1b[2;4r\x1b[2;1H\x1b[L")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('B')
+    );
+}

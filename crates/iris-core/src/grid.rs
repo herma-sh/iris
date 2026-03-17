@@ -167,6 +167,120 @@ impl Grid {
         self.damage.mark_all();
     }
 
+    /// Scrolls an inclusive row range upward by the requested number of rows.
+    pub fn scroll_up_range(&mut self, top: usize, bottom: usize, count: usize) -> Result<()> {
+        self.validate_row_range(top, bottom)?;
+
+        let cols = self.cols();
+        if cols == 0 {
+            return Ok(());
+        }
+
+        let region_rows = bottom - top + 1;
+        let shift = count.min(region_rows);
+        if shift == 0 {
+            return Ok(());
+        }
+
+        let top_start = top * cols;
+        let bottom_end = (bottom + 1) * cols;
+
+        if shift < region_rows {
+            let source_start = (top + shift) * cols;
+            self.cells.copy_within(source_start..bottom_end, top_start);
+        }
+
+        let clear_start = (bottom + 1 - shift) * cols;
+        self.cells[clear_start..bottom_end].fill(Cell::default());
+
+        for row in top..=bottom {
+            self.damage.mark_row(row, cols);
+        }
+
+        Ok(())
+    }
+
+    /// Scrolls an inclusive row range downward by the requested number of rows.
+    pub fn scroll_down_range(&mut self, top: usize, bottom: usize, count: usize) -> Result<()> {
+        self.validate_row_range(top, bottom)?;
+
+        let cols = self.cols();
+        if cols == 0 {
+            return Ok(());
+        }
+
+        let region_rows = bottom - top + 1;
+        let shift = count.min(region_rows);
+        if shift == 0 {
+            return Ok(());
+        }
+
+        let top_start = top * cols;
+
+        if shift < region_rows {
+            let source_end = (bottom + 1 - shift) * cols;
+            let destination_start = (top + shift) * cols;
+            self.cells
+                .copy_within(top_start..source_end, destination_start);
+        }
+
+        let clear_end = (top + shift) * cols;
+        self.cells[top_start..clear_end].fill(Cell::default());
+
+        for row in top..=bottom {
+            self.damage.mark_row(row, cols);
+        }
+
+        Ok(())
+    }
+
+    /// Inserts blank cells in a row, shifting existing cells rightward.
+    pub fn insert_blank_cells(&mut self, row: usize, col: usize, count: usize) -> Result<()> {
+        let cols = self.cols();
+        if cols == 0 {
+            return Ok(());
+        }
+        let start = self.checked_index(row, col)?;
+
+        let shift = count.min(cols.saturating_sub(col));
+        if shift == 0 {
+            return Ok(());
+        }
+
+        let row_end = (row + 1) * cols;
+        if shift < cols - col {
+            self.cells
+                .copy_within(start..(row_end - shift), start + shift);
+        }
+        self.cells[start..(start + shift)].fill(Cell::default());
+        self.normalize_row(row);
+        self.damage.mark_row(row, cols);
+        Ok(())
+    }
+
+    /// Deletes cells from a row, shifting trailing cells leftward.
+    pub fn delete_cells(&mut self, row: usize, col: usize, count: usize) -> Result<()> {
+        let cols = self.cols();
+        if cols == 0 {
+            return Ok(());
+        }
+        let start = self.checked_index(row, col)?;
+
+        let shift = count.min(cols.saturating_sub(col));
+        if shift == 0 {
+            return Ok(());
+        }
+
+        let row_end = (row + 1) * cols;
+        if shift < cols - col {
+            self.cells.copy_within((start + shift)..row_end, start);
+        }
+        self.cells[(row_end - shift)..row_end].fill(Cell::default());
+        self.normalize_row(row);
+        self.damage.mark_row(row, cols);
+        Ok(())
+    }
+
     /// Resizes the grid, preserving the overlapping top-left content.
     pub fn resize(&mut self, new_size: GridSize) -> Result<()> {
         let cell_count =
@@ -217,6 +331,11 @@ impl Grid {
         self.damage.take(self.cols())
     }
 
+    /// Marks the entire visible grid as damaged without modifying cell data.
+    pub fn mark_all_damage(&mut self) {
+        self.damage.mark_all();
+    }
+
     fn clear_wide_span_at(&mut self, row: usize, col: usize) {
         if let Some(index) = self.index_of(row, col) {
             match self.cells[index].width {
@@ -264,6 +383,42 @@ impl Grid {
             col,
             rows: self.rows(),
             cols: self.cols(),
+        }
+    }
+
+    fn validate_row_range(&self, top: usize, bottom: usize) -> Result<()> {
+        if top > bottom || bottom >= self.rows() {
+            return Err(self.invalid_position(bottom, 0));
+        }
+
+        Ok(())
+    }
+
+    fn normalize_row(&mut self, row: usize) {
+        let cols = self.cols();
+        if row >= self.rows() || cols == 0 {
+            return;
+        }
+
+        let start = row * cols;
+        for col in 0..cols {
+            let index = start + col;
+            match self.cells[index].width {
+                CellWidth::Single => {}
+                CellWidth::Continuation => {
+                    let has_leader = col > 0 && self.cells[index - 1].width == CellWidth::Double;
+                    if !has_leader {
+                        self.cells[index] = Cell::default();
+                    }
+                }
+                CellWidth::Double => {
+                    if col + 1 >= cols {
+                        self.cells[index].width = CellWidth::Single;
+                    } else {
+                        self.cells[index + 1] = Cell::continuation(self.cells[index].attrs);
+                    }
+                }
+            }
         }
     }
 }
@@ -319,6 +474,72 @@ mod tests {
         assert_eq!(grid.cell(1, 1), Some(&Cell::new('Y')));
         assert_eq!(grid.rows(), 3);
         assert_eq!(grid.cols(), 4);
+    }
+
+    #[test]
+    fn grid_scroll_up_range_preserves_outside_rows() {
+        let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+        grid.write(0, 0, Cell::new('A')).unwrap();
+        grid.write(1, 0, Cell::new('B')).unwrap();
+        grid.write(2, 0, Cell::new('C')).unwrap();
+        grid.write(3, 0, Cell::new('D')).unwrap();
+
+        grid.scroll_up_range(1, 3, 1).unwrap();
+
+        assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+        assert_eq!(grid.cell(1, 0), Some(&Cell::new('C')));
+        assert_eq!(grid.cell(2, 0), Some(&Cell::new('D')));
+        assert_eq!(grid.cell(3, 0), Some(&Cell::default()));
+    }
+
+    #[test]
+    fn grid_scroll_down_range_preserves_outside_rows() {
+        let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+        grid.write(0, 0, Cell::new('A')).unwrap();
+        grid.write(1, 0, Cell::new('B')).unwrap();
+        grid.write(2, 0, Cell::new('C')).unwrap();
+        grid.write(3, 0, Cell::new('D')).unwrap();
+
+        grid.scroll_down_range(1, 3, 1).unwrap();
+
+        assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+        assert_eq!(grid.cell(1, 0), Some(&Cell::default()));
+        assert_eq!(grid.cell(2, 0), Some(&Cell::new('B')));
+        assert_eq!(grid.cell(3, 0), Some(&Cell::new('C')));
+    }
+
+    #[test]
+    fn grid_insert_blank_cells_shifts_row_contents() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
+        grid.write(0, 0, Cell::new('A')).unwrap();
+        grid.write(0, 1, Cell::new('B')).unwrap();
+        grid.write(0, 2, Cell::new('C')).unwrap();
+        grid.write(0, 3, Cell::new('D')).unwrap();
+
+        grid.insert_blank_cells(0, 1, 2).unwrap();
+
+        assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+        assert_eq!(grid.cell(0, 1), Some(&Cell::default()));
+        assert_eq!(grid.cell(0, 2), Some(&Cell::default()));
+        assert_eq!(grid.cell(0, 3), Some(&Cell::new('B')));
+        assert_eq!(grid.cell(0, 4), Some(&Cell::new('C')));
+    }
+
+    #[test]
+    fn grid_delete_cells_shifts_row_contents_left() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
+        grid.write(0, 0, Cell::new('A')).unwrap();
+        grid.write(0, 1, Cell::new('B')).unwrap();
+        grid.write(0, 2, Cell::new('C')).unwrap();
+        grid.write(0, 3, Cell::new('D')).unwrap();
+
+        grid.delete_cells(0, 1, 2).unwrap();
+
+        assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+        assert_eq!(grid.cell(0, 1), Some(&Cell::new('D')));
+        assert_eq!(grid.cell(0, 2), Some(&Cell::default()));
+        assert_eq!(grid.cell(0, 3), Some(&Cell::default()));
+        assert_eq!(grid.cell(0, 4), Some(&Cell::default()));
     }
 
     #[test]

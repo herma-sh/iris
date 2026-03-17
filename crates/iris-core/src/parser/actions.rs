@@ -11,6 +11,8 @@ pub enum Action {
     Backspace,
     /// Advance to the next tab stop.
     Tab,
+    /// Move backward to the previous tab stop.
+    BackTab(u16),
     /// Move to the next line.
     LineFeed,
     /// Move to the next line and reset to column zero.
@@ -25,6 +27,10 @@ pub enum Action {
     NextLine,
     /// Move up by one row, scrolling down if needed.
     ReverseIndex,
+    /// Scroll the active region upward by `count` rows.
+    ScrollUp(u16),
+    /// Scroll the active region downward by `count` rows.
+    ScrollDown(u16),
     /// Save the current cursor position.
     SaveCursor,
     /// Restore the saved cursor position.
@@ -47,12 +53,26 @@ pub enum Action {
     CursorPosition { row: u16, col: u16 },
     /// Move the cursor to a one-based row.
     VerticalPosition(u16),
+    /// Insert blank characters at the cursor position.
+    InsertCharacters(u16),
+    /// Delete characters starting at the cursor position.
+    DeleteCharacters(u16),
+    /// Insert blank lines within the active scrolling region.
+    InsertLines(u16),
+    /// Delete lines within the active scrolling region.
+    DeleteLines(u16),
     /// Erase visible content in the display.
     EraseDisplay(u16),
     /// Erase visible content in the current row.
     EraseLine(u16),
     /// Erase characters starting at the current cursor.
     EraseCharacters(u16),
+    /// Set a tab stop at the current column.
+    SetTabStop,
+    /// Clear tab stops by mode (`0` current, `3` all).
+    ClearTabStop(u16),
+    /// Set the scrolling region using one-based bounds.
+    SetScrollRegion { top: u16, bottom: u16 },
     /// Apply SGR attributes.
     SetGraphicsRendition(Vec<GraphicsRendition>),
     /// Update the terminal window title.

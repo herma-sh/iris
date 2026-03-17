@@ -12,6 +12,14 @@ impl Parser {
                 self.state = ParserState::Escape;
                 Vec::new()
             }
+            b'(' => {
+                self.state = ParserState::EscapeCharset(0);
+                Vec::new()
+            }
+            b')' => {
+                self.state = ParserState::EscapeCharset(1);
+                Vec::new()
+            }
             b'[' => {
                 self.state = ParserState::CsiEntry;
                 self.params.clear();
@@ -36,6 +44,7 @@ impl Parser {
             }
             b'D' => vec![Action::Index],
             b'E' => vec![Action::NextLine],
+            b'H' => vec![Action::SetTabStop],
             b'M' => vec![Action::ReverseIndex],
             b'7' => vec![Action::SaveCursor],
             b'8' => vec![Action::RestoreCursor],
