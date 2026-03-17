@@ -19,6 +19,12 @@ pub enum Action {
     FormFeed,
     /// Return the cursor to column zero.
     CarriageReturn,
+    /// Move down by one row, scrolling if needed.
+    Index,
+    /// Move down by one row and return to column zero.
+    NextLine,
+    /// Move up by one row, scrolling down if needed.
+    ReverseIndex,
     /// Save the current cursor position.
     SaveCursor,
     /// Restore the saved cursor position.

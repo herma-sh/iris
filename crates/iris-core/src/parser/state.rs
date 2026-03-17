@@ -140,6 +140,9 @@ impl Parser {
                 self.private_marker = None;
                 Vec::new()
             }
+            b'D' => vec![Action::Index],
+            b'E' => vec![Action::NextLine],
+            b'M' => vec![Action::ReverseIndex],
             b'7' => vec![Action::SaveCursor],
             b'8' => vec![Action::RestoreCursor],
             _ => Vec::new(),
@@ -210,9 +213,13 @@ impl Parser {
             0x40..=0x7e => {
                 let current_param = self.current_param.take().unwrap_or(0);
                 self.push_param(current_param);
-                let params = self.params.clone();
+                let params = std::mem::replace(
+                    &mut self.params,
+                    Vec::with_capacity(self.config.max_params.min(16)),
+                );
                 let private_marker = self.private_marker.take();
-                self.reset();
+                self.state = ParserState::Ground;
+                self.current_param = None;
                 parse_csi(&params, private_marker, byte)
             }
             _ => {
@@ -276,6 +283,14 @@ mod tests {
                 GraphicsRendition::Background(Color::Indexed(240)),
             ])]
         );
+    }
+
+    #[test]
+    fn parser_handles_escape_index_sequences() {
+        let mut parser = Parser::new();
+        assert_eq!(parser.parse(b"\x1bD"), vec![Action::Index]);
+        assert_eq!(parser.parse(b"\x1bE"), vec![Action::NextLine]);
+        assert_eq!(parser.parse(b"\x1bM"), vec![Action::ReverseIndex]);
     }
 
     #[test]

@@ -87,3 +87,22 @@ fn parser_applies_sgr_attributes_to_printed_cells() {
     assert_eq!(plain.character, 'B');
     assert_ne!(styled.attrs, plain.attrs);
 }
+
+#[test]
+fn parser_handles_escape_index_sequences() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"A\x1bEB\x1b[1;1H\x1bM")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('A')
+    );
+}

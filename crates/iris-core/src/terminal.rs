@@ -72,6 +72,9 @@ impl Terminal {
             Action::Tab => self.tab(),
             Action::LineFeed | Action::VerticalTab | Action::FormFeed => self.line_feed()?,
             Action::CarriageReturn => self.carriage_return(),
+            Action::Index => self.index(),
+            Action::NextLine => self.next_line()?,
+            Action::ReverseIndex => self.reverse_index(),
             Action::SaveCursor => self.save_cursor(),
             Action::RestoreCursor => self.restore_cursor(),
             Action::CursorUp(count) => self.cursor_up(count),
@@ -152,6 +155,35 @@ impl Terminal {
 
     fn carriage_return(&mut self) {
         self.cursor.position.col = 0;
+    }
+
+    fn index(&mut self) {
+        if self.grid.rows() == 0 {
+            return;
+        }
+
+        if self.cursor.position.row + 1 >= self.grid.rows() {
+            self.grid.scroll_up(1);
+        } else {
+            self.cursor.move_down(1, self.grid.rows());
+        }
+    }
+
+    fn next_line(&mut self) -> Result<()> {
+        self.carriage_return();
+        self.line_feed()
+    }
+
+    fn reverse_index(&mut self) {
+        if self.grid.rows() == 0 {
+            return;
+        }
+
+        if self.cursor.position.row == 0 {
+            self.grid.scroll_down(1);
+        } else {
+            self.cursor.move_up(1);
+        }
     }
 
     fn cursor_up(&mut self, count: u16) {
@@ -365,11 +397,7 @@ impl Terminal {
             return Ok(());
         }
 
-        if self.cursor.position.row + 1 >= self.grid.rows() {
-            self.grid.scroll_up(1);
-        } else {
-            self.cursor.move_down(1, self.grid.rows());
-        }
+        self.index();
 
         if self.modes.newline {
             self.carriage_return();
@@ -487,5 +515,26 @@ mod tests {
         assert!(cell.attrs.flags.contains(CellFlags::BOLD));
         assert_eq!(cell.attrs.fg, Color::Indexed(33));
         assert!(!terminal.cursor.visible);
+    }
+
+    #[test]
+    fn terminal_next_line_and_reverse_index_follow_escape_semantics() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+        terminal.write_char('A').unwrap();
+        terminal.apply_action(Action::NextLine).unwrap();
+        terminal.write_char('B').unwrap();
+
+        assert_eq!(terminal.cursor.position.row, 1);
+        assert_eq!(
+            terminal.grid.cell(1, 0).map(|cell| cell.character),
+            Some('B')
+        );
+
+        terminal.move_cursor(0, 0);
+        terminal.apply_action(Action::ReverseIndex).unwrap();
+        assert_eq!(
+            terminal.grid.cell(1, 0).map(|cell| cell.character),
+            Some('A')
+        );
     }
 }
