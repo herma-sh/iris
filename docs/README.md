@@ -39,6 +39,8 @@ Iris is published as `@iris/*` packages:
 | [implementation.md](./implementation.md) | Core components, code patterns, technical details |
 | [phases.md](./phases.md) | Development phases and timeline |
 | [code-style.md](./code-style.md) | Coding standards: minimal, fast, maintainable, readable |
+| [rust-best-practices.md](./rust-best-practices.md) | Iris-specific Rust standards derived from Canonical Rust best practices |
+| [rust-api-guidelines.md](./rust-api-guidelines.md) | Iris-specific Rust API design standards derived from the Rust API Guidelines |
 | [innovation.md](./innovation.md) | Emerging features and unique differentiators |
 | [security-threat-model.md](./security-threat-model.md) | Security threats and mitigations |
 

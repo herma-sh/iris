@@ -117,6 +117,17 @@ Quality gates and shipping requirements.
 - [ ] Input validation complete
 - [ ] No known CVEs in dependencies
 
+### Distribution Policy
+
+Binary signing is not a universal hard requirement for Iris at this stage.
+
+- Development builds may be unsigned.
+- Preview, alpha, and early public OSS builds may be unsigned.
+- Signed binaries are a distribution-quality goal, not a prerequisite for starting development.
+- macOS signing and notarization become relevant when shipping polished public app bundles.
+- Windows code signing is recommended later to reduce SmartScreen friction, but it is not currently required.
+- Linux distributions may use normal package workflows without imposing a Windows or macOS style code-signing requirement.
+
 ### Should Have
 
 **Documentation:**
@@ -191,6 +202,11 @@ Quality gates and shipping requirements.
 - [ ] Update from previous version
 - [ ] Uninstall cleans up
 
+**Signing note:**
+
+- Unsigned development and preview builds are acceptable.
+- Code signing is recommended for polished public releases, but is not currently mandatory.
+
 ### macOS
 
 | Criterion | Requirement |
@@ -208,6 +224,11 @@ Quality gates and shipping requirements.
 - [ ] Update from previous version
 - [ ] Uninstall
 
+**Signing note:**
+
+- Unsigned local builds are acceptable for development.
+- Public-facing macOS app distribution will likely require signing and notarization later.
+
 ### Linux
 
 | Criterion | Requirement |
@@ -223,6 +244,10 @@ Quality gates and shipping requirements.
 - [ ] Install .rpm
 - [ ] Install AppImage
 - [ ] Install from source
+
+**Signing note:**
+
+- No project-wide binary-signing requirement is currently imposed for Linux deliverables.
 
 ---
 
