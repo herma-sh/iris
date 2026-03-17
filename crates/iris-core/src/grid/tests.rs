@@ -1,0 +1,128 @@
+use pretty_assertions::assert_eq;
+
+use super::{Grid, GridSize};
+use crate::cell::{Cell, CellWidth};
+use crate::damage::DamageRegion;
+
+#[test]
+fn grid_write_updates_damage() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 4 }).unwrap();
+    grid.write(1, 2, Cell::new('A')).unwrap();
+    assert_eq!(grid.cell(1, 2), Some(&Cell::new('A')));
+    assert_eq!(grid.take_damage(), vec![DamageRegion::new(1, 1, 2, 2)]);
+}
+
+#[test]
+fn grid_scroll_moves_content() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 4 }).unwrap();
+    grid.write(0, 0, Cell::new('A')).unwrap();
+    grid.write(1, 0, Cell::new('B')).unwrap();
+    grid.write(2, 0, Cell::new('C')).unwrap();
+
+    grid.scroll_up(1);
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::new('B')));
+    assert_eq!(grid.cell(1, 0), Some(&Cell::new('C')));
+    assert_eq!(grid.cell(2, 0), Some(&Cell::default()));
+}
+
+#[test]
+fn grid_resize_preserves_content() {
+    let mut grid = Grid::new(GridSize { rows: 2, cols: 2 }).unwrap();
+    grid.write(0, 0, Cell::new('X')).unwrap();
+    grid.write(1, 1, Cell::new('Y')).unwrap();
+
+    grid.resize(GridSize { rows: 3, cols: 4 }).unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::new('X')));
+    assert_eq!(grid.cell(1, 1), Some(&Cell::new('Y')));
+    assert_eq!(grid.rows(), 3);
+    assert_eq!(grid.cols(), 4);
+}
+
+#[test]
+fn grid_scroll_up_range_preserves_outside_rows() {
+    let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+    grid.write(0, 0, Cell::new('A')).unwrap();
+    grid.write(1, 0, Cell::new('B')).unwrap();
+    grid.write(2, 0, Cell::new('C')).unwrap();
+    grid.write(3, 0, Cell::new('D')).unwrap();
+
+    grid.scroll_up_range(1, 3, 1).unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+    assert_eq!(grid.cell(1, 0), Some(&Cell::new('C')));
+    assert_eq!(grid.cell(2, 0), Some(&Cell::new('D')));
+    assert_eq!(grid.cell(3, 0), Some(&Cell::default()));
+}
+
+#[test]
+fn grid_scroll_down_range_preserves_outside_rows() {
+    let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+    grid.write(0, 0, Cell::new('A')).unwrap();
+    grid.write(1, 0, Cell::new('B')).unwrap();
+    grid.write(2, 0, Cell::new('C')).unwrap();
+    grid.write(3, 0, Cell::new('D')).unwrap();
+
+    grid.scroll_down_range(1, 3, 1).unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+    assert_eq!(grid.cell(1, 0), Some(&Cell::default()));
+    assert_eq!(grid.cell(2, 0), Some(&Cell::new('B')));
+    assert_eq!(grid.cell(3, 0), Some(&Cell::new('C')));
+}
+
+#[test]
+fn grid_insert_blank_cells_shifts_row_contents() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
+    grid.write(0, 0, Cell::new('A')).unwrap();
+    grid.write(0, 1, Cell::new('B')).unwrap();
+    grid.write(0, 2, Cell::new('C')).unwrap();
+    grid.write(0, 3, Cell::new('D')).unwrap();
+
+    grid.insert_blank_cells(0, 1, 2).unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+    assert_eq!(grid.cell(0, 1), Some(&Cell::default()));
+    assert_eq!(grid.cell(0, 2), Some(&Cell::default()));
+    assert_eq!(grid.cell(0, 3), Some(&Cell::new('B')));
+    assert_eq!(grid.cell(0, 4), Some(&Cell::new('C')));
+}
+
+#[test]
+fn grid_delete_cells_shifts_row_contents_left() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
+    grid.write(0, 0, Cell::new('A')).unwrap();
+    grid.write(0, 1, Cell::new('B')).unwrap();
+    grid.write(0, 2, Cell::new('C')).unwrap();
+    grid.write(0, 3, Cell::new('D')).unwrap();
+
+    grid.delete_cells(0, 1, 2).unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+    assert_eq!(grid.cell(0, 1), Some(&Cell::new('D')));
+    assert_eq!(grid.cell(0, 2), Some(&Cell::default()));
+    assert_eq!(grid.cell(0, 3), Some(&Cell::default()));
+    assert_eq!(grid.cell(0, 4), Some(&Cell::default()));
+}
+
+#[test]
+fn grid_downgrades_wide_cells_at_right_edge() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).unwrap();
+    grid.write(0, 0, Cell::new('中')).unwrap();
+    assert_eq!(grid.cell(0, 0).unwrap().width, CellWidth::Single);
+}
+
+#[test]
+fn grid_clears_overwritten_wide_cell_spans() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 3 }).unwrap();
+    grid.write(0, 1, Cell::new('中')).unwrap();
+    grid.take_damage();
+
+    grid.write(0, 0, Cell::new('中')).unwrap();
+
+    assert_eq!(grid.cell(0, 0).unwrap().width, CellWidth::Double);
+    assert_eq!(grid.cell(0, 1).unwrap().width, CellWidth::Continuation);
+    assert_eq!(grid.cell(0, 2).unwrap(), &Cell::default());
+    assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 0, 2)]);
+}
