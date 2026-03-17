@@ -27,6 +27,11 @@ This project uses a phase-based versioning scheme:
 
 ### Added
 
+- Cargo workspace for phase 0 with `iris-core`, `iris-platform`, and `iris-render-wgpu`.
+- Phase-0 `iris-core` implementation covering cells, grid storage, damage tracking, cursor state, terminal modes, terminal state, and a basic control-character parser.
+- Phase-0 `iris-platform` abstractions for PTY, clipboard, fonts, and IME, plus a native-backed cross-platform PTY implementation and integration tests.
+- Phase-0 `iris-render-wgpu` skeleton with a renderer trait and opaque render surface boundary.
+- Cross-platform GitHub Actions CI for formatting, clippy, and test execution on Windows, Linux, and macOS.
 - Root [AGENTS.md](./AGENTS.md) as the repository entrypoint for coding agents.
 - Focused agent guidance files for Rust, `wgpu`, and testing in [./.agents/rust.md](./.agents/rust.md), [./.agents/wgpu.md](./.agents/wgpu.md), and [./.agents/testing.md](./.agents/testing.md).
 - Local [docs/rust-best-practices.md](./docs/rust-best-practices.md) embedding Iris-specific Rust guidance derived from Canonical Rust best practices.
@@ -34,6 +39,9 @@ This project uses a phase-based versioning scheme:
 
 ### Changed
 
+- Hardened phase-0 core invariants around grid sizing, wide-cell normalization, damage tracking, and cursor restore clamping based on review follow-up.
+- Updated CI to pin third-party action revisions by commit SHA and to keep an explicit workspace build step before tests.
+- Updated the platform layer to `portable-pty` `0.9.0`, preserved empty clipboard writes, and made the PTY integration tests stream output with timeout-based assertions for more reliable Unix CI coverage.
 - Agent documentation structure now follows a lightweight root entrypoint plus modular `.agents/` references.
 - Release documentation now explicitly allows unsigned development and preview builds, with signing deferred to later distribution-quality releases.
 - Rust agent and rule documents now explicitly incorporate the local Rust best-practices standard.
