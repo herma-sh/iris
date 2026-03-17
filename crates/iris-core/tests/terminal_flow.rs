@@ -131,3 +131,26 @@ fn parser_writes_utf8_text_across_input_boundaries() {
         Some('中')
     );
 }
+
+#[test]
+fn parser_applies_osc_title_and_hyperlink_actions() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"\x1b]2;Iris\x07").unwrap();
+    parser
+        .advance(
+            &mut terminal,
+            b"\x1b]8;id=prompt-1;https://example.com\x1b\\",
+        )
+        .unwrap();
+
+    assert_eq!(terminal.window_title.as_deref(), Some("Iris"));
+    assert_eq!(
+        terminal
+            .active_hyperlink
+            .as_ref()
+            .map(|link| link.uri.as_str()),
+        Some("https://example.com")
+    );
+}

@@ -1,5 +1,6 @@
 use super::control::parse_control;
 use super::csi::parse_csi;
+use super::osc::parse_osc;
 use super::Action;
 use crate::error::Result;
 use crate::terminal::Terminal;
@@ -11,6 +12,10 @@ pub enum ParserState {
     Ground,
     /// `ESC` has been seen.
     Escape,
+    /// `OSC` string collection.
+    OscString,
+    /// `OSC` escape terminator after `ESC`.
+    OscEscape,
     /// `CSI` entry after `ESC [`.
     CsiEntry,
     /// `CSI` parameter collection.
@@ -22,11 +27,16 @@ pub enum ParserState {
 pub struct ParserConfig {
     /// Maximum number of CSI parameters retained.
     pub max_params: usize,
+    /// Maximum OSC payload size retained.
+    pub max_osc_bytes: usize,
 }
 
 impl Default for ParserConfig {
     fn default() -> Self {
-        Self { max_params: 16 }
+        Self {
+            max_params: 16,
+            max_osc_bytes: 4096,
+        }
     }
 }
 
@@ -38,6 +48,7 @@ pub struct Parser {
     params: Vec<u16>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
+    osc_buffer: Vec<u8>,
     utf8_buffer: [u8; 4],
     utf8_len: usize,
     utf8_expected: usize,
@@ -64,6 +75,7 @@ impl Parser {
             params: Vec::with_capacity(config.max_params.min(16)),
             current_param: None,
             private_marker: None,
+            osc_buffer: Vec::with_capacity(config.max_osc_bytes.min(256)),
             utf8_buffer: [0; 4],
             utf8_len: 0,
             utf8_expected: 0,
@@ -83,6 +95,7 @@ impl Parser {
         self.params.clear();
         self.current_param = None;
         self.private_marker = None;
+        self.osc_buffer.clear();
         self.reset_utf8();
     }
 
@@ -109,6 +122,8 @@ impl Parser {
         match self.state {
             ParserState::Ground => self.parse_ground(byte),
             ParserState::Escape => self.parse_escape(byte),
+            ParserState::OscString => self.parse_osc_string(byte),
+            ParserState::OscEscape => self.parse_osc_escape(byte),
             ParserState::CsiEntry => self.parse_csi_entry(byte),
             ParserState::CsiParam => self.parse_csi_param(byte),
         }
@@ -150,6 +165,11 @@ impl Parser {
                 self.params.clear();
                 self.current_param = None;
                 self.private_marker = None;
+                Vec::new()
+            }
+            b']' => {
+                self.state = ParserState::OscString;
+                self.osc_buffer.clear();
                 Vec::new()
             }
             b'D' => vec![Action::Index],
@@ -195,6 +215,41 @@ impl Parser {
                 Vec::new()
             }
         }
+    }
+
+    fn parse_osc_string(&mut self, byte: u8) -> Vec<Action> {
+        match byte {
+            0x07 => self.finish_osc(),
+            0x1b => {
+                self.state = ParserState::OscEscape;
+                Vec::new()
+            }
+            _ => {
+                if self.osc_buffer.len() >= self.config.max_osc_bytes {
+                    self.reset();
+                    return Vec::new();
+                }
+
+                self.osc_buffer.push(byte);
+                Vec::new()
+            }
+        }
+    }
+
+    fn parse_osc_escape(&mut self, byte: u8) -> Vec<Action> {
+        if byte == b'\\' {
+            return self.finish_osc();
+        }
+
+        if self.osc_buffer.len() >= self.config.max_osc_bytes {
+            self.reset();
+            return self.parse_ground(byte);
+        }
+
+        self.osc_buffer.push(0x1b);
+        self.osc_buffer.push(byte);
+        self.state = ParserState::OscString;
+        Vec::new()
     }
 
     fn parse_csi_param(&mut self, byte: u8) -> Vec<Action> {
@@ -296,6 +351,15 @@ impl Parser {
         self.utf8_len = 0;
         self.utf8_expected = 0;
     }
+
+    fn finish_osc(&mut self) -> Vec<Action> {
+        let payload = std::mem::take(&mut self.osc_buffer);
+        self.state = ParserState::Ground;
+        self.current_param = None;
+        self.private_marker = None;
+        self.reset_utf8();
+        parse_osc(&payload)
+    }
 }
 
 fn utf8_sequence_len(byte: u8) -> Option<usize> {
@@ -314,7 +378,7 @@ fn is_utf8_continuation(byte: u8) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Parser, ParserState};
+    use super::{Parser, ParserConfig, ParserState};
     use crate::cell::{CellFlags, Color};
     use crate::parser::{Action, GraphicsRendition};
 
@@ -423,5 +487,38 @@ mod tests {
         assert!(cell.attrs.flags.contains(CellFlags::BOLD));
         assert_eq!(terminal.attrs.fg, Color::Default);
         assert!(!terminal.attrs.flags.contains(CellFlags::BOLD));
+    }
+
+    #[test]
+    fn parser_parses_osc_window_title_with_bel_terminator() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.parse(b"\x1b]2;Iris\x07"),
+            vec![Action::SetWindowTitle("Iris".to_string())]
+        );
+    }
+
+    #[test]
+    fn parser_parses_osc_hyperlink_with_st_terminator() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.parse(b"\x1b]8;id=prompt-1;https://example.com\x1b\\"),
+            vec![Action::SetHyperlink {
+                id: Some("prompt-1".to_string()),
+                uri: "https://example.com".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn parser_limits_osc_payload_growth() {
+        let mut parser = Parser::with_config(ParserConfig {
+            max_params: 16,
+            max_osc_bytes: 4,
+        });
+
+        assert!(parser.parse(b"\x1b]2;h").is_empty());
+        assert_eq!(parser.parse(b"ello"), vec![Action::Print('l'), Action::Print('o')]);
+        assert_eq!(parser.state(), ParserState::Ground);
     }
 }

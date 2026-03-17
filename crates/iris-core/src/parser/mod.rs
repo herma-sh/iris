@@ -3,6 +3,7 @@
 mod actions;
 mod control;
 mod csi;
+mod osc;
 mod state;
 
 pub use actions::{Action, GraphicsRendition};
