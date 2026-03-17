@@ -90,8 +90,8 @@ impl Terminal {
             Action::EraseLine(mode) => self.erase_line_mode(mode)?,
             Action::EraseCharacters(count) => self.erase_characters(count)?,
             Action::SetGraphicsRendition(renditions) => self.apply_sgr(&renditions),
-            Action::SetModes(modes) => self.apply_modes(false, &modes),
-            Action::ResetModes(modes) => self.apply_modes(true, &modes),
+            Action::SetModes { private, modes } => self.apply_modes(false, private, &modes),
+            Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes),
         }
 
         Ok(())
@@ -379,11 +379,15 @@ impl Terminal {
         }
     }
 
-    fn apply_modes(&mut self, reset: bool, params: &[u16]) {
+    fn apply_modes(&mut self, reset: bool, private: bool, params: &[u16]) {
         for &param in params {
-            if let Some(mode) = Mode::from_dec_private_param(param) {
-                self.modes.set_mode(mode, !reset);
-            } else if let Some(mode) = Mode::from_ansi_param(param) {
+            let mode = if private {
+                Mode::from_dec_private_param(param)
+            } else {
+                Mode::from_ansi_param(param)
+            };
+
+            if let Some(mode) = mode {
                 self.modes.set_mode(mode, !reset);
             }
         }
@@ -509,7 +513,12 @@ mod tests {
             ]))
             .unwrap();
         terminal.write_char('X').unwrap();
-        terminal.apply_action(Action::ResetModes(vec![25])).unwrap();
+        terminal
+            .apply_action(Action::ResetModes {
+                private: true,
+                modes: vec![25],
+            })
+            .unwrap();
 
         let cell = terminal.grid.cell(0, 0).copied().unwrap();
         assert!(cell.attrs.flags.contains(CellFlags::BOLD));
@@ -536,5 +545,26 @@ mod tests {
             terminal.grid.cell(1, 0).map(|cell| cell.character),
             Some('A')
         );
+    }
+
+    #[test]
+    fn terminal_mode_application_respects_private_marker() {
+        let mut terminal = Terminal::new(2, 4).unwrap();
+
+        terminal
+            .apply_action(Action::SetModes {
+                private: false,
+                modes: vec![4],
+            })
+            .unwrap();
+        assert!(terminal.modes.insert);
+
+        terminal
+            .apply_action(Action::ResetModes {
+                private: true,
+                modes: vec![4],
+            })
+            .unwrap();
+        assert!(terminal.modes.insert);
     }
 }

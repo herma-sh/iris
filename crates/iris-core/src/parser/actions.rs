@@ -56,9 +56,9 @@ pub enum Action {
     /// Apply SGR attributes.
     SetGraphicsRendition(Vec<GraphicsRendition>),
     /// Enable ANSI or DEC terminal modes.
-    SetModes(Vec<u16>),
+    SetModes { private: bool, modes: Vec<u16> },
     /// Disable ANSI or DEC terminal modes.
-    ResetModes(Vec<u16>),
+    ResetModes { private: bool, modes: Vec<u16> },
 }
 
 /// A single SGR attribute change.
@@ -125,10 +125,20 @@ impl Action {
                         (params[index] - 30) as u8,
                     )));
                 }
+                90..=97 => {
+                    renditions.push(GraphicsRendition::Foreground(Color::Ansi(
+                        (params[index] - 90 + 8) as u8,
+                    )));
+                }
                 39 => renditions.push(GraphicsRendition::Foreground(Color::Default)),
                 40..=47 => {
                     renditions.push(GraphicsRendition::Background(Color::Ansi(
                         (params[index] - 40) as u8,
+                    )));
+                }
+                100..=107 => {
+                    renditions.push(GraphicsRendition::Background(Color::Ansi(
+                        (params[index] - 100 + 8) as u8,
                     )));
                 }
                 49 => renditions.push(GraphicsRendition::Background(Color::Default)),
@@ -193,6 +203,17 @@ mod tests {
                 GraphicsRendition::Background(Color::Default),
                 GraphicsRendition::Bold(false),
                 GraphicsRendition::Dim(false),
+            ]
+        );
+    }
+
+    #[test]
+    fn sgr_parses_bright_ansi_colors() {
+        assert_eq!(
+            Action::parse_sgr(&[94, 103]),
+            vec![
+                GraphicsRendition::Foreground(Color::Ansi(12)),
+                GraphicsRendition::Background(Color::Ansi(11)),
             ]
         );
     }

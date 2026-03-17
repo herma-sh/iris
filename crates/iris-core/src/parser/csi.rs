@@ -27,7 +27,10 @@ pub fn parse_csi(params: &[u16], private_marker: Option<u8>, final_byte: u8) -> 
             if modes.is_empty() {
                 Vec::new()
             } else {
-                vec![Action::SetModes(modes)]
+                vec![Action::SetModes {
+                    private: private_marker == Some(b'?'),
+                    modes,
+                }]
             }
         }
         b'l' => {
@@ -35,7 +38,10 @@ pub fn parse_csi(params: &[u16], private_marker: Option<u8>, final_byte: u8) -> 
             if modes.is_empty() {
                 Vec::new()
             } else {
-                vec![Action::ResetModes(modes)]
+                vec![Action::ResetModes {
+                    private: private_marker == Some(b'?'),
+                    modes,
+                }]
             }
         }
         _ => Vec::new(),
@@ -50,7 +56,11 @@ fn param_or(params: &[u16], index: usize, default: u16) -> u16 {
 }
 
 fn normalized_modes(params: &[u16], private_marker: Option<u8>) -> Vec<u16> {
-    if private_marker != Some(b'?') && params.is_empty() {
+    if private_marker.is_some() && private_marker != Some(b'?') {
+        return Vec::new();
+    }
+
+    if private_marker.is_none() && params.is_empty() {
         return Vec::new();
     }
 
@@ -77,5 +87,11 @@ mod tests {
                 GraphicsRendition::Foreground(Color::Indexed(200),)
             ])]
         );
+    }
+
+    #[test]
+    fn csi_rejects_non_dec_private_markers_for_modes() {
+        assert!(parse_csi(&[4], Some(b'>'), b'h').is_empty());
+        assert!(parse_csi(&[25], Some(b'<'), b'l').is_empty());
     }
 }

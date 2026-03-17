@@ -273,7 +273,10 @@ mod tests {
         let mut parser = Parser::new();
         assert_eq!(
             parser.parse(b"\x1b[?25l"),
-            vec![Action::ResetModes(vec![25])]
+            vec![Action::ResetModes {
+                private: true,
+                modes: vec![25],
+            }]
         );
         assert_eq!(
             parser.parse(b"\x1b[1;31;48;5;240m"),
