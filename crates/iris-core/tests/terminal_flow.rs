@@ -236,3 +236,27 @@ fn parser_applies_scroll_region_and_scroll_commands() {
         Some(' ')
     );
 }
+
+#[test]
+fn parser_applies_tab_stop_sequences() {
+    let mut terminal = Terminal::new(1, 16).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"ABCD\x1bH\r\tX\x1b[ZY")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 4).map(|cell| cell.character),
+        Some('Y')
+    );
+    assert_eq!(terminal.cursor.position.col, 5);
+}

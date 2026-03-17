@@ -11,6 +11,8 @@ pub enum Action {
     Backspace,
     /// Advance to the next tab stop.
     Tab,
+    /// Move backward to the previous tab stop.
+    BackTab(u16),
     /// Move to the next line.
     LineFeed,
     /// Move to the next line and reset to column zero.
@@ -57,6 +59,10 @@ pub enum Action {
     EraseLine(u16),
     /// Erase characters starting at the current cursor.
     EraseCharacters(u16),
+    /// Set a tab stop at the current column.
+    SetTabStop,
+    /// Clear tab stops by mode (`0` current, `3` all).
+    ClearTabStop(u16),
     /// Set the scrolling region using one-based bounds.
     SetScrollRegion { top: u16, bottom: u16 },
     /// Apply SGR attributes.

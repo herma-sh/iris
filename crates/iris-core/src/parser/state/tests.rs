@@ -53,6 +53,7 @@ fn parser_handles_escape_index_sequences() {
     let mut parser = Parser::new();
     assert_eq!(parser.parse(b"\x1bD"), vec![Action::Index]);
     assert_eq!(parser.parse(b"\x1bE"), vec![Action::NextLine]);
+    assert_eq!(parser.parse(b"\x1bH"), vec![Action::SetTabStop]);
     assert_eq!(parser.parse(b"\x1bM"), vec![Action::ReverseIndex]);
 }
 

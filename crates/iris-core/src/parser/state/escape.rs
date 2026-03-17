@@ -44,6 +44,7 @@ impl Parser {
             }
             b'D' => vec![Action::Index],
             b'E' => vec![Action::NextLine],
+            b'H' => vec![Action::SetTabStop],
             b'M' => vec![Action::ReverseIndex],
             b'7' => vec![Action::SaveCursor],
             b'8' => vec![Action::RestoreCursor],
