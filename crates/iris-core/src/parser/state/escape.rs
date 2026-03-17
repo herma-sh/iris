@@ -12,6 +12,14 @@ impl Parser {
                 self.state = ParserState::Escape;
                 Vec::new()
             }
+            b'(' => {
+                self.state = ParserState::EscapeCharset(0);
+                Vec::new()
+            }
+            b')' => {
+                self.state = ParserState::EscapeCharset(1);
+                Vec::new()
+            }
             b'[' => {
                 self.state = ParserState::CsiEntry;
                 self.params.clear();

@@ -159,6 +159,28 @@ fn parser_ignores_sos_pm_and_apc_strings() {
 }
 
 #[test]
+fn parser_applies_charset_designation_to_active_g0() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b(A#\x1b(B#"),
+        vec![Action::Print('\u{00a3}'), Action::Print('#')]
+    );
+}
+
+#[test]
+fn parser_switches_between_g0_and_g1_charsets() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b)0\x0eqx\x0fq"),
+        vec![
+            Action::Print('\u{2500}'),
+            Action::Print('\u{2502}'),
+            Action::Print('q'),
+        ]
+    );
+}
+
+#[test]
 fn parser_limits_osc_payload_growth() {
     let mut parser = Parser::with_config(ParserConfig {
         max_params: 16,

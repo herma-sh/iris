@@ -6,6 +6,7 @@ use super::Action;
 use crate::error::Result;
 use crate::terminal::Terminal;
 
+mod charset;
 mod csi;
 mod escape;
 mod strings;
@@ -21,6 +22,8 @@ pub enum ParserState {
     Ground,
     /// `ESC` has been seen.
     Escape,
+    /// `ESC (` or `ESC )` charset designation is pending.
+    EscapeCharset(usize),
     /// `OSC` string collection.
     OscString,
     /// `OSC` escape terminator after `ESC`.
@@ -71,6 +74,8 @@ pub struct Parser {
     params: Vec<u16>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
+    charsets: [Charset; 2],
+    active_charset: usize,
     osc_buffer: Vec<u8>,
     dcs_buffer: Vec<u8>,
     ignored_string_len: usize,
@@ -100,6 +105,8 @@ impl Parser {
             params: Vec::with_capacity(config.max_params.min(16)),
             current_param: None,
             private_marker: None,
+            charsets: [Charset::Ascii; 2],
+            active_charset: 0,
             osc_buffer: Vec::with_capacity(config.max_osc_bytes.min(256)),
             dcs_buffer: Vec::with_capacity(config.max_dcs_bytes.min(256)),
             ignored_string_len: 0,
@@ -151,6 +158,7 @@ impl Parser {
         match self.state {
             ParserState::Ground => self.parse_ground(byte),
             ParserState::Escape => self.parse_escape(byte),
+            ParserState::EscapeCharset(slot) => self.parse_escape_charset(slot, byte),
             ParserState::OscString => self.parse_osc_string(byte),
             ParserState::OscEscape => self.parse_osc_escape(byte),
             ParserState::DcsString => self.parse_dcs_string(byte),
@@ -167,6 +175,10 @@ impl Parser {
             return self.parse_utf8_continuation(byte);
         }
 
+        if self.handle_charset_shift(byte) {
+            return Vec::new();
+        }
+
         if let Some(action) = parse_control(byte) {
             return vec![action];
         }
@@ -176,9 +188,16 @@ impl Parser {
                 self.state = ParserState::Escape;
                 Vec::new()
             }
-            0x20..=0x7e => vec![Action::Print(char::from(byte))],
+            0x20..=0x7e => vec![Action::Print(self.translate_printable_byte(byte))],
             0x80..=0xff => self.parse_utf8_lead(byte),
             _ => Vec::new(),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Charset {
+    Ascii,
+    Uk,
+    DecSpecial,
 }
