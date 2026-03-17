@@ -25,7 +25,11 @@ impl Grid {
     }
 
     pub(super) fn validate_row_range(&self, top: usize, bottom: usize) -> Result<()> {
-        if top > bottom || bottom >= self.rows() {
+        if top > bottom {
+            return Err(self.invalid_position(top, 0));
+        }
+
+        if bottom >= self.rows() {
             return Err(self.invalid_position(bottom, 0));
         }
 
