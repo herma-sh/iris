@@ -89,6 +89,65 @@ impl Terminal {
         self.clear_row_range(row, start, end)
     }
 
+    pub(super) fn insert_characters(&mut self, count: u16) -> Result<()> {
+        if self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return Ok(());
+        }
+
+        let row = self
+            .cursor
+            .position
+            .row
+            .min(self.grid.rows().saturating_sub(1));
+        let col = self
+            .cursor
+            .position
+            .col
+            .min(self.grid.cols().saturating_sub(1));
+        self.grid
+            .insert_blank_cells(row, col, usize::from(count.max(1)))
+    }
+
+    pub(super) fn delete_characters(&mut self, count: u16) -> Result<()> {
+        if self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return Ok(());
+        }
+
+        let row = self
+            .cursor
+            .position
+            .row
+            .min(self.grid.rows().saturating_sub(1));
+        let col = self
+            .cursor
+            .position
+            .col
+            .min(self.grid.cols().saturating_sub(1));
+        self.grid.delete_cells(row, col, usize::from(count.max(1)))
+    }
+
+    pub(super) fn insert_lines(&mut self, count: u16) -> Result<()> {
+        let row = self.cursor.position.row;
+        let (top, bottom) = self.active_scroll_region();
+        if row < top || row > bottom {
+            return Ok(());
+        }
+
+        self.grid
+            .scroll_down_range(row, bottom, usize::from(count.max(1)))
+    }
+
+    pub(super) fn delete_lines(&mut self, count: u16) -> Result<()> {
+        let row = self.cursor.position.row;
+        let (top, bottom) = self.active_scroll_region();
+        if row < top || row > bottom {
+            return Ok(());
+        }
+
+        self.grid
+            .scroll_up_range(row, bottom, usize::from(count.max(1)))
+    }
+
     fn clear_row_range(&mut self, row: usize, start_col: usize, end_col: usize) -> Result<()> {
         if start_col > end_col {
             return Ok(());

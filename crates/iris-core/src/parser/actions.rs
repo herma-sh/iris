@@ -53,6 +53,14 @@ pub enum Action {
     CursorPosition { row: u16, col: u16 },
     /// Move the cursor to a one-based row.
     VerticalPosition(u16),
+    /// Insert blank characters at the cursor position.
+    InsertCharacters(u16),
+    /// Delete characters starting at the cursor position.
+    DeleteCharacters(u16),
+    /// Insert blank lines within the active scrolling region.
+    InsertLines(u16),
+    /// Delete lines within the active scrolling region.
+    DeleteLines(u16),
     /// Erase visible content in the display.
     EraseDisplay(u16),
     /// Erase visible content in the current row.

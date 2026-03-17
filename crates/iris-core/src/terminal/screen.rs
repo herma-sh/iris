@@ -144,7 +144,7 @@ impl Terminal {
         self.modes.alternate_screen = false;
     }
 
-    fn active_scroll_region(&self) -> (usize, usize) {
+    pub(super) fn active_scroll_region(&self) -> (usize, usize) {
         self.scroll_region.unwrap_or_else(|| {
             let rows = self.grid.rows();
             if rows == 0 {

@@ -329,3 +329,91 @@ fn terminal_clears_current_and_all_tab_stops() {
     terminal.apply_action(Action::Tab).unwrap();
     assert_eq!(terminal.cursor.position.col, 15);
 }
+
+#[test]
+fn terminal_inserts_and_deletes_characters() {
+    let mut terminal = Terminal::new(1, 6).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.write_char('C').unwrap();
+    terminal.write_char('D').unwrap();
+
+    terminal.move_cursor(0, 1);
+    terminal.apply_action(Action::InsertCharacters(2)).unwrap();
+    terminal.write_char('X').unwrap();
+    terminal.write_char('Y').unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('X')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('Y')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some('B')
+    );
+
+    terminal.move_cursor(0, 2);
+    terminal.apply_action(Action::DeleteCharacters(2)).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('X')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('C')
+    );
+}
+
+#[test]
+fn terminal_inserts_and_deletes_lines_within_scroll_region() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('B').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('C').unwrap();
+    terminal.next_line().unwrap();
+    terminal.write_char('D').unwrap();
+
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal.move_cursor(1, 0);
+    terminal.apply_action(Action::InsertLines(1)).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('B')
+    );
+
+    terminal.apply_action(Action::DeleteLines(1)).unwrap();
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('C')
+    );
+}
