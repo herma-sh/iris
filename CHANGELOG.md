@@ -36,6 +36,7 @@ Target release: `0.1.0`
 
 ### Changed
 
+- Split the `iris-core` grid implementation into focused submodules so storage, write normalization, scrolling/editing operations, resize behavior, and tests stay below the structural warning threshold for oversized files.
 - Corrected parser string-state cleanup so finishing DCS leaves ignored-string tracking untouched and finishing ignored strings no longer clears unrelated OSC or DCS buffers.
 - Adjusted OSC overflow recovery to reset parser state while reprocessing the current byte in ground state instead of dropping it.
 - Split the parser state machine into focused submodules so escape handling, string-state handling, UTF-8 decoding, and state tests are easier to maintain.
