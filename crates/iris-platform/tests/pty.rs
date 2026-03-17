@@ -2,60 +2,74 @@
 
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use iris_platform::platform::PlatformPtyBackend;
 use iris_platform::{PtyBackend, PtyConfig};
 
 #[test]
 fn pty_spawn_returns_handle() {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let mut backend = PlatformPtyBackend::default();
-        let config = spawn_output_config();
-        backend.spawn(&config).unwrap();
-        backend.close_stdin().unwrap();
-        let _status = wait_for_exit(&mut backend, Duration::from_secs(5));
-        let output = String::from_utf8_lossy(&backend.read_to_end().unwrap()).to_string();
-        let _ = sender.send(output);
-    });
+    let mut backend = PlatformPtyBackend::default();
+    let config = spawn_output_config();
+    backend.spawn(&config).unwrap();
+    backend.close_stdin().unwrap();
 
-    let output = receiver
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap_or_default();
+    let output = read_until_contains(backend, "__IRIS_PTY__", Duration::from_secs(5));
     assert!(output.contains("__IRIS_PTY__"));
 }
 
 #[test]
 fn pty_read_write_works() {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || {
-        let mut backend = PlatformPtyBackend::default();
-        let config = round_trip_config();
-        backend.spawn(&config).unwrap();
-        backend.write(input_payload().as_bytes()).unwrap();
-        backend.close_stdin().unwrap();
-        let _status = wait_for_exit(&mut backend, Duration::from_secs(5));
-        let output = String::from_utf8_lossy(&backend.read_to_end().unwrap()).to_string();
-        let _ = sender.send(output);
-    });
+    let mut backend = PlatformPtyBackend::default();
+    let config = round_trip_config();
+    backend.spawn(&config).unwrap();
+    backend.write(input_payload().as_bytes()).unwrap();
+    backend.close_stdin().unwrap();
 
-    let output = receiver
-        .recv_timeout(Duration::from_secs(5))
-        .unwrap_or_default();
+    let output = read_until_contains(
+        backend,
+        "__IRIS_ECHO__hello-from-iris",
+        Duration::from_secs(5),
+    );
     assert!(output.contains("__IRIS_ECHO__hello-from-iris"));
 }
 
-fn wait_for_exit(backend: &mut dyn PtyBackend, timeout: Duration) -> Option<i32> {
-    let start = Instant::now();
-    while start.elapsed() < timeout {
-        match backend.exit_status() {
-            Ok(Some(status)) => return Some(status),
-            Ok(None) => thread::sleep(Duration::from_millis(10)),
-            Err(_) => return None,
+fn read_until_contains(
+    mut backend: impl PtyBackend + 'static,
+    needle: &str,
+    timeout: Duration,
+) -> String {
+    let (sender, receiver) = mpsc::channel();
+    let needle = needle.to_string();
+
+    thread::spawn(move || {
+        let mut buffer = [0_u8; 1024];
+        loop {
+            match backend.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => {
+                    if sender.send(buffer[..read].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let mut output = Vec::new();
+    loop {
+        match receiver.recv_timeout(timeout) {
+            Ok(chunk) => {
+                output.extend_from_slice(&chunk);
+                let text = String::from_utf8_lossy(&output);
+                if text.contains(&needle) {
+                    return text.into_owned();
+                }
+            }
+            Err(_) => return String::from_utf8_lossy(&output).into_owned(),
         }
     }
-    None
 }
 
 fn spawn_output_config() -> PtyConfig {
