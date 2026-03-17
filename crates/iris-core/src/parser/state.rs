@@ -262,7 +262,7 @@ impl Parser {
             _ => {
                 if self.osc_buffer.len() >= self.config.max_osc_bytes {
                     self.reset();
-                    return Vec::new();
+                    return self.parse_ground(byte);
                 }
 
                 self.osc_buffer.push(byte);
@@ -475,7 +475,6 @@ impl Parser {
         self.state = ParserState::Ground;
         self.current_param = None;
         self.private_marker = None;
-        self.ignored_string_len = 0;
         self.reset_utf8();
         parse_dcs(&payload)
     }
@@ -484,8 +483,6 @@ impl Parser {
         self.state = ParserState::Ground;
         self.current_param = None;
         self.private_marker = None;
-        self.osc_buffer.clear();
-        self.dcs_buffer.clear();
         self.ignored_string_len = 0;
         self.reset_utf8();
     }
@@ -679,7 +676,7 @@ mod tests {
         assert!(parser.parse(b"\x1b]2;h").is_empty());
         assert_eq!(
             parser.parse(b"ello"),
-            vec![Action::Print('l'), Action::Print('o')]
+            vec![Action::Print('l'), Action::Print('l'), Action::Print('o'),]
         );
         assert_eq!(parser.state(), ParserState::Ground);
     }
@@ -715,6 +712,34 @@ mod tests {
             parser.parse(b"ef"),
             vec![Action::Print('e'), Action::Print('f')]
         );
+        assert_eq!(parser.state(), ParserState::Ground);
+    }
+
+    #[test]
+    fn finishing_dcs_does_not_clear_ignored_string_state() {
+        let mut parser = Parser::new();
+        parser.state = ParserState::DcsString;
+        parser.dcs_buffer.extend_from_slice(b"qignored");
+        parser.ignored_string_len = 3;
+
+        assert!(parser.finish_dcs().is_empty());
+        assert_eq!(parser.ignored_string_len, 3);
+        assert_eq!(parser.state(), ParserState::Ground);
+    }
+
+    #[test]
+    fn finishing_ignored_string_does_not_clear_other_buffers() {
+        let mut parser = Parser::new();
+        parser.state = ParserState::IgnoreString;
+        parser.osc_buffer.extend_from_slice(b"title");
+        parser.dcs_buffer.extend_from_slice(b"qdata");
+        parser.ignored_string_len = 4;
+
+        parser.finish_ignored_string();
+
+        assert_eq!(parser.osc_buffer, b"title");
+        assert_eq!(parser.dcs_buffer, b"qdata");
+        assert_eq!(parser.ignored_string_len, 0);
         assert_eq!(parser.state(), ParserState::Ground);
     }
 }
