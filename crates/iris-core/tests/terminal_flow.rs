@@ -106,3 +106,28 @@ fn parser_handles_escape_index_sequences() {
         Some('A')
     );
 }
+
+#[test]
+fn parser_writes_utf8_text_across_input_boundaries() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, &[0xe2, 0x82]).unwrap();
+    parser
+        .advance(&mut terminal, &[0xac, b' ', 0xe4, 0xb8])
+        .unwrap();
+    parser.advance(&mut terminal, &[0xad]).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('€')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('中')
+    );
+}

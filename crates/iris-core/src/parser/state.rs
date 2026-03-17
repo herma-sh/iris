@@ -38,6 +38,9 @@ pub struct Parser {
     params: Vec<u16>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
+    utf8_buffer: [u8; 4],
+    utf8_len: usize,
+    utf8_expected: usize,
 }
 
 impl Default for Parser {
@@ -61,6 +64,9 @@ impl Parser {
             params: Vec::with_capacity(config.max_params.min(16)),
             current_param: None,
             private_marker: None,
+            utf8_buffer: [0; 4],
+            utf8_len: 0,
+            utf8_expected: 0,
             config,
         }
     }
@@ -77,6 +83,7 @@ impl Parser {
         self.params.clear();
         self.current_param = None;
         self.private_marker = None;
+        self.reset_utf8();
     }
 
     /// Parses input bytes into terminal actions.
@@ -108,6 +115,10 @@ impl Parser {
     }
 
     fn parse_ground(&mut self, byte: u8) -> Vec<Action> {
+        if self.utf8_expected > 0 {
+            return self.parse_utf8_continuation(byte);
+        }
+
         if let Some(action) = parse_control(byte) {
             return vec![action];
         }
@@ -118,6 +129,7 @@ impl Parser {
                 Vec::new()
             }
             0x20..=0x7e => vec![Action::Print(char::from(byte))],
+            0x80..=0xff => self.parse_utf8_lead(byte),
             _ => Vec::new(),
         }
     }
@@ -234,6 +246,70 @@ impl Parser {
             self.params.push(value);
         }
     }
+
+    fn parse_utf8_lead(&mut self, byte: u8) -> Vec<Action> {
+        let expected = match utf8_sequence_len(byte) {
+            Some(expected) => expected,
+            None => return vec![Action::Print(char::REPLACEMENT_CHARACTER)],
+        };
+
+        self.utf8_buffer[0] = byte;
+        self.utf8_len = 1;
+        self.utf8_expected = expected;
+
+        if expected == 1 {
+            return self.finish_utf8_sequence();
+        }
+
+        Vec::new()
+    }
+
+    fn parse_utf8_continuation(&mut self, byte: u8) -> Vec<Action> {
+        if !is_utf8_continuation(byte) {
+            self.reset_utf8();
+            let mut actions = vec![Action::Print(char::REPLACEMENT_CHARACTER)];
+            actions.extend(self.parse_ground(byte));
+            return actions;
+        }
+
+        self.utf8_buffer[self.utf8_len] = byte;
+        self.utf8_len += 1;
+
+        if self.utf8_len == self.utf8_expected {
+            return self.finish_utf8_sequence();
+        }
+
+        Vec::new()
+    }
+
+    fn finish_utf8_sequence(&mut self) -> Vec<Action> {
+        let utf8_len = self.utf8_len;
+        let character = std::str::from_utf8(&self.utf8_buffer[..utf8_len])
+            .ok()
+            .and_then(|text| text.chars().next())
+            .unwrap_or(char::REPLACEMENT_CHARACTER);
+        self.reset_utf8();
+        vec![Action::Print(character)]
+    }
+
+    fn reset_utf8(&mut self) {
+        self.utf8_len = 0;
+        self.utf8_expected = 0;
+    }
+}
+
+fn utf8_sequence_len(byte: u8) -> Option<usize> {
+    match byte {
+        0x00..=0x7f => Some(1),
+        0xc2..=0xdf => Some(2),
+        0xe0..=0xef => Some(3),
+        0xf0..=0xf4 => Some(4),
+        _ => None,
+    }
+}
+
+fn is_utf8_continuation(byte: u8) -> bool {
+    matches!(byte, 0x80..=0xbf)
 }
 
 #[cfg(test)]
@@ -294,6 +370,34 @@ mod tests {
         assert_eq!(parser.parse(b"\x1bD"), vec![Action::Index]);
         assert_eq!(parser.parse(b"\x1bE"), vec![Action::NextLine]);
         assert_eq!(parser.parse(b"\x1bM"), vec![Action::ReverseIndex]);
+    }
+
+    #[test]
+    fn parser_decodes_utf8_printable_characters() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.parse("é中".as_bytes()),
+            vec![Action::Print('é'), Action::Print('中')]
+        );
+    }
+
+    #[test]
+    fn parser_preserves_utf8_state_across_chunks() {
+        let mut parser = Parser::new();
+        assert!(parser.parse(&[0xe2, 0x82]).is_empty());
+        assert_eq!(parser.parse(&[0xac]), vec![Action::Print('€')]);
+    }
+
+    #[test]
+    fn parser_recovers_from_malformed_utf8_sequences() {
+        let mut parser = Parser::new();
+        assert_eq!(
+            parser.parse(&[0xe2, b'A']),
+            vec![
+                Action::Print(char::REPLACEMENT_CHARACTER),
+                Action::Print('A'),
+            ]
+        );
     }
 
     #[test]
