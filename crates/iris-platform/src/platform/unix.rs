@@ -40,6 +40,3 @@ impl PtyBackend for UnixPtyBackend {
         self.inner.exit_status()
     }
 }
-
-/// macOS uses the Unix PTY backend in phase 0.
-pub type MacOsPtyBackend = UnixPtyBackend;

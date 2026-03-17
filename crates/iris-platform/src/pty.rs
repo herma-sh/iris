@@ -218,12 +218,7 @@ impl PtyBackend for PortablePtyBackend {
     fn exit_status(&mut self) -> Result<Option<i32>> {
         self.child_mut()?
             .try_wait()
-            .map(|status| {
-                status.map(|exit| match i32::try_from(exit.exit_code()) {
-                    Ok(code) => code,
-                    Err(_) => i32::MAX,
-                })
-            })
+            .map(|status| status.map(|exit| i32::try_from(exit.exit_code()).unwrap_or(i32::MAX)))
             .map_err(|error| {
                 PtyError::StatusFailed {
                     reason: error.to_string(),
