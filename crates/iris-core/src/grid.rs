@@ -236,11 +236,11 @@ impl Grid {
 
     /// Inserts blank cells in a row, shifting existing cells rightward.
     pub fn insert_blank_cells(&mut self, row: usize, col: usize, count: usize) -> Result<()> {
-        let start = self.checked_index(row, col)?;
         let cols = self.cols();
         if cols == 0 {
             return Ok(());
         }
+        let start = self.checked_index(row, col)?;
 
         let shift = count.min(cols.saturating_sub(col));
         if shift == 0 {
@@ -260,11 +260,11 @@ impl Grid {
 
     /// Deletes cells from a row, shifting trailing cells leftward.
     pub fn delete_cells(&mut self, row: usize, col: usize, count: usize) -> Result<()> {
-        let start = self.checked_index(row, col)?;
         let cols = self.cols();
         if cols == 0 {
             return Ok(());
         }
+        let start = self.checked_index(row, col)?;
 
         let shift = count.min(cols.saturating_sub(col));
         if shift == 0 {

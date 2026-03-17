@@ -127,6 +127,10 @@ impl Terminal {
     }
 
     pub(super) fn insert_lines(&mut self, count: u16) -> Result<()> {
+        if self.grid.rows() == 0 {
+            return Ok(());
+        }
+
         let row = self.cursor.position.row;
         let (top, bottom) = self.active_scroll_region();
         if row < top || row > bottom {
@@ -138,6 +142,10 @@ impl Terminal {
     }
 
     pub(super) fn delete_lines(&mut self, count: u16) -> Result<()> {
+        if self.grid.rows() == 0 {
+            return Ok(());
+        }
+
         let row = self.cursor.position.row;
         let (top, bottom) = self.active_scroll_region();
         if row < top || row > bottom {

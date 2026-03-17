@@ -417,3 +417,13 @@ fn terminal_inserts_and_deletes_lines_within_scroll_region() {
         Some('C')
     );
 }
+
+#[test]
+fn terminal_insert_and_delete_lines_noop_on_zero_row_grids() {
+    let mut terminal = Terminal::new(0, 4).unwrap();
+
+    terminal.apply_action(Action::InsertLines(1)).unwrap();
+    terminal.apply_action(Action::DeleteLines(1)).unwrap();
+
+    assert_eq!(terminal.grid.rows(), 0);
+}
