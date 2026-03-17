@@ -40,6 +40,7 @@ Target release: `0.1.0`
 - Adjusted OSC overflow recovery to reset parser state while reprocessing the current byte in ground state instead of dropping it.
 - Split the parser state machine into focused submodules so escape handling, string-state handling, UTF-8 decoding, and state tests are easier to maintain.
 - DEC private mode `1049` now switches between the primary and alternate screen buffers in `iris-core`, restoring the saved primary cursor when returning to the main screen.
+- Added phase-1 scroll-region handling for `CSI r`, `CSI S`, and `CSI T`, and made `Index`/`ReverseIndex` respect the active scrolling margins.
 
 ## 0.0.1 - 2026-03-17
 

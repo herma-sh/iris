@@ -18,7 +18,13 @@ pub fn parse_csi(params: &[u16], private_marker: Option<u8>, final_byte: u8) -> 
         b'd' => vec![Action::VerticalPosition(param_or(params, 0, 1))],
         b'J' => vec![Action::EraseDisplay(param_or(params, 0, 0))],
         b'K' => vec![Action::EraseLine(param_or(params, 0, 0))],
+        b'S' => vec![Action::ScrollUp(param_or(params, 0, 1))],
+        b'T' => vec![Action::ScrollDown(param_or(params, 0, 1))],
         b'X' => vec![Action::EraseCharacters(param_or(params, 0, 1))],
+        b'r' => vec![Action::SetScrollRegion {
+            top: param_or(params, 0, 1),
+            bottom: params.get(1).copied().unwrap_or(0),
+        }],
         b'm' => vec![Action::SetGraphicsRendition(Action::parse_sgr(params))],
         b's' => vec![Action::SaveCursor],
         b'u' => vec![Action::RestoreCursor],
@@ -77,6 +83,11 @@ mod tests {
     fn csi_uses_default_parameters() {
         assert_eq!(parse_csi(&[], None, b'A'), vec![Action::CursorUp(1)]);
         assert_eq!(parse_csi(&[], None, b'J'), vec![Action::EraseDisplay(0)]);
+        assert_eq!(parse_csi(&[], None, b'S'), vec![Action::ScrollUp(1)]);
+        assert_eq!(
+            parse_csi(&[], None, b'r'),
+            vec![Action::SetScrollRegion { top: 1, bottom: 0 }]
+        );
     }
 
     #[test]

@@ -22,8 +22,8 @@ pub struct Terminal {
     pub window_title: Option<String>,
     /// The active OSC 8 hyperlink metadata.
     pub active_hyperlink: Option<Hyperlink>,
-    primary_grid: Option<Grid>,
-    alternate_screen_cursor: Option<SavedCursor>,
+    alternate_screen_state: Option<AlternateScreenState>,
+    scroll_region: Option<(usize, usize)>,
     saved_cursor: Option<SavedCursor>,
 }
 
@@ -36,6 +36,13 @@ pub struct Hyperlink {
     pub uri: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AlternateScreenState {
+    grid: Grid,
+    cursor: SavedCursor,
+    scroll_region: Option<(usize, usize)>,
+}
+
 impl Terminal {
     /// Creates a terminal with the provided visible dimensions.
     pub fn new(rows: usize, cols: usize) -> Result<Self> {
@@ -46,8 +53,8 @@ impl Terminal {
             attrs: CellAttrs::default(),
             window_title: None,
             active_hyperlink: None,
-            primary_grid: None,
-            alternate_screen_cursor: None,
+            alternate_screen_state: None,
+            scroll_region: None,
             saved_cursor: None,
         })
     }
@@ -94,6 +101,8 @@ impl Terminal {
             Action::Index => self.index(),
             Action::NextLine => self.next_line()?,
             Action::ReverseIndex => self.reverse_index(),
+            Action::ScrollUp(count) => self.scroll_up(count)?,
+            Action::ScrollDown(count) => self.scroll_down(count)?,
             Action::SaveCursor => self.save_cursor(),
             Action::RestoreCursor => self.restore_cursor(),
             Action::CursorUp(count) => self.cursor_up(count),
@@ -108,6 +117,7 @@ impl Terminal {
             Action::EraseDisplay(mode) => self.erase_display(mode)?,
             Action::EraseLine(mode) => self.erase_line_mode(mode)?,
             Action::EraseCharacters(count) => self.erase_characters(count)?,
+            Action::SetScrollRegion { top, bottom } => self.set_scroll_region(top, bottom),
             Action::SetGraphicsRendition(renditions) => self.apply_sgr(&renditions),
             Action::SetWindowTitle(title) => self.window_title = Some(title),
             Action::SetHyperlink { id, uri } => {
@@ -154,6 +164,9 @@ impl Terminal {
     /// Resizes the terminal grid and clamps the cursor to the new bounds.
     pub fn resize(&mut self, rows: usize, cols: usize) -> Result<()> {
         self.grid.resize(GridSize { rows, cols })?;
+        self.scroll_region = self
+            .scroll_region
+            .and_then(|(top, bottom)| normalize_scroll_region(rows, top + 1, bottom + 1));
         self.move_cursor(self.cursor.position.row, self.cursor.position.col);
         Ok(())
     }
@@ -189,7 +202,14 @@ impl Terminal {
             return;
         }
 
-        if self.cursor.position.row + 1 >= self.grid.rows() {
+        let (top, bottom) = self.active_scroll_region();
+        if self.cursor.position.row >= top && self.cursor.position.row <= bottom {
+            if self.cursor.position.row == bottom {
+                let _ = self.grid.scroll_up_range(top, bottom, 1);
+            } else {
+                self.cursor.position.row += 1;
+            }
+        } else if self.cursor.position.row + 1 >= self.grid.rows() {
             self.grid.scroll_up(1);
         } else {
             self.cursor.move_down(1, self.grid.rows());
@@ -206,7 +226,14 @@ impl Terminal {
             return;
         }
 
-        if self.cursor.position.row == 0 {
+        let (top, bottom) = self.active_scroll_region();
+        if self.cursor.position.row >= top && self.cursor.position.row <= bottom {
+            if self.cursor.position.row == top {
+                let _ = self.grid.scroll_down_range(top, bottom, 1);
+            } else {
+                self.cursor.move_up(1);
+            }
+        } else if self.cursor.position.row == 0 {
             self.grid.scroll_down(1);
         } else {
             self.cursor.move_up(1);
@@ -453,6 +480,34 @@ impl Terminal {
         self.cursor.position.col = next_tab_stop.min(cols.saturating_sub(1));
     }
 
+    fn scroll_up(&mut self, count: u16) -> Result<()> {
+        let (top, bottom) = self.active_scroll_region();
+        self.grid
+            .scroll_up_range(top, bottom, usize::from(count.max(1)))
+    }
+
+    fn scroll_down(&mut self, count: u16) -> Result<()> {
+        let (top, bottom) = self.active_scroll_region();
+        self.grid
+            .scroll_down_range(top, bottom, usize::from(count.max(1)))
+    }
+
+    fn set_scroll_region(&mut self, top: u16, bottom: u16) {
+        self.scroll_region =
+            normalize_scroll_region(self.grid.rows(), usize::from(top), usize::from(bottom));
+        let home_row = self.scroll_region.map_or(
+            0,
+            |(region_top, _)| {
+                if self.modes.origin {
+                    region_top
+                } else {
+                    0
+                }
+            },
+        );
+        self.move_cursor(home_row, 0);
+    }
+
     fn set_alternate_screen(&mut self, enabled: bool) -> Result<()> {
         if enabled {
             self.enter_alternate_screen()
@@ -471,9 +526,13 @@ impl Terminal {
         let mut alternate_grid = Grid::new(size)?;
         alternate_grid.mark_all_damage();
 
-        self.primary_grid = Some(std::mem::replace(&mut self.grid, alternate_grid));
-        self.alternate_screen_cursor = Some(self.cursor.save());
+        self.alternate_screen_state = Some(AlternateScreenState {
+            grid: std::mem::replace(&mut self.grid, alternate_grid),
+            cursor: self.cursor.save(),
+            scroll_region: self.scroll_region,
+        });
         self.cursor = Cursor::new();
+        self.scroll_region = None;
         self.saved_cursor = None;
         self.modes.alternate_screen = true;
         Ok(())
@@ -484,20 +543,50 @@ impl Terminal {
             return;
         }
 
-        if let Some(mut primary_grid) = self.primary_grid.take() {
-            primary_grid.mark_all_damage();
-            self.grid = primary_grid;
-        }
-
-        if let Some(saved_cursor) = self.alternate_screen_cursor.take() {
-            self.cursor.restore(saved_cursor);
+        if let Some(mut alternate_screen_state) = self.alternate_screen_state.take() {
+            alternate_screen_state.grid.mark_all_damage();
+            self.grid = alternate_screen_state.grid;
+            self.scroll_region = alternate_screen_state.scroll_region;
+            self.cursor.restore(alternate_screen_state.cursor);
             self.move_cursor(self.cursor.position.row, self.cursor.position.col);
         } else {
             self.cursor = Cursor::new();
+            self.scroll_region = None;
         }
 
         self.saved_cursor = None;
         self.modes.alternate_screen = false;
+    }
+
+    fn active_scroll_region(&self) -> (usize, usize) {
+        self.scroll_region.unwrap_or_else(|| {
+            let rows = self.grid.rows();
+            if rows == 0 {
+                (0, 0)
+            } else {
+                (0, rows - 1)
+            }
+        })
+    }
+}
+
+fn normalize_scroll_region(rows: usize, top: usize, bottom: usize) -> Option<(usize, usize)> {
+    if rows == 0 {
+        return None;
+    }
+
+    let normalized_top = top.max(1);
+    let normalized_bottom = if bottom == 0 { rows } else { bottom };
+    if normalized_top >= normalized_bottom || normalized_bottom > rows {
+        return None;
+    }
+
+    let top_index = normalized_top - 1;
+    let bottom_index = normalized_bottom - 1;
+    if top_index == 0 && bottom_index + 1 == rows {
+        None
+    } else {
+        Some((top_index, bottom_index))
     }
 }
 
@@ -648,10 +737,80 @@ mod tests {
     }
 
     #[test]
+    fn terminal_scrolls_within_active_region() {
+        let mut terminal = Terminal::new(4, 2).unwrap();
+        terminal.write_char('A').unwrap();
+        terminal.next_line().unwrap();
+        terminal.write_char('B').unwrap();
+        terminal.next_line().unwrap();
+        terminal.write_char('C').unwrap();
+        terminal.next_line().unwrap();
+        terminal.write_char('D').unwrap();
+
+        terminal
+            .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+            .unwrap();
+        terminal.apply_action(Action::ScrollUp(1)).unwrap();
+
+        assert_eq!(
+            terminal.grid.cell(0, 0).map(|cell| cell.character),
+            Some('A')
+        );
+        assert_eq!(
+            terminal.grid.cell(1, 0).map(|cell| cell.character),
+            Some('C')
+        );
+        assert_eq!(
+            terminal.grid.cell(2, 0).map(|cell| cell.character),
+            Some('D')
+        );
+        assert_eq!(
+            terminal.grid.cell(3, 0).map(|cell| cell.character),
+            Some(' ')
+        );
+    }
+
+    #[test]
+    fn terminal_index_scrolls_inside_active_region() {
+        let mut terminal = Terminal::new(4, 2).unwrap();
+        terminal.write_char('A').unwrap();
+        terminal.next_line().unwrap();
+        terminal.write_char('B').unwrap();
+        terminal.next_line().unwrap();
+        terminal.write_char('C').unwrap();
+        terminal.next_line().unwrap();
+        terminal.write_char('D').unwrap();
+
+        terminal
+            .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+            .unwrap();
+        terminal.move_cursor(3, 0);
+        terminal.apply_action(Action::Index).unwrap();
+
+        assert_eq!(
+            terminal.grid.cell(0, 0).map(|cell| cell.character),
+            Some('A')
+        );
+        assert_eq!(
+            terminal.grid.cell(1, 0).map(|cell| cell.character),
+            Some('C')
+        );
+        assert_eq!(
+            terminal.grid.cell(2, 0).map(|cell| cell.character),
+            Some('D')
+        );
+        assert_eq!(
+            terminal.grid.cell(3, 0).map(|cell| cell.character),
+            Some(' ')
+        );
+    }
+
+    #[test]
     fn terminal_switches_between_primary_and_alternate_screen() {
         let mut terminal = Terminal::new(2, 4).unwrap();
         terminal.write_char('A').unwrap();
         terminal.move_cursor(1, 2);
+        terminal.scroll_region = Some((0, 1));
 
         terminal
             .apply_action(Action::SetModes {
@@ -679,6 +838,7 @@ mod tests {
             terminal.grid.cell(0, 0).map(|cell| cell.character),
             Some('A')
         );
+        assert_eq!(terminal.scroll_region, Some((0, 1)));
         assert_eq!(terminal.cursor.position.row, 1);
         assert_eq!(terminal.cursor.position.col, 2);
     }

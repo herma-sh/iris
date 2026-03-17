@@ -25,6 +25,10 @@ pub enum Action {
     NextLine,
     /// Move up by one row, scrolling down if needed.
     ReverseIndex,
+    /// Scroll the active region upward by `count` rows.
+    ScrollUp(u16),
+    /// Scroll the active region downward by `count` rows.
+    ScrollDown(u16),
     /// Save the current cursor position.
     SaveCursor,
     /// Restore the saved cursor position.
@@ -53,6 +57,8 @@ pub enum Action {
     EraseLine(u16),
     /// Erase characters starting at the current cursor.
     EraseCharacters(u16),
+    /// Set the scrolling region using one-based bounds.
+    SetScrollRegion { top: u16, bottom: u16 },
     /// Apply SGR attributes.
     SetGraphicsRendition(Vec<GraphicsRendition>),
     /// Update the terminal window title.

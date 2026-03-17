@@ -210,3 +210,29 @@ fn parser_switches_between_primary_and_alternate_screen() {
     assert_eq!(terminal.cursor.position.row, 0);
     assert_eq!(terminal.cursor.position.col, 1);
 }
+
+#[test]
+fn parser_applies_scroll_region_and_scroll_commands() {
+    let mut terminal = Terminal::new(4, 2).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\r\nB\r\nC\r\nD").unwrap();
+    parser.advance(&mut terminal, b"\x1b[2;4r\x1b[S").unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 0).map(|cell| cell.character),
+        Some('D')
+    );
+    assert_eq!(
+        terminal.grid.cell(3, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+}

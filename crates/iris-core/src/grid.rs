@@ -167,6 +167,73 @@ impl Grid {
         self.damage.mark_all();
     }
 
+    /// Scrolls an inclusive row range upward by the requested number of rows.
+    pub fn scroll_up_range(&mut self, top: usize, bottom: usize, count: usize) -> Result<()> {
+        self.validate_row_range(top, bottom)?;
+
+        let cols = self.cols();
+        if cols == 0 {
+            return Ok(());
+        }
+
+        let region_rows = bottom - top + 1;
+        let shift = count.min(region_rows);
+        if shift == 0 {
+            return Ok(());
+        }
+
+        let top_start = top * cols;
+        let bottom_end = (bottom + 1) * cols;
+
+        if shift < region_rows {
+            let source_start = (top + shift) * cols;
+            self.cells.copy_within(source_start..bottom_end, top_start);
+        }
+
+        let clear_start = (bottom + 1 - shift) * cols;
+        self.cells[clear_start..bottom_end].fill(Cell::default());
+
+        for row in top..=bottom {
+            self.damage.mark_row(row, cols);
+        }
+
+        Ok(())
+    }
+
+    /// Scrolls an inclusive row range downward by the requested number of rows.
+    pub fn scroll_down_range(&mut self, top: usize, bottom: usize, count: usize) -> Result<()> {
+        self.validate_row_range(top, bottom)?;
+
+        let cols = self.cols();
+        if cols == 0 {
+            return Ok(());
+        }
+
+        let region_rows = bottom - top + 1;
+        let shift = count.min(region_rows);
+        if shift == 0 {
+            return Ok(());
+        }
+
+        let top_start = top * cols;
+
+        if shift < region_rows {
+            let source_end = (bottom + 1 - shift) * cols;
+            let destination_start = (top + shift) * cols;
+            self.cells
+                .copy_within(top_start..source_end, destination_start);
+        }
+
+        let clear_end = (top + shift) * cols;
+        self.cells[top_start..clear_end].fill(Cell::default());
+
+        for row in top..=bottom {
+            self.damage.mark_row(row, cols);
+        }
+
+        Ok(())
+    }
+
     /// Resizes the grid, preserving the overlapping top-left content.
     pub fn resize(&mut self, new_size: GridSize) -> Result<()> {
         let cell_count =
@@ -271,6 +338,14 @@ impl Grid {
             cols: self.cols(),
         }
     }
+
+    fn validate_row_range(&self, top: usize, bottom: usize) -> Result<()> {
+        if top > bottom || bottom >= self.rows() {
+            return Err(self.invalid_position(bottom, 0));
+        }
+
+        Ok(())
+    }
 }
 
 impl Index<usize> for Grid {
@@ -324,6 +399,38 @@ mod tests {
         assert_eq!(grid.cell(1, 1), Some(&Cell::new('Y')));
         assert_eq!(grid.rows(), 3);
         assert_eq!(grid.cols(), 4);
+    }
+
+    #[test]
+    fn grid_scroll_up_range_preserves_outside_rows() {
+        let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+        grid.write(0, 0, Cell::new('A')).unwrap();
+        grid.write(1, 0, Cell::new('B')).unwrap();
+        grid.write(2, 0, Cell::new('C')).unwrap();
+        grid.write(3, 0, Cell::new('D')).unwrap();
+
+        grid.scroll_up_range(1, 3, 1).unwrap();
+
+        assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+        assert_eq!(grid.cell(1, 0), Some(&Cell::new('C')));
+        assert_eq!(grid.cell(2, 0), Some(&Cell::new('D')));
+        assert_eq!(grid.cell(3, 0), Some(&Cell::default()));
+    }
+
+    #[test]
+    fn grid_scroll_down_range_preserves_outside_rows() {
+        let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+        grid.write(0, 0, Cell::new('A')).unwrap();
+        grid.write(1, 0, Cell::new('B')).unwrap();
+        grid.write(2, 0, Cell::new('C')).unwrap();
+        grid.write(3, 0, Cell::new('D')).unwrap();
+
+        grid.scroll_down_range(1, 3, 1).unwrap();
+
+        assert_eq!(grid.cell(0, 0), Some(&Cell::new('A')));
+        assert_eq!(grid.cell(1, 0), Some(&Cell::default()));
+        assert_eq!(grid.cell(2, 0), Some(&Cell::new('B')));
+        assert_eq!(grid.cell(3, 0), Some(&Cell::new('C')));
     }
 
     #[test]
