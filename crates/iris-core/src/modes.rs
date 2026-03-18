@@ -99,6 +99,7 @@ impl Mode {
     /// Maps an ANSI mode parameter to a known mode.
     #[must_use]
     pub const fn from_ansi_param(param: u16) -> Option<Self> {
+        // Keypad application mode is toggled by ESC = / ESC >, not CSI mode parameters.
         match param {
             4 => Some(Self::Insert),
             20 => Some(Self::Newline),

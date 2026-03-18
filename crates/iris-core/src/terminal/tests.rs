@@ -299,6 +299,21 @@ fn terminal_reset_restores_initial_state() {
 }
 
 #[test]
+fn terminal_reset_clears_stale_alternate_screen_state() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal.alternate_screen_state = Some(super::AlternateScreenState {
+        grid: crate::grid::Grid::new(crate::grid::GridSize { rows: 2, cols: 4 }).unwrap(),
+        cursor: terminal.cursor.save(),
+        scroll_region: Some((0, 1)),
+    });
+
+    terminal.apply_action(Action::ResetTerminal).unwrap();
+
+    assert_eq!(terminal.alternate_screen_state, None);
+    assert!(!terminal.modes.alternate_screen);
+}
+
+#[test]
 fn terminal_tracks_osc_metadata_actions() {
     let mut terminal = Terminal::new(2, 4).unwrap();
 

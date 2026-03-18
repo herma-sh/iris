@@ -215,6 +215,7 @@ impl Terminal {
             self.exit_alternate_screen();
         }
 
+        self.alternate_screen_state = None;
         self.grid.clear();
         self.cursor = Cursor::new();
         self.modes = TerminalModes::new();
