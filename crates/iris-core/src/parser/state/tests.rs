@@ -1,4 +1,4 @@
-use super::{Parser, ParserConfig, ParserState};
+use super::{Charset, Parser, ParserConfig, ParserState};
 use crate::cell::{CellFlags, Color};
 use crate::parser::{Action, GraphicsRendition};
 
@@ -77,6 +77,24 @@ fn esc_c_clears_pending_single_shift_charset() {
         parser.parse(b"\x1b*0\x1bN\x1bcq"),
         vec![Action::ResetTerminal, Action::Print('q')]
     );
+}
+
+#[test]
+fn esc_c_restores_terminal_interpretation_defaults() {
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b(A").is_empty());
+    assert!(parser.parse(b"\x1b)0\x0e\x1bN").is_empty());
+
+    assert_eq!(parser.charsets[0], Charset::Uk);
+    assert_eq!(parser.charsets[1], Charset::DecSpecial);
+    assert_eq!(parser.active_charset, 1);
+    assert_eq!(parser.single_shift_charset, Some(2));
+
+    assert_eq!(parser.parse(b"\x1bc"), vec![Action::ResetTerminal]);
+    assert_eq!(parser.charsets, [Charset::Ascii; 4]);
+    assert_eq!(parser.active_charset, 0);
+    assert_eq!(parser.single_shift_charset, None);
+    assert_eq!(parser.last_printed_char, None);
 }
 
 #[test]

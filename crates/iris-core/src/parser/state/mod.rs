@@ -140,6 +140,18 @@ impl Parser {
         self.reset_utf8();
     }
 
+    fn reset_terminal_state(&mut self) {
+        self.state = ParserState::Ground;
+        self.params.clear();
+        self.current_param = None;
+        self.private_marker = None;
+        self.charsets = [Charset::Ascii; 4];
+        self.active_charset = 0;
+        self.single_shift_charset = None;
+        self.last_printed_char = None;
+        self.reset_utf8();
+    }
+
     /// Parses input bytes into terminal actions.
     #[must_use]
     pub fn parse(&mut self, input: &[u8]) -> Vec<Action> {
