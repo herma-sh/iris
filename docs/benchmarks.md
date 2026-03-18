@@ -1,376 +1,109 @@
 # Iris Performance Benchmarks
 
-Measurable performance targets and measurement methodology.
+Measurable performance targets and the benchmark workflow used to track them.
 
 ## Performance Philosophy
 
-### Latency Over Throughput
+Terminal UX is defined by latency first and throughput second:
 
-Terminal UX is defined by latency, not throughput:
-- Typing must feel instant (< 4ms key-to-screen)
-- Scrolling must be smooth (60fps sustained)
-- Resize must not block (> 50ms is noticeable)
+- Typing must feel instant.
+- Scrolling must stay smooth under sustained output.
+- Resize and redraw work must not block the UI.
+- Hot paths should avoid hidden heap churn.
 
-### Honey Metrics
+## Current Benchmarks
 
-Borrowed from Ghostty/others - metrics that matter to users:
+### Parser Throughput
 
-| Metric | User Impact | Target |
-|--------|-------------|--------|
-| Time to interactive | First prompt visible | < 100ms |
-| Input latency | Typing feels snappy | < 4ms |
-| Scroll FPS | Smooth scrolling | 60 fps |
-| Resize lag | Window drag feels responsive | < 50ms |
-| Memory (10k lines) | Doesn't slow down system | < 50MB |
+The repository currently ships one concrete benchmark harness:
 
----
+- Path: `crates/iris-core/benches/parser_throughput.rs`
+- Scope: parser-to-terminal throughput through `Parser::advance`
+- Fixtures:
+  - `plain_text_1mb`
+  - `csi_stream_100k`
 
-## Benchmark Suite
-
-### 1. Parser Throughput
-
-**What**: How fast we parse PTY output to grid updates.
-
-**Test**: Parse various input sizes and measure throughput.
+This harness intentionally measures the shipped path, not `Parser::parse` in isolation. That keeps the benchmark aligned with the real work performed by `iris-core` when PTY output is applied to terminal state.
 
 ```rust
-// benches/parser_throughput.rs
+use std::hint::black_box;
 
-fn bench_parse_plain_text(c: &mut Criterion) {
-    let mut group = c.benchmark_group("parser_throughput");
-    
-    // 1MB of plain text
-    let data: Vec<u8> = (b'a'..=b'z').cycle().take(1_000_000).collect();
-    group.throughput(Throughput::Bytes(data.len() as u64));
-    group.bench_function("plain_1mb", |b| {
-        b.iter(|| {
-            let mut terminal = Terminal::new(80, 24);
-            let mut parser = Parser::new(&mut terminal);
-            parser.parse(black_box(&data))
-        });
-    });
-    
-    // 100K CSI sequences
-    let data = b"\x1b[31mX\x1b[0m".repeat(25_000);
-    group.throughput(Throughput::Bytes(data.len() as u64));
-    group.bench_function("csi_100k", |b| {
-        b.iter(|| {
-            let mut terminal = Terminal::new(80, 24);
-            let mut parser = Parser::new(&mut terminal);
-            parser.parse(black_box(&data))
-        });
-    });
+use iris_core::{Parser, Terminal};
+
+fn run_fixture(data: &[u8]) {
+    let mut parser = Parser::new();
+    let mut terminal = Terminal::new(24, 80).unwrap();
+    parser.advance(&mut terminal, black_box(data)).unwrap();
+    black_box(terminal);
 }
 ```
 
-**Targets:**
+### Phase 1 Targets
 
-| Test | Target | Failure |
-|------|--------|---------|
-| Plain text throughput | > 100 MB/s | < 50 MB/s |
-| CSI sequence throughput | > 10M seq/s | < 5M seq/s |
+| Fixture | Target | Failure threshold |
+|---------|--------|-------------------|
+| Plain text throughput | >= 100 MiB/s | < 50 MiB/s |
+| CSI sequence throughput | >= 10M seq/s | < 5M seq/s |
 
-### 2. Grid Operations
+### Latest Verified Results
 
-**What**: How fast grid operations complete.
+Verified runs on 2026-03-18 ranged roughly:
 
-```rust
-// benches/grid_operations.rs
+| Fixture | Result |
+|---------|--------|
+| `plain_text_1mb` | `144-151 MiB/s` |
+| `csi_stream_100k` | `11.1M-11.2M seq/s` |
 
-fn bench_grid_write(c: &mut Criterion) {
-    let mut group = c.benchmark_group("grid_operations");
-    
-    // Write single cell
-    group.bench_function("write_single_cell", |b| {
-        let mut grid = Grid::new(80, 24);
-        b.iter(|| {
-            grid.write(black_box(10), black_box(5), Cell::new('X'))
-        });
-    });
-    
-    // Write full line
-    group.bench_function("write_full_line", |b| {
-        let mut grid = Grid::new(80, 24);
-        let line: Vec<Cell> = (0..80).map(|_| Cell::new('X')).collect();
-        b.iter(|| {
-            grid.write_line(black_box(0), black_box(&line))
-        });
-    });
-    
-    // Scroll up
-    group.bench_function("scroll_up", |b| {
-        let mut grid = Grid::new(80, 24);
-        b.iter(|| grid.scroll_up(black_box(1)));
-    });
-    
-    // Resize
-    group.bench_function("resize", |b| {
-        let mut grid = Grid::new(80, 24);
-        b.iter(|| grid.resize(black_box(120), black_box(40)));
-    });
-}
-```
+These runs were taken after the parser action-buffer reuse work, CSI allocation reductions, ASCII ground-state fast path, and batched terminal/grid ASCII writes.
 
-**Targets:**
+## Planned Benchmarks
 
-| Test | Target | Failure |
-|------|--------|---------|
-| Write single cell | < 1µs | > 10µs |
-| Write full line | < 10µs | > 100µs |
-| Scroll up | < 10µs | > 100µs |
-| Resize (100K cells) | < 1ms | > 10ms |
+Additional benchmark areas are still planned for later phases:
 
-### 3. Input Latency
+- Grid operations
+- Render latency and damage-only redraw cost
+- Startup time
+- Memory usage under large scrollback
+- Interactive latency under heavy output
 
-**What**: Time from keystroke to screen update.
+Those benches should follow the same rule as the current parser harness: measure the shipped execution path rather than a simplified micro-benchmark that skips real state updates.
 
-```rust
-// benches/input_latency.rs
-
-fn bench_input_to_screen(c: &mut Criterion) {
-    // This requires mocking the full pipeline:
-    // keypress -> parser -> grid -> render
-    
-    let mut group = c.benchmark_group("input_latency");
-    
-    group.bench_function("keypress_to_grid", |b| {
-        let mut terminal = Terminal::new(80, 24);
-        let mut parser = Parser::new(&mut terminal);
-        b.iter(|| {
-            parser.parse(black_box(b"A"))
-        });
-    });
-}
-```
-
-**Targets:**
-
-| Test | Target | Failure |
-|------|--------|---------|
-| Keypress to grid | < 1ms | > 10ms |
-| Grid to render (mock) | < 50µs | > 1ms |
-
-### 4. Rendering
-
-**What**: How fast we render the grid to screen.
-
-```rust
-// benches/render.rs
-
-fn bench_render_grid(c: &mut Criterion) {
-    let mut group = c.benchmark_group("render");
-    
-    // Render 80x24 grid (typical)
-    group.bench_function("render_80x24", |b| {
-        let grid = create_filled_grid(80, 24);
-        let mut renderer = MockRenderer::new();
-        b.iter(|| renderer.render(black_box(&grid)));
-    });
-    
-    // Render 200x60 grid (large)
-    group.bench_function("render_200x60", |b| {
-        let grid = create_filled_grid(200, 60);
-        let mut renderer = MockRenderer::new();
-        b.iter(|| renderer.render(black_box(&grid)));
-    });
-}
-```
-
-**Targets:**
-
-| Test | Target | Failure |
-|------|--------|---------|
-| Render 80x24 | < 1ms | > 5ms |
-| Render 200x60 | < 5ms | > 16ms |
-
-### 5. Memory Usage
-
-**What**: Memory consumption for various states.
-
-```rust
-// benches/memory.rs
-
-fn bench_memory_usage(c: &mut Criterion) {
-    // Memory benchmarks use separate process with memory profiling
-    // These are integration tests, not Criterion benchmarks
-    
-    // Test cases:
-    // - Empty terminal: < 1MB
-    // - 10K scrollback: < 50MB
-    // - 100K scrollback: < 200MB
-    // - Dense grid (all cells filled): < 5MB
-}
-```
-
-**Targets:**
-
-| State | Target | Failure |
-|-------|--------|---------|
-| Empty terminal | < 1MB | > 10MB |
-| 10K scrollback | < 50MB | > 100MB |
-| 100K scrollback | < 200MB | > 500MB |
-| Dense grid (80x24) | < 200KB | > 2MB |
-
----
-
-## Framework Benchmarks
-
-### Startup Time
-
-**What**: Time from process start to first paint.
-
-```bash
-# Measure startup time
-hyperfine --warmup 3 'iris --command "echo test; exit"'
-```
-
-**Targets:**
-
-| Platform | Target | Failure |
-|----------|--------|---------|
-| Windows | < 100ms | > 500ms |
-| macOS | < 100ms | > 500ms |
-| Linux | < 100ms | > 500ms |
-
-### Scrolling Under Load
-
-**What**: FPS while scrolling through large output.
-
-```bash
-# Generate large output and scroll
-# Measure FPS with tool like PresentMon (Windows) or mesa demos (Linux)
-cat /dev/urandom | base64 | head -n 1000000
-# Then scroll with mouse/keyboard
-```
-
-**Targets:**
-
-| Scenario | Target | Failure |
-|----------|--------|---------|
-| Scroll 1M lines | 60 fps | < 30 fps |
-| Scroll during cat | 60 fps | < 30 fps |
-
-### Input During Heavy Output
-
-**What**: Input responsiveness while processing output.
-
-```bash
-# Run heavy output and type
-yes &
-# Type in terminal - should feel responsive
-```
-
-**Targets:**
-
-| Test | Target | Failure |
-|------|--------|---------|
-| Typing during `yes` | < 10ms | > 50ms |
-| Typing during `cat large_file` | < 10ms | > 50ms |
-
----
-
-## Regression Detection
-
-### CI Integration
-
-```yaml
-# .github/workflows/bench.yml
-bench:
-  script:
-    - cargo bench --save-baseline main
-    - cargo bench --load-baseline main --compare
-  artifacts:
-    - target/criterion/
-```
-
-### Regression Thresholds
-
-| Metric | Regression Threshold |
-|--------|---------------------|
-| Throughput | > 10% slower |
-| Latency | > 20% slower |
-| Memory | > 20% larger |
-| FPS | > 5 fps drop |
-
-### Alerts
-
-When regression detected:
-1. CI fails
-2. GitHub issue created
-3. PR blocked until fixed
-
----
-
-## Benchmark Running
+## Running Benchmarks
 
 ### Local Development
 
 ```bash
-# Run all benchmarks
-cargo bench
+# Run the shipped parser throughput benchmark
+cargo bench -p iris-core --bench parser_throughput
 
-# Run specific benchmark
-cargo bench -- parser
+# Build all benches without running them
+cargo bench --all --no-run
 
-# Run with flamegraph
-cargo bench --parser -- --profile-time=5
-
-# Compare against baseline
-cargo bench --save-baseline before-change
-# make changes
-cargo bench --load-baseline before-change
+# Optional profiler-driven follow-up
+cargo flamegraph --bench parser_throughput -p iris-core
 ```
 
-### CI Benchmarks
+### CI
 
 ```bash
-# Run in CI
-cargo bench --save-baseline ci
-
-# Compare PR against main
-cargo bench --load-baseline ci
+# Phase 1 performance gate
+cargo bench -p iris-core --bench parser_throughput
 ```
 
----
+## Regression Policy
 
-## Performance Monitoring
+When benchmarked performance regresses:
 
-### Metrics to Track Over Time
+1. Profile the changed path.
+2. Identify the concrete hot spot.
+3. Optimize the implementation with measurements, not guesses.
+4. Rerun the benchmark and record the new baseline.
+5. Update docs when the methodology or target changes.
 
-| Metric | Collection | Storage |
-|--------|------------|---------|
-| Parser throughput | Benchmark | JSON in git |
-| Render latency | Benchmark | JSON in git |
-| Startup time | CI job | GitHub Actions artifacts |
-| Memory usage | CI job | GitHub Actions artifacts |
-| Binary size | CI job | GitHub Actions artifacts |
+## Benchmark Hygiene
 
-### Dashboard
-
-Track trends at `<benchmark-dashboard-url>`:
-- Parser throughput over time
-- Input latency over time
-- Memory usage over time
-- Binary size over time
-
----
-
-## Optimization Checklist
-
-When a benchmark fails:
-
-1. **Profile**: Run with profiling to find hotspot
-2. **Identify**: Find slow function
-3. **Optimize**: Apply optimization
-4. **Verify**: Re-run benchmark
-5. **Document**: Add comment explaining optimization
-
-### Common Optimizations
-
-| Hotspot | Optimization |
-|---------|--------------|
-| Parser | SIMD for ESC detection |
-| Grid write | Inline hot path |
-| Grid resize | Async reflow |
-| Rendering | Reduce vertex buffer size |
-| Memory | Attribute deduplication |
+- Benchmark hot paths after correctness is established.
+- Prefer stable fixtures over ad hoc shell commands.
+- Keep throughput results tied to exact commands.
+- Avoid changing targets without documenting why.
+- If a benchmark is deferred because the required binary or subsystem does not exist yet, say so explicitly.

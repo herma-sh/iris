@@ -90,6 +90,18 @@ fn parser_handles_csi_cursor_and_erase_sequences() {
 }
 
 #[test]
+fn parser_ignores_unsupported_csi_intermediate_sequences_in_streams() {
+    let mut terminal = Terminal::new(2, 6).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\x1b[1 $qB").unwrap();
+
+    assert_eq!(row_text(&terminal, 0), "AB    ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 2);
+}
+
+#[test]
 fn parser_applies_sgr_attributes_to_printed_cells() {
     let mut terminal = Terminal::new(2, 8).unwrap();
     let mut parser = Parser::new();
@@ -234,6 +246,20 @@ fn parser_recovers_after_dcs_and_ignored_string_sequences() {
         terminal.grid.cell(0, 4).map(|cell| cell.character),
         Some('E')
     );
+}
+
+#[test]
+fn parser_executes_controls_inside_dcs_sequences() {
+    let mut terminal = Terminal::new(2, 6).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"A\x1bPskip\r\x1b\\B")
+        .unwrap();
+
+    assert_eq!(row_text(&terminal, 0), "B     ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 1);
 }
 
 #[test]
@@ -460,6 +486,25 @@ fn parser_applies_insert_line_sequences_within_scroll_region() {
         terminal.grid.cell(2, 0).map(|cell| cell.character),
         Some('B')
     );
+}
+
+#[test]
+fn parser_applies_erase_modes_and_scroll_region_reset_sequences() {
+    let mut terminal = Terminal::new(4, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\r\nB\r\nC\r\nD").unwrap();
+    parser
+        .advance(
+            &mut terminal,
+            b"\x1b[2;4r\x1b[S\x1b[r\x1b[4;1H\x1bD\x1b[2;1H\x1b[0J\x1b[1;2H\x1b[1KZ",
+        )
+        .unwrap();
+
+    assert_eq!(row_text(&terminal, 0), " Z  ");
+    assert_eq!(row_text(&terminal, 1), "    ");
+    assert_eq!(row_text(&terminal, 2), "    ");
+    assert_eq!(row_text(&terminal, 3), "    ");
 }
 
 #[test]

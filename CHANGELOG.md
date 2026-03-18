@@ -50,10 +50,38 @@ Target release: `0.1.0`
 - Added phase-1 `CSI b` repeat-previous-character support with parser-state tracking so repeated graphic output works across normal printable and UTF-8 decoded characters.
 - Hardened phase-1 `ESC c` handling so parser-side terminal interpretation resets restore default charset slots and active charset instead of only clearing transient single-shift state.
 - Expanded phase-1 integration coverage with chunked mixed-sequence streams and combined screen-update flows closer to real terminal redraw behavior.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark the parser and integration milestones that are now complete, so progress tracking stays aligned with merged work.
+- Updated the phase-1 implementation-order section in `docs/phases/01.md` to mark parser, integration, benchmarking, and documentation cleanup milestones complete while explicitly deferring VTtest to Phase 6.
 - Added phase-1 tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
 - Added phase-1 insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.
 - Added phase-1 ESC handling for `ESC Z`, `ESC c`, `ESC =`, and `ESC >`, including keypad-mode tracking and full terminal reset coverage across parser, terminal, and integration tests.
 - Hardened full terminal reset so it always clears cached alternate-screen state even if the active mode flag is already false, and documented that keypad mode is controlled by `ESC =` / `ESC >` rather than CSI mode parameters.
+- Added chunked vttest-style redraw coverage with scroll margins, origin mode, save/restore cursor, SGR, tabs, charset shifts, and scroll operations in a dedicated `iris-core` integration test file.
+- Corrected DEC origin-mode handling so enabling or resetting `CSI ? 6 h/l` homes the cursor appropriately and absolute cursor addressing clamps within the active scroll region while origin mode is active.
+- Added phase-1 parser, terminal, and integration coverage for explicit `CSI J`/`CSI K` erase modes and for `CSI r` scroll-region reset semantics.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark erase-mode and scroll-region reset coverage complete.
+- Added phase-1 parser recovery and control-handling coverage for embedded C0 controls plus `CAN`/`SUB` cancellation across CSI, escape, charset-designation, and string states.
+- Updated parser string and sequence handling so embedded controls continue to execute without corrupting buffered OSC/DCS payloads, while `CAN` and `SUB` now cancel the active sequence cleanly.
+- Added comprehensive phase-1 SGR coverage for supported style toggles, standard/default ANSI colors, bright colors, and extended-color clamping.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark full supported SGR attribute-code coverage complete.
+- Added phase-1 parser and integration coverage for nested-like OSC streams so malformed in-string `ESC ]` introducers stay literal until BEL/ST termination and subsequent real OSC updates still resynchronize cleanly.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark nested OSC coverage complete.
+- Added app-style phase-1 integration coverage for realistic `vim`-like alternate-screen redraws and `tmux`-like status-line redraws on the main screen.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark real-terminal-output coverage complete.
+- Added explicit phase-1 CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark CSI intermediate coverage complete.
+- Added a phase-1 `cargo bench` parser throughput harness in `crates/iris-core/benches/parser_throughput.rs` so plain-text MiB/s and CSI sequence throughput can be measured directly against the documented targets.
+- Reduced parser and CSI hot-path allocation churn by reusing parser buffers, appending into shared action output, pushing completed CSI actions directly into that buffer, and storing common SGR and mode payloads inline with `smallvec`.
+- Optimized the shipped parser-to-terminal path by extending the ASCII ground-state fast path to `Parser::advance` and adding batched ASCII terminal/grid writes with range-based damage marking for contiguous single-width output.
+- Hardened the grid and terminal ASCII fast paths so `write_ascii_run` now rejects control bytes and raw UTF-8 bytes instead of treating arbitrary input bytes as printable single-width characters.
+- Strengthened the terminal erase-mode regression tests so `ED 3` and `EL 2` assertions now verify cells that would expose partial or no-op erase implementations.
+- Hardened the public `Grid::write_ascii_run` bounds arithmetic with checked addition so oversized ASCII-run lengths fail safely instead of relying on unchecked `usize` math.
+- Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, with verified 2026-03-18 runs ranging roughly from `144 MiB/s` to `151 MiB/s` on the plain-text fixture and from `11.1M` to `11.2M seq/s` on the CSI fixture.
+- Clarified the phase plan so VTtest remains deferred until Phase 6, when Iris first has a runnable standalone terminal binary that can host an interactive VTtest session.
+- Cleaned up the benchmark, testing, and documentation index docs so Phase 1 now points at the shipped `Parser::advance` parser-to-terminal harness, marks documentation cleanup complete, and removes stale claims that VTtest already passes before a runnable binary exists.
+- Corrected the docs index success criteria so the `docs/README.md` input latency target now matches the `< 4ms` value used in the performance targets table.
+- Corrected the Phase 1 acceptance-criteria table to use `MiB/s` instead of `MB/s` for the parser throughput target so it matches the benchmark docs.
+- Corrected stale `docs/testing-strategy.md` code examples to use the current `Terminal`/`Grid` API, including `terminal.grid`, `Cell.character`, and row/column ordering in grid assertions.
 
 ## 0.0.1 - 2026-03-17
 

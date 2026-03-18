@@ -84,6 +84,15 @@ impl Terminal {
                 let enabled = !reset;
                 match mode {
                     Mode::AlternateScreen => self.set_alternate_screen(enabled)?,
+                    Mode::Origin => {
+                        self.modes.set_mode(mode, enabled);
+                        let home_row = if enabled {
+                            self.scroll_region.map_or(0, |(top, _bottom)| top)
+                        } else {
+                            0
+                        };
+                        self.move_cursor(home_row, 0);
+                    }
                     _ => self.modes.set_mode(mode, enabled),
                 }
             }

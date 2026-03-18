@@ -33,22 +33,40 @@ fn parser_collects_csi_parameters_and_defaults() {
 }
 
 #[test]
+fn parser_collects_csi_intermediates_and_ignores_unsupported_sequences() {
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b[12 ").is_empty());
+    assert_eq!(parser.state(), ParserState::CsiIntermediate);
+    assert_eq!(parser.params, vec![12]);
+    assert_eq!(parser.intermediates, vec![b' ']);
+
+    assert!(parser.parse(b"$q").is_empty());
+    assert_eq!(parser.state(), ParserState::Ground);
+    assert!(parser.params.is_empty());
+    assert!(parser.intermediates.is_empty());
+    assert_eq!(parser.parse(b"A"), vec![Action::Print('A')]);
+}
+
+#[test]
 fn parser_handles_private_modes_and_sgr() {
     let mut parser = Parser::new();
     assert_eq!(
         parser.parse(b"\x1b[?25l"),
         vec![Action::ResetModes {
             private: true,
-            modes: vec![25],
+            modes: vec![25].into(),
         }]
     );
     assert_eq!(
         parser.parse(b"\x1b[1;31;48;5;240m"),
-        vec![Action::SetGraphicsRendition(vec![
-            GraphicsRendition::Bold(true),
-            GraphicsRendition::Foreground(Color::Ansi(1)),
-            GraphicsRendition::Background(Color::Indexed(240)),
-        ])]
+        vec![Action::SetGraphicsRendition(
+            vec![
+                GraphicsRendition::Bold(true),
+                GraphicsRendition::Foreground(Color::Ansi(1)),
+                GraphicsRendition::Background(Color::Indexed(240)),
+            ]
+            .into()
+        )]
     );
 }
 
@@ -128,9 +146,76 @@ fn parser_recovers_from_malformed_utf8_sequences() {
 #[test]
 fn parser_handles_malformed_sequences_gracefully() {
     let mut parser = Parser::new();
-    assert!(parser.parse(b"\x1b[12$").is_empty());
+    assert!(parser.parse(b"\x1b[12$\x7f").is_empty());
     assert_eq!(parser.state(), ParserState::Ground);
     assert_eq!(parser.parse(b"B"), vec![Action::Print('B')]);
+}
+
+#[test]
+fn parser_executes_controls_inside_active_escape_and_csi_sequences() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b[12\r3A"),
+        vec![Action::CarriageReturn, Action::CursorUp(123)]
+    );
+    assert_eq!(parser.state(), ParserState::Ground);
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b)0").is_empty());
+    assert_eq!(
+        parser.parse(b"\x1b[1\x0e2Aq"),
+        vec![Action::CursorUp(12), Action::Print('\u{2500}')]
+    );
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b(").is_empty());
+    assert!(parser.parse(b"\x0e0").is_empty());
+    assert_eq!(parser.charsets[0], Charset::DecSpecial);
+    assert_eq!(parser.active_charset, 1);
+    assert_eq!(parser.state(), ParserState::Ground);
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b[1 ").is_empty());
+    assert_eq!(parser.parse(b"\r$q"), vec![Action::CarriageReturn]);
+    assert_eq!(parser.state(), ParserState::Ground);
+}
+
+#[test]
+fn parser_executes_controls_inside_string_states_without_keeping_them_in_payloads() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b]2;Hi\rThere\x07"),
+        vec![
+            Action::CarriageReturn,
+            Action::SetWindowTitle("HiThere".to_string()),
+        ]
+    );
+
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1bPab\tcd\x1b\\Z"),
+        vec![Action::Tab, Action::Print('Z')]
+    );
+
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1bXab\x0bcd\x1b\\Q"),
+        vec![Action::VerticalTab, Action::Print('Q')]
+    );
+}
+
+#[test]
+fn can_and_sub_cancel_active_sequences_and_strings() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b[31\x18mA"),
+        vec![Action::Print('m'), Action::Print('A')]
+    );
+    assert_eq!(parser.state(), ParserState::Ground);
+
+    let mut parser = Parser::new();
+    assert_eq!(parser.parse(b"\x1b]2;Oops\x1aA"), vec![Action::Print('A')]);
+    assert_eq!(parser.state(), ParserState::Ground);
 }
 
 #[test]
@@ -168,6 +253,22 @@ fn parser_parses_osc_hyperlink_with_st_terminator() {
             id: Some("prompt-1".to_string()),
             uri: "https://example.com".to_string(),
         }]
+    );
+}
+
+#[test]
+fn parser_treats_nested_osc_introducers_as_literal_string_content() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b]2;Outer\x1b]2;Inner\x07"),
+        vec![Action::SetWindowTitle("Outer\x1b]2;Inner".to_string())]
+    );
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b]2;Chunked\x1b").is_empty());
+    assert_eq!(
+        parser.parse(b"]Tail\x07"),
+        vec![Action::SetWindowTitle("Chunked\x1b]Tail".to_string())]
     );
 }
 
@@ -308,8 +409,10 @@ fn finishing_dcs_does_not_clear_ignored_string_state() {
     parser.state = ParserState::DcsString;
     parser.dcs_buffer.extend_from_slice(b"qignored");
     parser.ignored_string_len = 3;
+    let mut actions = Vec::new();
 
-    assert!(parser.finish_dcs().is_empty());
+    parser.finish_dcs(&mut actions);
+    assert!(actions.is_empty());
     assert_eq!(parser.ignored_string_len, 3);
     assert_eq!(parser.state(), ParserState::Ground);
 }

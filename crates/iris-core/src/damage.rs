@@ -61,6 +61,23 @@ impl DamageTracker {
         }
     }
 
+    /// Marks an inclusive column range as damaged.
+    pub fn mark_range(&mut self, row: usize, start_col: usize, end_col: usize) {
+        if start_col > end_col {
+            return;
+        }
+
+        if let Some(range) = self.rows.get_mut(row) {
+            match range {
+                Some((current_start, current_end)) => {
+                    *current_start = (*current_start).min(start_col);
+                    *current_end = (*current_end).max(end_col);
+                }
+                slot @ None => *slot = Some((start_col, end_col)),
+            }
+        }
+    }
+
     /// Marks a complete row as damaged.
     pub fn mark_row(&mut self, row: usize, cols: usize) {
         if let Some(slot) = self.rows.get_mut(row) {
@@ -140,6 +157,14 @@ mod tests {
         let mut tracker = DamageTracker::new(2);
         tracker.mark_row(0, 0);
         assert!(tracker.take(0).is_empty());
+    }
+
+    #[test]
+    fn damage_mark_range_merges_with_existing_damage() {
+        let mut tracker = DamageTracker::new(2);
+        tracker.mark(0, 6);
+        tracker.mark_range(0, 2, 4);
+        assert_eq!(tracker.take(8), vec![DamageRegion::new(0, 0, 2, 6)]);
     }
 
     #[test]

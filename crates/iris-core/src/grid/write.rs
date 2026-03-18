@@ -1,6 +1,6 @@
 use super::Grid;
-use crate::cell::{Cell, CellWidth};
-use crate::error::Result;
+use crate::cell::{Cell, CellAttrs, CellWidth};
+use crate::error::{validate_printable_ascii, Result};
 
 impl Grid {
     /// Writes a cell to a visible position and records the damaged columns.
@@ -26,6 +26,61 @@ impl Grid {
             self.damage.mark(row, col + 1);
         }
 
+        Ok(())
+    }
+
+    /// Writes a contiguous ASCII run into a single row using single-width cells.
+    pub fn write_ascii_run(
+        &mut self,
+        row: usize,
+        col: usize,
+        bytes: &[u8],
+        attrs: CellAttrs,
+    ) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        validate_printable_ascii(bytes)?;
+
+        let end_col = col
+            .checked_add(bytes.len())
+            .ok_or_else(|| self.invalid_position(row, col))?;
+        if row >= self.rows() || col >= self.cols() || end_col > self.cols() {
+            return Err(self.invalid_position(row, col));
+        }
+
+        let start = row
+            .checked_mul(self.cols())
+            .and_then(|start| start.checked_add(col))
+            .ok_or_else(|| self.invalid_position(row, col))?;
+        let end = start
+            .checked_add(bytes.len())
+            .ok_or_else(|| self.invalid_position(row, col))?;
+        let mut requires_cleanup = false;
+
+        for offset in 0..bytes.len() {
+            if self.cells[start + offset].width != CellWidth::Single {
+                requires_cleanup = true;
+                break;
+            }
+        }
+
+        if requires_cleanup {
+            for offset in 0..bytes.len() {
+                self.clear_wide_span_at(row, col + offset);
+            }
+        }
+
+        for (cell, &byte) in self.cells[start..end].iter_mut().zip(bytes) {
+            *cell = Cell {
+                character: char::from(byte),
+                width: CellWidth::Single,
+                attrs,
+            };
+        }
+
+        self.damage.mark_range(row, col, end_col - 1);
         Ok(())
     }
 

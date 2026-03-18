@@ -1,26 +1,26 @@
 # Iris
 
-Iris is the embeddable terminal platform for [Herma](../../README.md).
+Iris is the terminal platform documented in this repository.
 
 ## Overview
 
-Iris is a cross-platform terminal emulator designed for two modes:
+Iris is a cross-platform terminal emulator built for two deployment modes:
 
-1. **Standalone** - A native terminal application (like Alacritty, WezTerm, Ghostty)
-2. **Embedded** - A terminal surface embedded in Hermes via Tauri
+1. **Standalone** - A native terminal application
+2. **Embedded** - A terminal surface hosted inside another application
 
-**Windows, Linux, and macOS are all first-class targets. Windows receives explicit priority.**
+Windows, Linux, and macOS are all first-class targets, with Windows treated as an explicit design-time priority.
 
-## Packages
+## Workspace Crates
 
-Iris is published as `@iris/*` packages:
+The current repository is organized as a Rust workspace:
 
-| Package | Description |
-|---------|-------------|
-| `@iris/core` | Terminal state, parser, buffer (no windowing dependencies) |
-| `@iris/platform` | PTY, clipboard, IME, fonts (platform-specific) |
-| `@iris/render` | GPU rendering via wgpu |
-| `@iris/standalone` | Binary entry point for standalone terminal |
+| Crate | Description |
+|-------|-------------|
+| `iris-core` | Terminal state, parser, buffer, damage tracking, and tests |
+| `iris-platform` | PTY, clipboard, IME, and font abstractions |
+| `iris-render-wgpu` | GPU rendering via `wgpu` |
+| `iris-standalone` | Planned standalone binary entry point in a later phase |
 
 ## Design Reference
 
@@ -61,27 +61,27 @@ Iris is published as `@iris/*` packages:
 - **Buffer-first architecture** - Parser needs somewhere to write; grid model comes first
 - **Cell grid with attribute runs** - Efficient GPU batching, memory savings
 - **Lock-free reads** - Arc snapshots for concurrent render without mutex
-- **Zero-allocation hot path** - No Vec::push in parsing/rendering
+- **Zero-allocation hot path** - No hidden heap churn in parser and render hot loops
 
 ### Crate Structure
 
-```
+```text
 crates/
   iris-core/           # No windowing/render dependencies
   iris-platform/       # PTY, clipboard, IME, fonts
   iris-render-wgpu/    # GPU rendering
-  iris-standalone/     # winit binary
+  iris-standalone/     # standalone binary (Phase 6)
 ```
 
 ## Success Criteria
 
 Iris v1 is complete when:
 
-1. ✅ Runs standalone on Windows, Linux, macOS
-2. ✅ Renders at 60fps with smooth scrolling
-3. ✅ Passes vttest basic sequences
-4. ✅ Handles real-world workloads (tmux, htop, vim)
-5. ✅ Input latency < 16ms
-6. ✅ Memory < 50MB at 10k scrollback
-7. ✅ Embeds into Hermes via Tauri
-8. ✅ "Open with Iris" works on Windows
+1. Runs standalone on Windows, Linux, and macOS.
+2. Renders at 60fps with smooth scrolling.
+3. Passes VTtest basic sequences once the standalone binary can host an interactive session.
+4. Handles real-world workloads such as `tmux`, `htop`, and `vim`.
+5. Keeps input latency below 4ms.
+6. Stays below 50MB at 10k lines of scrollback.
+7. Embeds cleanly into host applications through the documented integration surface.
+8. Supports platform-native launch and shell workflows on Windows.

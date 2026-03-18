@@ -1,5 +1,5 @@
 use super::control::parse_control;
-use super::csi::parse_csi;
+use super::csi::parse_csi_into;
 use super::dcs::parse_dcs;
 use super::osc::parse_osc;
 use super::Action;
@@ -40,6 +40,8 @@ pub enum ParserState {
     CsiEntry,
     /// `CSI` parameter collection.
     CsiParam,
+    /// `CSI` intermediate-byte collection.
+    CsiIntermediate,
 }
 
 /// Parser bounds used to avoid unbounded sequence accumulation.
@@ -72,6 +74,7 @@ pub struct Parser {
     state: ParserState,
     config: ParserConfig,
     params: Vec<u16>,
+    intermediates: Vec<u8>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
     charsets: [Charset; 4],
@@ -105,6 +108,7 @@ impl Parser {
         Self {
             state: ParserState::Ground,
             params: Vec::with_capacity(config.max_params.min(16)),
+            intermediates: Vec::with_capacity(4),
             current_param: None,
             private_marker: None,
             charsets: [Charset::Ascii; 4],
@@ -131,6 +135,7 @@ impl Parser {
     pub fn reset(&mut self) {
         self.state = ParserState::Ground;
         self.params.clear();
+        self.intermediates.clear();
         self.current_param = None;
         self.private_marker = None;
         self.osc_buffer.clear();
@@ -143,6 +148,7 @@ impl Parser {
     fn reset_terminal_state(&mut self) {
         self.state = ParserState::Ground;
         self.params.clear();
+        self.intermediates.clear();
         self.current_param = None;
         self.private_marker = None;
         self.charsets = [Charset::Ascii; 4];
@@ -155,62 +161,191 @@ impl Parser {
     /// Parses input bytes into terminal actions.
     #[must_use]
     pub fn parse(&mut self, input: &[u8]) -> Vec<Action> {
-        let mut actions = Vec::new();
-        for &byte in input {
-            actions.extend(self.parse_byte(byte));
-        }
+        let mut actions = Vec::with_capacity(input.len());
+        self.parse_into(input, &mut actions);
         actions
     }
 
     /// Consumes input bytes and applies the resulting actions to the terminal.
     pub fn advance(&mut self, terminal: &mut Terminal, input: &[u8]) -> Result<()> {
-        for action in self.parse(input) {
+        let mut actions = Vec::new();
+        let mut index = 0;
+
+        while index < input.len() {
+            if self.can_fast_path_ascii_ground() {
+                let consumed = self.advance_ascii_ground_run(terminal, &input[index..])?;
+                if consumed > 0 {
+                    index += consumed;
+                    continue;
+                }
+            }
+
+            self.parse_byte_into(input[index], &mut actions);
+            self.apply_actions(terminal, &mut actions)?;
+            index += 1;
+        }
+
+        Ok(())
+    }
+
+    fn parse_into(&mut self, input: &[u8], actions: &mut Vec<Action>) {
+        let mut index = 0;
+        while index < input.len() {
+            if self.can_fast_path_ascii_ground() {
+                let consumed = self.parse_ascii_ground_run(&input[index..], actions);
+                if consumed > 0 {
+                    index += consumed;
+                    continue;
+                }
+            }
+
+            self.parse_byte_into(input[index], actions);
+            index += 1;
+        }
+    }
+
+    fn can_fast_path_ascii_ground(&self) -> bool {
+        self.state == ParserState::Ground
+            && self.utf8_expected == 0
+            && self.single_shift_charset.is_none()
+            && matches!(self.charsets[self.active_charset], Charset::Ascii)
+    }
+
+    fn parse_ascii_ground_run(&mut self, input: &[u8], actions: &mut Vec<Action>) -> usize {
+        let mut index = 0;
+
+        while index < input.len() {
+            match input[index] {
+                0x20..=0x7e => {
+                    let run_start = index;
+                    while index < input.len() && matches!(input[index], 0x20..=0x7e) {
+                        index += 1;
+                    }
+
+                    actions.reserve(index - run_start);
+                    for &byte in &input[run_start..index] {
+                        actions.push(Action::Print(char::from(byte)));
+                    }
+                    self.last_printed_char = Some(char::from(input[index - 1]));
+                }
+                0x07 => {
+                    actions.push(Action::Bell);
+                    index += 1;
+                }
+                0x08 => {
+                    actions.push(Action::Backspace);
+                    index += 1;
+                }
+                0x09 => {
+                    actions.push(Action::Tab);
+                    index += 1;
+                }
+                0x0a => {
+                    actions.push(Action::LineFeed);
+                    index += 1;
+                }
+                0x0b => {
+                    actions.push(Action::VerticalTab);
+                    index += 1;
+                }
+                0x0c => {
+                    actions.push(Action::FormFeed);
+                    index += 1;
+                }
+                0x0d => {
+                    actions.push(Action::CarriageReturn);
+                    index += 1;
+                }
+                0x1b => {
+                    self.state = ParserState::Escape;
+                    return index + 1;
+                }
+                _ => return index,
+            }
+        }
+
+        index
+    }
+
+    fn advance_ascii_ground_run(&mut self, terminal: &mut Terminal, input: &[u8]) -> Result<usize> {
+        let mut index = 0;
+
+        while index < input.len() {
+            match input[index] {
+                0x20..=0x7e => {
+                    let run_start = index;
+                    while index < input.len() && matches!(input[index], 0x20..=0x7e) {
+                        index += 1;
+                    }
+
+                    terminal.write_ascii_run(&input[run_start..index])?;
+                    self.last_printed_char = Some(char::from(input[index - 1]));
+                }
+                0x07..=0x0d => {
+                    terminal.execute_control(input[index])?;
+                    index += 1;
+                }
+                0x1b => {
+                    self.state = ParserState::Escape;
+                    return Ok(index + 1);
+                }
+                _ => return Ok(index),
+            }
+        }
+
+        Ok(index)
+    }
+
+    fn parse_byte_into(&mut self, byte: u8, actions: &mut Vec<Action>) {
+        match self.state {
+            ParserState::Ground => self.parse_ground(byte, actions),
+            ParserState::Escape => self.parse_escape(byte, actions),
+            ParserState::EscapeCharset(slot) => self.parse_escape_charset(slot, byte, actions),
+            ParserState::OscString => self.parse_osc_string(byte, actions),
+            ParserState::OscEscape => self.parse_osc_escape(byte, actions),
+            ParserState::DcsString => self.parse_dcs_string(byte, actions),
+            ParserState::DcsEscape => self.parse_dcs_escape(byte, actions),
+            ParserState::IgnoreString => self.parse_ignored_string(byte, actions),
+            ParserState::IgnoreStringEscape => self.parse_ignored_string_escape(byte, actions),
+            ParserState::CsiEntry => self.parse_csi_entry(byte, actions),
+            ParserState::CsiParam => self.parse_csi_param(byte, actions),
+            ParserState::CsiIntermediate => self.parse_csi_intermediate(byte, actions),
+        }
+    }
+
+    fn apply_actions(&mut self, terminal: &mut Terminal, actions: &mut Vec<Action>) -> Result<()> {
+        for action in actions.drain(..) {
             terminal.apply_action(action)?;
         }
 
         Ok(())
     }
 
-    fn parse_byte(&mut self, byte: u8) -> Vec<Action> {
-        match self.state {
-            ParserState::Ground => self.parse_ground(byte),
-            ParserState::Escape => self.parse_escape(byte),
-            ParserState::EscapeCharset(slot) => self.parse_escape_charset(slot, byte),
-            ParserState::OscString => self.parse_osc_string(byte),
-            ParserState::OscEscape => self.parse_osc_escape(byte),
-            ParserState::DcsString => self.parse_dcs_string(byte),
-            ParserState::DcsEscape => self.parse_dcs_escape(byte),
-            ParserState::IgnoreString => self.parse_ignored_string(byte),
-            ParserState::IgnoreStringEscape => self.parse_ignored_string_escape(byte),
-            ParserState::CsiEntry => self.parse_csi_entry(byte),
-            ParserState::CsiParam => self.parse_csi_param(byte),
-        }
-    }
-
-    fn parse_ground(&mut self, byte: u8) -> Vec<Action> {
+    fn parse_ground(&mut self, byte: u8, actions: &mut Vec<Action>) {
         if self.utf8_expected > 0 {
-            return self.parse_utf8_continuation(byte);
+            self.parse_utf8_continuation(byte, actions);
+            return;
         }
 
         if self.handle_charset_shift(byte) {
-            return Vec::new();
+            return;
         }
 
         if let Some(action) = parse_control(byte) {
-            return vec![action];
+            actions.push(action);
+            return;
         }
 
         match byte {
             0x1b => {
                 self.state = ParserState::Escape;
-                Vec::new()
             }
             0x20..=0x7e => {
                 let character = self.translate_printable_byte(byte);
-                vec![self.print_action(character)]
+                actions.push(self.print_action(character));
             }
-            0x80..=0xff => self.parse_utf8_lead(byte),
-            _ => Vec::new(),
+            0x80..=0xff => self.parse_utf8_lead(byte, actions),
+            _ => {}
         }
     }
 
@@ -219,10 +354,29 @@ impl Parser {
         Action::Print(character)
     }
 
-    fn repeat_last_printed(&self, count: u16) -> Vec<Action> {
-        self.last_printed_char
-            .map(|character| vec![Action::Print(character); usize::from(count.max(1))])
-            .unwrap_or_default()
+    fn repeat_last_printed_into(&self, count: u16, actions: &mut Vec<Action>) {
+        if let Some(character) = self.last_printed_char {
+            actions.extend(std::iter::repeat_n(
+                Action::Print(character),
+                usize::from(count.max(1)),
+            ));
+        }
+    }
+
+    fn parse_embedded_control(&mut self, byte: u8, actions: &mut Vec<Action>) -> bool {
+        match byte {
+            0x18 | 0x1a => {
+                self.reset();
+                true
+            }
+            _ if self.handle_charset_shift(byte) => true,
+            _ => parse_control(byte)
+                .map(|action| {
+                    actions.push(action);
+                    true
+                })
+                .unwrap_or(false),
+        }
     }
 }
 

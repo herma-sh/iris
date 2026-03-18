@@ -3,6 +3,7 @@ use pretty_assertions::assert_eq;
 use super::{Grid, GridSize};
 use crate::cell::{Cell, CellWidth};
 use crate::damage::DamageRegion;
+use crate::error::Error;
 
 #[test]
 fn grid_write_updates_damage() {
@@ -10,6 +11,59 @@ fn grid_write_updates_damage() {
     grid.write(1, 2, Cell::new('A')).unwrap();
     assert_eq!(grid.cell(1, 2), Some(&Cell::new('A')));
     assert_eq!(grid.take_damage(), vec![DamageRegion::new(1, 1, 2, 2)]);
+}
+
+#[test]
+fn grid_write_ascii_run_updates_a_contiguous_damage_range() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
+    grid.write_ascii_run(0, 1, b"abc", crate::cell::CellAttrs::default())
+        .unwrap();
+
+    assert_eq!(grid.cell(0, 1), Some(&Cell::new('a')));
+    assert_eq!(grid.cell(0, 2), Some(&Cell::new('b')));
+    assert_eq!(grid.cell(0, 3), Some(&Cell::new('c')));
+    assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 1, 3)]);
+}
+
+#[test]
+fn grid_write_ascii_run_clears_existing_wide_cells() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 4 }).unwrap();
+    grid.write(0, 1, Cell::new('\u{4e2d}')).unwrap();
+    grid.take_damage();
+
+    grid.write_ascii_run(0, 1, b"xy", crate::cell::CellAttrs::default())
+        .unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::default()));
+    assert_eq!(grid.cell(0, 1), Some(&Cell::new('x')));
+    assert_eq!(grid.cell(0, 2), Some(&Cell::new('y')));
+    assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 1, 2)]);
+}
+
+#[test]
+fn grid_write_ascii_run_rejects_non_printable_bytes() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 4 }).unwrap();
+
+    let error = grid
+        .write_ascii_run(0, 1, b"a\n", crate::cell::CellAttrs::default())
+        .unwrap_err();
+
+    assert_eq!(error, Error::InvalidAsciiRun { byte: b'\n' });
+    assert_eq!(grid.cell(0, 1), Some(&Cell::default()));
+    assert!(grid.take_damage().is_empty());
+}
+
+#[test]
+fn grid_write_ascii_run_rejects_utf8_bytes() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 4 }).unwrap();
+
+    let error = grid
+        .write_ascii_run(0, 0, &[0xc3], crate::cell::CellAttrs::default())
+        .unwrap_err();
+
+    assert_eq!(error, Error::InvalidAsciiRun { byte: 0xc3 });
+    assert_eq!(grid.cell(0, 0), Some(&Cell::default()));
+    assert!(grid.take_damage().is_empty());
 }
 
 #[test]

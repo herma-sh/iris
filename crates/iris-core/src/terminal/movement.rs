@@ -17,7 +17,16 @@ impl Terminal {
     }
 
     pub(super) fn cursor_up(&mut self, count: u16) {
-        self.cursor.move_up(usize::from(count.max(1)));
+        if self.grid.rows() == 0 {
+            return;
+        }
+
+        let steps = usize::from(count.max(1));
+        if let Some((top, _bottom)) = self.origin_scroll_region_bounds() {
+            self.cursor.position.row = self.cursor.position.row.saturating_sub(steps).max(top);
+        } else {
+            self.cursor.move_up(steps);
+        }
     }
 
     pub(super) fn cursor_down(&mut self, count: u16) {
@@ -25,8 +34,12 @@ impl Terminal {
             return;
         }
 
-        self.cursor
-            .move_down(usize::from(count.max(1)), self.grid.rows());
+        let steps = usize::from(count.max(1));
+        if let Some((_top, bottom)) = self.origin_scroll_region_bounds() {
+            self.cursor.position.row = self.cursor.position.row.saturating_add(steps).min(bottom);
+        } else {
+            self.cursor.move_down(steps, self.grid.rows());
+        }
     }
 
     pub(super) fn cursor_forward(&mut self, count: u16) {
@@ -68,15 +81,23 @@ impl Terminal {
             return;
         }
 
-        self.cursor.position.row =
-            usize::from(row.saturating_sub(1)).min(self.grid.rows().saturating_sub(1));
+        let target_row = usize::from(row.saturating_sub(1));
+        self.cursor.position.row = if let Some((top, bottom)) = self.origin_scroll_region_bounds() {
+            top.saturating_add(target_row).min(bottom)
+        } else {
+            target_row.min(self.grid.rows().saturating_sub(1))
+        };
     }
 
     pub(super) fn cursor_position(&mut self, row: u16, col: u16) {
-        self.move_cursor(
-            usize::from(row.saturating_sub(1)),
-            usize::from(col.saturating_sub(1)),
-        );
+        let target_row = if let Some((top, bottom)) = self.origin_scroll_region_bounds() {
+            top.saturating_add(usize::from(row.saturating_sub(1)))
+                .min(bottom)
+        } else {
+            usize::from(row.saturating_sub(1))
+        };
+
+        self.move_cursor(target_row, usize::from(col.saturating_sub(1)));
     }
 
     pub(super) fn line_feed(&mut self) -> crate::error::Result<()> {
@@ -157,6 +178,14 @@ impl Terminal {
         self.tab_stops.retain(|stop| *stop < cols);
         if self.tab_stops.is_empty() && cols > 0 {
             self.tab_stops = default_tab_stops(cols);
+        }
+    }
+
+    fn origin_scroll_region_bounds(&self) -> Option<(usize, usize)> {
+        if self.modes.origin {
+            self.scroll_region
+        } else {
+            None
         }
     }
 }

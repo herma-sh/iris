@@ -112,7 +112,7 @@
 
 **Duration**: 2-3 weeks  
 **Priority**: P0 Critical  
-**Goal**: Full ANSI/VT parser that passes vttest basic sequences
+**Goal**: Full ANSI/VT parser, with VTtest deferred until a runnable terminal binary exists
 
 ### Deliverables
 
@@ -124,7 +124,7 @@
 - [ ] Parser handles screen modes (normal, alternate)
 - [ ] Grid updates correctly from parser output
 - [ ] Cursor positioning works correctly
-- [ ] `vttest` passes vttest basic sequences
+- [ ] `vttest` passes basic sequences once the standalone binary exists (Phase 6)
 - [ ] Character attributes (bold, italic, underline, etc.) work
 - [ ] 16-color, 256-color, and true color modes work
 
@@ -162,13 +162,13 @@
 |------|-------------|------|
 | Parser unit tests | Each sequence type | 2d |
 | Integration tests | Parser + Grid | 1d |
-| vttest suite | Run and document pass/fail | 1d |
+| vttest suite | Deferred to Phase 6 standalone binary validation | 1d |
 
 ### Completion Criteria
 
 | Criterion | Verification |
 |-----------|--------------|
-| vttest basic passes | vttest report shows all basic tests pass |
+| vttest basic passes | Deferred to Phase 6 once `iris` can host an interactive VTtest session |
 | Character attributes work | Manual test: `echo -e "\e[1mBold\e[0m"` |
 | True color works | Manual test: true color gradient script |
 | Cursor movement works | Manual test: `tput cup 10 20` |
