@@ -76,9 +76,9 @@ use iris_core::Terminal;
 #[test]
 fn write_updates_grid() {
     let mut terminal = Terminal::new(24, 80).unwrap();
-    terminal.write_char('A');
+    terminal.write_char('A').unwrap();
 
-    assert_eq!(terminal.grid().cell(0, 0).unwrap().char, 'A');
+    assert_eq!(terminal.grid.cell(0, 0).unwrap().character, 'A');
 }
 ```
 
@@ -98,8 +98,9 @@ fn stream_updates_terminal_state() {
         .advance(&mut terminal, b"\x1b[10;20HX\x1b[1;1H")
         .unwrap();
 
-    assert_eq!(terminal.grid().cell(19, 9).unwrap().char, 'X');
-    assert_eq!(terminal.cursor(), (0, 0));
+    assert_eq!(terminal.grid.cell(9, 19).unwrap().character, 'X');
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 0);
 }
 ```
 

@@ -81,6 +81,7 @@ Target release: `0.1.0`
 - Cleaned up the benchmark, testing, and documentation index docs so Phase 1 now points at the shipped `Parser::advance` parser-to-terminal harness, marks documentation cleanup complete, and removes stale claims that VTtest already passes before a runnable binary exists.
 - Corrected the docs index success criteria so the `docs/README.md` input latency target now matches the `< 4ms` value used in the performance targets table.
 - Corrected the Phase 1 acceptance-criteria table to use `MiB/s` instead of `MB/s` for the parser throughput target so it matches the benchmark docs.
+- Corrected stale `docs/testing-strategy.md` code examples to use the current `Terminal`/`Grid` API, including `terminal.grid`, `Cell.character`, and row/column ordering in grid assertions.
 
 ## 0.0.1 - 2026-03-17
 
