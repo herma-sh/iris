@@ -70,6 +70,7 @@ Target release: `0.1.0`
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark real-terminal-output coverage complete.
 - Added explicit phase-1 CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark CSI intermediate coverage complete.
+- Added a phase-1 `cargo bench` parser throughput harness in `crates/iris-core/benches/parser_throughput.rs` so plain-text MiB/s and CSI sequence throughput can be measured directly against the documented targets.
 
 ## 0.0.1 - 2026-03-17
 
