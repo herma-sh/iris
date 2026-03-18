@@ -73,6 +73,16 @@ Development is phased. The current plan runs from:
 
 See [docs/phases.md](./docs/phases.md) for the full roadmap.
 
+## Development Workflow
+
+The repository now uses a staged branch model:
+
+- `main`: completed phases only
+- `dev`: active integration branch for the current phase
+- `feature/*`: focused work branches created from `dev`
+
+Normal development should branch from `dev` and merge back into `dev`. `main` should only receive deliberate phase-complete merges from `dev`.
+
 ## Documentation
 
 - [docs/README.md](./docs/README.md)
