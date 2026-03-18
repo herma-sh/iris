@@ -1,10 +1,13 @@
 use super::{Action, Parser};
 
 impl Parser {
-    pub(super) fn parse_utf8_lead(&mut self, byte: u8) -> Vec<Action> {
+    pub(super) fn parse_utf8_lead(&mut self, byte: u8, actions: &mut Vec<Action>) {
         let expected = match utf8_sequence_len(byte) {
             Some(expected) => expected,
-            None => return vec![self.print_action(char::REPLACEMENT_CHARACTER)],
+            None => {
+                actions.push(self.print_action(char::REPLACEMENT_CHARACTER));
+                return;
+            }
         };
 
         self.utf8_buffer[0] = byte;
@@ -12,38 +15,34 @@ impl Parser {
         self.utf8_expected = expected;
 
         if expected == 1 {
-            return self.finish_utf8_sequence();
+            self.finish_utf8_sequence(actions);
         }
-
-        Vec::new()
     }
 
-    pub(super) fn parse_utf8_continuation(&mut self, byte: u8) -> Vec<Action> {
+    pub(super) fn parse_utf8_continuation(&mut self, byte: u8, actions: &mut Vec<Action>) {
         if !is_utf8_continuation(byte) {
             self.reset_utf8();
-            let mut actions = vec![self.print_action(char::REPLACEMENT_CHARACTER)];
-            actions.extend(self.parse_ground(byte));
-            return actions;
+            actions.push(self.print_action(char::REPLACEMENT_CHARACTER));
+            self.parse_ground(byte, actions);
+            return;
         }
 
         self.utf8_buffer[self.utf8_len] = byte;
         self.utf8_len += 1;
 
         if self.utf8_len == self.utf8_expected {
-            return self.finish_utf8_sequence();
+            self.finish_utf8_sequence(actions);
         }
-
-        Vec::new()
     }
 
-    pub(super) fn finish_utf8_sequence(&mut self) -> Vec<Action> {
+    pub(super) fn finish_utf8_sequence(&mut self, actions: &mut Vec<Action>) {
         let utf8_len = self.utf8_len;
         let character = std::str::from_utf8(&self.utf8_buffer[..utf8_len])
             .ok()
             .and_then(|text| text.chars().next())
             .unwrap_or(char::REPLACEMENT_CHARACTER);
         self.reset_utf8();
-        vec![self.print_action(character)]
+        actions.push(self.print_action(character));
     }
 
     pub(super) fn reset_utf8(&mut self) {

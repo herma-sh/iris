@@ -406,8 +406,10 @@ fn finishing_dcs_does_not_clear_ignored_string_state() {
     parser.state = ParserState::DcsString;
     parser.dcs_buffer.extend_from_slice(b"qignored");
     parser.ignored_string_len = 3;
+    let mut actions = Vec::new();
 
-    assert!(parser.finish_dcs().is_empty());
+    parser.finish_dcs(&mut actions);
+    assert!(actions.is_empty());
     assert_eq!(parser.ignored_string_len, 3);
     assert_eq!(parser.state(), ParserState::Ground);
 }

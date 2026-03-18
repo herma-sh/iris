@@ -1,16 +1,20 @@
 use super::{Action, Charset, Parser, ParserState};
 
 impl Parser {
-    pub(super) fn parse_escape_charset(&mut self, slot: usize, byte: u8) -> Vec<Action> {
-        if let Some(actions) = self.parse_embedded_control(byte) {
-            return actions;
+    pub(super) fn parse_escape_charset(
+        &mut self,
+        slot: usize,
+        byte: u8,
+        actions: &mut Vec<Action>,
+    ) {
+        if self.parse_embedded_control(byte, actions) {
+            return;
         }
 
         self.state = ParserState::Ground;
         if let Some(charset) = Charset::from_designator(byte) {
             self.charsets[slot] = charset;
         }
-        Vec::new()
     }
 
     pub(super) fn handle_charset_shift(&mut self, byte: u8) -> bool {

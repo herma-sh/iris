@@ -71,6 +71,8 @@ Target release: `0.1.0`
 - Added explicit phase-1 CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark CSI intermediate coverage complete.
 - Added a phase-1 `cargo bench` parser throughput harness in `crates/iris-core/benches/parser_throughput.rs` so plain-text MiB/s and CSI sequence throughput can be measured directly against the documented targets.
+- Reduced parser hot-path allocation churn by reusing parser buffers and appending actions into shared output vectors instead of allocating a fresh `Vec<Action>` per byte.
+- Improved the phase-1 parser throughput baseline from `21.20` to roughly `63-66 MiB/s` on the plain-text fixture and from `3.07M` to roughly `4.5M-4.8M seq/s` on the CSI fixture, while leaving the documented performance target open.
 
 ## 0.0.1 - 2026-03-17
 
