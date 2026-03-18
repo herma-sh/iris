@@ -463,6 +463,25 @@ fn parser_applies_insert_line_sequences_within_scroll_region() {
 }
 
 #[test]
+fn parser_applies_erase_modes_and_scroll_region_reset_sequences() {
+    let mut terminal = Terminal::new(4, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\r\nB\r\nC\r\nD").unwrap();
+    parser
+        .advance(
+            &mut terminal,
+            b"\x1b[2;4r\x1b[S\x1b[r\x1b[4;1H\x1bD\x1b[2;1H\x1b[0J\x1b[1;2H\x1b[1KZ",
+        )
+        .unwrap();
+
+    assert_eq!(row_text(&terminal, 0), " Z  ");
+    assert_eq!(row_text(&terminal, 1), "    ");
+    assert_eq!(row_text(&terminal, 2), "    ");
+    assert_eq!(row_text(&terminal, 3), "    ");
+}
+
+#[test]
 fn parser_replays_combined_screen_update_stream() {
     let mut terminal = Terminal::new(3, 24).unwrap();
     let mut parser = Parser::new();

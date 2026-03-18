@@ -58,6 +58,8 @@ Target release: `0.1.0`
 - Hardened full terminal reset so it always clears cached alternate-screen state even if the active mode flag is already false, and documented that keypad mode is controlled by `ESC =` / `ESC >` rather than CSI mode parameters.
 - Added chunked vttest-style redraw coverage with scroll margins, origin mode, save/restore cursor, SGR, tabs, charset shifts, and scroll operations in a dedicated `iris-core` integration test file.
 - Corrected DEC origin-mode handling so enabling or resetting `CSI ? 6 h/l` homes the cursor appropriately and absolute cursor addressing clamps within the active scroll region while origin mode is active.
+- Added phase-1 parser, terminal, and integration coverage for explicit `CSI J`/`CSI K` erase modes and for `CSI r` scroll-region reset semantics.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark erase-mode and scroll-region reset coverage complete.
 
 ## 0.0.1 - 2026-03-17
 

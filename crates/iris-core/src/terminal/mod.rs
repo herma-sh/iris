@@ -14,6 +14,8 @@ mod screen;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_erase;
 
 /// The visible terminal state used by Iris core.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -130,4 +130,17 @@ mod tests {
         assert!(parse_csi(&[4], Some(b'>'), b'h').is_empty());
         assert!(parse_csi(&[25], Some(b'<'), b'l').is_empty());
     }
+
+    #[test]
+    fn csi_parses_explicit_erase_modes_and_scroll_region_reset() {
+        assert_eq!(parse_csi(&[1], None, b'J'), vec![Action::EraseDisplay(1)]);
+        assert_eq!(parse_csi(&[2], None, b'J'), vec![Action::EraseDisplay(2)]);
+        assert_eq!(parse_csi(&[3], None, b'J'), vec![Action::EraseDisplay(3)]);
+        assert_eq!(parse_csi(&[1], None, b'K'), vec![Action::EraseLine(1)]);
+        assert_eq!(parse_csi(&[2], None, b'K'), vec![Action::EraseLine(2)]);
+        assert_eq!(
+            parse_csi(&[], None, b'r'),
+            vec![Action::SetScrollRegion { top: 1, bottom: 0 }]
+        );
+    }
 }
