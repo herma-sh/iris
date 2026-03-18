@@ -45,6 +45,7 @@ Target release: `0.1.0`
 - Added phase-1 scroll-region handling for `CSI r`, `CSI S`, and `CSI T`, and made `Index`/`ReverseIndex` respect the active scrolling margins.
 - Added phase-1 G0/G1 character-set designation and `SI`/`SO` shifting in the parser, including DEC Special Graphics and UK ASCII translations for printable bytes.
 - Completed phase-1 G2/G3 character-set designation and `SS2`/`SS3` single-shift handling so one-shot charset selection now covers all four VT charset slots.
+- Added phase-1 `CSI I` forward-tabulation support so counted tab movement now covers both forward and backward CSI tab controls.
 - Added phase-1 tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
 - Added phase-1 insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.
 - Added phase-1 ESC handling for `ESC Z`, `ESC c`, `ESC =`, and `ESC >`, including keypad-mode tracking and full terminal reset coverage across parser, terminal, and integration tests.

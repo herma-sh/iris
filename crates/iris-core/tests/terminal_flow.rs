@@ -290,6 +290,24 @@ fn parser_applies_tab_stop_sequences() {
 }
 
 #[test]
+fn parser_applies_forward_tab_sequences() {
+    let mut terminal = Terminal::new(1, 20).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\x1b[2IB").unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 16).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(terminal.cursor.position.col, 17);
+}
+
+#[test]
 fn parser_applies_g2_and_g3_single_shift_sequences() {
     let mut terminal = Terminal::new(1, 8).unwrap();
     let mut parser = Parser::new();

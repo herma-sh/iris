@@ -11,6 +11,8 @@ pub enum Action {
     Backspace,
     /// Advance to the next tab stop.
     Tab,
+    /// Advance to the next tab stop `count` times.
+    ForwardTab(u16),
     /// Move backward to the previous tab stop.
     BackTab(u16),
     /// Move to the next line.

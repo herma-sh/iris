@@ -357,6 +357,14 @@ fn terminal_tab_uses_default_stops() {
 }
 
 #[test]
+fn terminal_forward_tab_uses_counted_stops() {
+    let mut terminal = Terminal::new(1, 20).unwrap();
+
+    terminal.apply_action(Action::ForwardTab(2)).unwrap();
+    assert_eq!(terminal.cursor.position.col, 16);
+}
+
+#[test]
 fn terminal_custom_tab_stop_and_back_tab_round_trip() {
     let mut terminal = Terminal::new(1, 16).unwrap();
     terminal.move_cursor(0, 4);

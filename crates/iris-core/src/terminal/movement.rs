@@ -109,6 +109,12 @@ impl Terminal {
         self.cursor.position.col = next_tab_stop.min(cols.saturating_sub(1));
     }
 
+    pub(super) fn forward_tab(&mut self, count: u16) {
+        for _ in 0..count.max(1) {
+            self.tab();
+        }
+    }
+
     pub(super) fn back_tab(&mut self, count: u16) {
         let current = self.cursor.position.col;
         let mut cursor_col = current;

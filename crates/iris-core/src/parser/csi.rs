@@ -11,6 +11,7 @@ pub fn parse_csi(params: &[u16], private_marker: Option<u8>, final_byte: u8) -> 
         b'E' => vec![Action::CursorNextLine(param_or(params, 0, 1))],
         b'F' => vec![Action::CursorPreviousLine(param_or(params, 0, 1))],
         b'G' => vec![Action::CursorColumn(param_or(params, 0, 1))],
+        b'I' => vec![Action::ForwardTab(param_or(params, 0, 1))],
         b'H' | b'f' => vec![Action::CursorPosition {
             row: param_or(params, 0, 1),
             col: param_or(params, 1, 1),
@@ -100,6 +101,7 @@ mod tests {
             vec![Action::DeleteCharacters(1)]
         );
         assert_eq!(parse_csi(&[], None, b'S'), vec![Action::ScrollUp(1)]);
+        assert_eq!(parse_csi(&[], None, b'I'), vec![Action::ForwardTab(1)]);
         assert_eq!(parse_csi(&[], None, b'Z'), vec![Action::BackTab(1)]);
         assert_eq!(parse_csi(&[], None, b'g'), vec![Action::ClearTabStop(0)]);
         assert_eq!(
