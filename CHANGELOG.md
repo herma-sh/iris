@@ -51,7 +51,7 @@ Target release: `0.1.0`
 - Hardened phase-1 `ESC c` handling so parser-side terminal interpretation resets restore default charset slots and active charset instead of only clearing transient single-shift state.
 - Expanded phase-1 integration coverage with chunked mixed-sequence streams and combined screen-update flows closer to real terminal redraw behavior.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark the parser and integration milestones that are now complete, so progress tracking stays aligned with merged work.
-- Updated the phase-1 implementation-order section in `docs/phases/01.md` to mark completed parser, charset, unit-test, and integration-test milestones while leaving VTtest, benchmarking, and final cleanup open.
+- Updated the phase-1 implementation-order section in `docs/phases/01.md` to mark parser, integration, benchmarking, and documentation cleanup milestones complete while explicitly deferring VTtest to Phase 6.
 - Added phase-1 tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
 - Added phase-1 insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.
 - Added phase-1 ESC handling for `ESC Z`, `ESC c`, `ESC =`, and `ESC >`, including keypad-mode tracking and full terminal reset coverage across parser, terminal, and integration tests.
@@ -71,12 +71,8 @@ Target release: `0.1.0`
 - Added explicit phase-1 CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark CSI intermediate coverage complete.
 - Added a phase-1 `cargo bench` parser throughput harness in `crates/iris-core/benches/parser_throughput.rs` so plain-text MiB/s and CSI sequence throughput can be measured directly against the documented targets.
-- Reduced parser hot-path allocation churn by reusing parser buffers and appending actions into shared output vectors instead of allocating a fresh `Vec<Action>` per byte.
-- Reduced CSI-path allocation churn further by pushing completed CSI actions directly into the shared parser output buffer and storing common SGR and mode payloads inline with `smallvec`.
-- Improved the phase-1 parser throughput baseline from `21.20` to roughly `59-64 MiB/s` on the plain-text fixture and from `3.07M` to roughly `11.7M-12.2M seq/s` on the CSI fixture, while leaving the documented performance target open because plain-text parsing is still below target.
-- Optimized `Parser::advance` with the same ASCII ground-state fast path used by `parse`, so parser-to-terminal throughput now avoids per-byte slow-path dispatch for contiguous printable text and common C0 controls.
-- Aligned the parser throughput harness with the shipped parser-to-terminal path by benchmarking `Parser::advance` against a real `Terminal`, with current runs at roughly `75-76 MiB/s` for plain text and `10.9M-12.2M seq/s` for CSI-heavy streams.
-- Added batched ASCII terminal/grid write paths plus range-based damage marking so contiguous single-width output no longer pays per-cell damage updates or Unicode width calculation in the hot path.
+- Reduced parser and CSI hot-path allocation churn by reusing parser buffers, appending into shared action output, pushing completed CSI actions directly into that buffer, and storing common SGR and mode payloads inline with `smallvec`.
+- Optimized the shipped parser-to-terminal path by extending the ASCII ground-state fast path to `Parser::advance` and adding batched ASCII terminal/grid writes with range-based damage marking for contiguous single-width output.
 - Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, with verified 2026-03-18 runs ranging roughly from `157 MiB/s` to `177 MiB/s` on the plain-text fixture and from `10.6M` to `11.1M seq/s` on the CSI fixture.
 - Clarified the phase plan so VTtest remains deferred until Phase 6, when Iris first has a runnable standalone terminal binary that can host an interactive VTtest session.
 - Cleaned up the benchmark, testing, and documentation index docs so Phase 1 now points at the shipped `Parser::advance` parser-to-terminal harness, marks documentation cleanup complete, and removes stale claims that VTtest already passes before a runnable binary exists.
