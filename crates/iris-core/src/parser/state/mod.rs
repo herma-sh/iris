@@ -278,9 +278,7 @@ impl Parser {
                         index += 1;
                     }
 
-                    for &byte in &input[run_start..index] {
-                        terminal.write_char(char::from(byte))?;
-                    }
+                    terminal.write_ascii_run(&input[run_start..index])?;
                     self.last_printed_char = Some(char::from(input[index - 1]));
                 }
                 0x07..=0x0d => {

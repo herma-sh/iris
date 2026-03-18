@@ -76,6 +76,8 @@ Target release: `0.1.0`
 - Improved the phase-1 parser throughput baseline from `21.20` to roughly `59-64 MiB/s` on the plain-text fixture and from `3.07M` to roughly `11.7M-12.2M seq/s` on the CSI fixture, while leaving the documented performance target open because plain-text parsing is still below target.
 - Optimized `Parser::advance` with the same ASCII ground-state fast path used by `parse`, so parser-to-terminal throughput now avoids per-byte slow-path dispatch for contiguous printable text and common C0 controls.
 - Aligned the parser throughput harness with the shipped parser-to-terminal path by benchmarking `Parser::advance` against a real `Terminal`, with current runs at roughly `75-76 MiB/s` for plain text and `10.9M-12.2M seq/s` for CSI-heavy streams.
+- Added batched ASCII terminal/grid write paths plus range-based damage marking so contiguous single-width output no longer pays per-cell damage updates or Unicode width calculation in the hot path.
+- Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, reaching roughly `176-177 MiB/s` on the plain-text fixture and `11.0M-11.1M seq/s` on the CSI fixture.
 
 ## 0.0.1 - 2026-03-17
 

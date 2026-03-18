@@ -101,6 +101,81 @@ impl Terminal {
         Ok(())
     }
 
+    /// Writes a contiguous ASCII run using single-width cells.
+    pub fn write_ascii_run(&mut self, bytes: &[u8]) -> Result<()> {
+        if bytes.is_empty() || self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return Ok(());
+        }
+
+        let cols = self.grid.cols();
+        let mut remaining = bytes;
+
+        while !remaining.is_empty() {
+            let row = self
+                .cursor
+                .position
+                .row
+                .min(self.grid.rows().saturating_sub(1));
+            let col = self.cursor.position.col.min(cols.saturating_sub(1));
+
+            if self.modes.wrap {
+                let available = cols.saturating_sub(col);
+                let chunk_len = remaining.len().min(available);
+                self.grid
+                    .write_ascii_run(row, col, &remaining[..chunk_len], self.attrs)?;
+
+                if col + chunk_len < cols {
+                    self.cursor.position.col = col + chunk_len;
+                    break;
+                }
+
+                remaining = &remaining[chunk_len..];
+                if remaining.is_empty() {
+                    self.cursor.position.col = 0;
+                    self.line_feed()?;
+                    break;
+                }
+
+                self.cursor.position.col = 0;
+                self.line_feed()?;
+                continue;
+            }
+
+            if col + remaining.len() < cols {
+                self.grid.write_ascii_run(row, col, remaining, self.attrs)?;
+                self.cursor.position.col = col + remaining.len();
+                break;
+            }
+
+            let last_col = cols.saturating_sub(1);
+            if col < last_col {
+                let prefix_len = last_col - col;
+                if prefix_len > 0 {
+                    self.grid
+                        .write_ascii_run(row, col, &remaining[..prefix_len], self.attrs)?;
+                }
+                self.grid.write_ascii_run(
+                    row,
+                    last_col,
+                    &remaining[(remaining.len() - 1)..],
+                    self.attrs,
+                )?;
+            } else {
+                self.grid.write_ascii_run(
+                    row,
+                    col,
+                    &remaining[(remaining.len() - 1)..],
+                    self.attrs,
+                )?;
+            }
+
+            self.cursor.position.col = last_col;
+            break;
+        }
+
+        Ok(())
+    }
+
     /// Applies a parser-emitted terminal action.
     pub fn apply_action(&mut self, action: Action) -> Result<()> {
         match action {

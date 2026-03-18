@@ -1,5 +1,5 @@
 use super::Grid;
-use crate::cell::{Cell, CellWidth};
+use crate::cell::{Cell, CellAttrs, CellWidth};
 use crate::error::Result;
 
 impl Grid {
@@ -26,6 +26,51 @@ impl Grid {
             self.damage.mark(row, col + 1);
         }
 
+        Ok(())
+    }
+
+    /// Writes a contiguous ASCII run into a single row using single-width cells.
+    pub fn write_ascii_run(
+        &mut self,
+        row: usize,
+        col: usize,
+        bytes: &[u8],
+        attrs: CellAttrs,
+    ) -> Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+
+        if row >= self.rows() || col >= self.cols() || col + bytes.len() > self.cols() {
+            return Err(self.invalid_position(row, col));
+        }
+
+        let start = row * self.cols() + col;
+        let end = start + bytes.len();
+        let mut requires_cleanup = false;
+
+        for offset in 0..bytes.len() {
+            if self.cells[start + offset].width != CellWidth::Single {
+                requires_cleanup = true;
+                break;
+            }
+        }
+
+        if requires_cleanup {
+            for offset in 0..bytes.len() {
+                self.clear_wide_span_at(row, col + offset);
+            }
+        }
+
+        for (cell, &byte) in self.cells[start..end].iter_mut().zip(bytes) {
+            *cell = Cell {
+                character: char::from(byte),
+                width: CellWidth::Single,
+                attrs,
+            };
+        }
+
+        self.damage.mark_range(row, col, col + bytes.len() - 1);
         Ok(())
     }
 

@@ -13,6 +13,33 @@ fn grid_write_updates_damage() {
 }
 
 #[test]
+fn grid_write_ascii_run_updates_a_contiguous_damage_range() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
+    grid.write_ascii_run(0, 1, b"abc", crate::cell::CellAttrs::default())
+        .unwrap();
+
+    assert_eq!(grid.cell(0, 1), Some(&Cell::new('a')));
+    assert_eq!(grid.cell(0, 2), Some(&Cell::new('b')));
+    assert_eq!(grid.cell(0, 3), Some(&Cell::new('c')));
+    assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 1, 3)]);
+}
+
+#[test]
+fn grid_write_ascii_run_clears_existing_wide_cells() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 4 }).unwrap();
+    grid.write(0, 1, Cell::new('\u{4e2d}')).unwrap();
+    grid.take_damage();
+
+    grid.write_ascii_run(0, 1, b"xy", crate::cell::CellAttrs::default())
+        .unwrap();
+
+    assert_eq!(grid.cell(0, 0), Some(&Cell::default()));
+    assert_eq!(grid.cell(0, 1), Some(&Cell::new('x')));
+    assert_eq!(grid.cell(0, 2), Some(&Cell::new('y')));
+    assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 1, 2)]);
+}
+
+#[test]
 fn grid_scroll_moves_content() {
     let mut grid = Grid::new(GridSize { rows: 3, cols: 4 }).unwrap();
     grid.write(0, 0, Cell::new('A')).unwrap();
