@@ -33,7 +33,7 @@ Target release: `0.1.0`
 - Extended the phase-1 parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
 - Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
 - Added bounded phase-1 handling for DCS, SOS, PM, and APC string states so unsupported payloads terminate cleanly and resume normal parsing without unbounded growth.
-- Rewrote the root `README.md` to describe the current implemented capabilities, the immediate renderer work, and the `main` / `dev` / `feature/*` branch workflow without the old pre-start roadmap framing.
+- Rewrote the root `README.md` to describe the current implemented capabilities, the immediate renderer work, current test coverage, standard verification commands, and the `main` / `dev` / `feature/*` branch workflow without the old pre-start roadmap framing.
 
 ### Changed
 

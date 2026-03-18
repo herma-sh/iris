@@ -14,6 +14,24 @@ Windows, Linux, and macOS are first-class targets. Windows is treated as a desig
 
 VTtest is still deferred because Iris does not yet have a runnable terminal application that can host an interactive session.
 
+## Testing And Verification
+
+Current coverage includes:
+
+- parser state-machine unit tests
+- terminal behavior unit tests
+- integration tests for chunked redraw streams, OSC flows, and terminal-style screen updates
+- parser throughput benchmarking through the shipped parser-to-terminal path
+
+Standard verification commands:
+
+```bash
+cargo fmt -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all
+cargo bench -p iris-core --bench parser_throughput
+```
+
 ## Workspace
 
 - `iris-core`: terminal state, parser, grid, damage tracking, and related tests
@@ -62,3 +80,4 @@ Normal development should branch from `dev` and merge back into `dev`. `main` sh
 - [docs/testing-strategy.md](./docs/testing-strategy.md)
 - [docs/benchmarks.md](./docs/benchmarks.md)
 - [docs/security-threat-model.md](./docs/security-threat-model.md)
+- [CHANGELOG.md](./CHANGELOG.md)
