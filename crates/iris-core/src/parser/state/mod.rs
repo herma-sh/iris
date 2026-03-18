@@ -77,6 +77,7 @@ pub struct Parser {
     charsets: [Charset; 4],
     active_charset: usize,
     single_shift_charset: Option<usize>,
+    last_printed_char: Option<char>,
     osc_buffer: Vec<u8>,
     dcs_buffer: Vec<u8>,
     ignored_string_len: usize,
@@ -109,6 +110,7 @@ impl Parser {
             charsets: [Charset::Ascii; 4],
             active_charset: 0,
             single_shift_charset: None,
+            last_printed_char: None,
             osc_buffer: Vec::with_capacity(config.max_osc_bytes.min(256)),
             dcs_buffer: Vec::with_capacity(config.max_dcs_bytes.min(256)),
             ignored_string_len: 0,
@@ -191,10 +193,24 @@ impl Parser {
                 self.state = ParserState::Escape;
                 Vec::new()
             }
-            0x20..=0x7e => vec![Action::Print(self.translate_printable_byte(byte))],
+            0x20..=0x7e => {
+                let character = self.translate_printable_byte(byte);
+                vec![self.print_action(character)]
+            }
             0x80..=0xff => self.parse_utf8_lead(byte),
             _ => Vec::new(),
         }
+    }
+
+    fn print_action(&mut self, character: char) -> Action {
+        self.last_printed_char = Some(character);
+        Action::Print(character)
+    }
+
+    fn repeat_last_printed(&self, count: u16) -> Vec<Action> {
+        self.last_printed_char
+            .map(|character| vec![Action::Print(character); usize::from(count.max(1))])
+            .unwrap_or_default()
     }
 }
 

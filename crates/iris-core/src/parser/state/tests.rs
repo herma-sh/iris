@@ -195,6 +195,23 @@ fn parser_switches_between_g0_and_g1_charsets() {
 }
 
 #[test]
+fn parser_repeats_the_previous_graphic_character() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"A\x1b[3b"),
+        vec![
+            Action::Print('A'),
+            Action::Print('A'),
+            Action::Print('A'),
+            Action::Print('A'),
+        ]
+    );
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b[b").is_empty());
+}
+
+#[test]
 fn parser_designates_g2_and_g3_for_single_shift_sequences() {
     let mut parser = Parser::new();
     assert_eq!(

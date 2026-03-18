@@ -4,7 +4,7 @@ impl Parser {
     pub(super) fn parse_utf8_lead(&mut self, byte: u8) -> Vec<Action> {
         let expected = match utf8_sequence_len(byte) {
             Some(expected) => expected,
-            None => return vec![Action::Print(char::REPLACEMENT_CHARACTER)],
+            None => return vec![self.print_action(char::REPLACEMENT_CHARACTER)],
         };
 
         self.utf8_buffer[0] = byte;
@@ -21,7 +21,7 @@ impl Parser {
     pub(super) fn parse_utf8_continuation(&mut self, byte: u8) -> Vec<Action> {
         if !is_utf8_continuation(byte) {
             self.reset_utf8();
-            let mut actions = vec![Action::Print(char::REPLACEMENT_CHARACTER)];
+            let mut actions = vec![self.print_action(char::REPLACEMENT_CHARACTER)];
             actions.extend(self.parse_ground(byte));
             return actions;
         }
@@ -43,7 +43,7 @@ impl Parser {
             .and_then(|text| text.chars().next())
             .unwrap_or(char::REPLACEMENT_CHARACTER);
         self.reset_utf8();
-        vec![Action::Print(character)]
+        vec![self.print_action(character)]
     }
 
     pub(super) fn reset_utf8(&mut self) {

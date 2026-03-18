@@ -377,6 +377,18 @@ fn parser_applies_common_csi_alias_sequences() {
 }
 
 #[test]
+fn parser_applies_repeat_previous_character_sequences() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\x1b[3bB").unwrap();
+
+    assert_eq!(row_text(&terminal, 0), "AAAAB   ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 5);
+}
+
+#[test]
 fn parser_applies_g2_and_g3_single_shift_sequences() {
     let mut terminal = Terminal::new(1, 8).unwrap();
     let mut parser = Parser::new();

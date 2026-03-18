@@ -47,6 +47,7 @@ Target release: `0.1.0`
 - Completed phase-1 G2/G3 character-set designation and `SS2`/`SS3` single-shift handling so one-shot charset selection now covers all four VT charset slots.
 - Added phase-1 `CSI I` forward-tabulation support so counted tab movement now covers both forward and backward CSI tab controls.
 - Added phase-1 support for common CSI cursor aliases ``CSI ` ``, `CSI a`, and `CSI e`, mapping them onto the existing absolute-column, forward, and downward cursor motions.
+- Added phase-1 `CSI b` repeat-previous-character support with parser-state tracking so repeated graphic output works across normal printable and UTF-8 decoded characters.
 - Expanded phase-1 integration coverage with chunked mixed-sequence streams and combined screen-update flows closer to real terminal redraw behavior.
 - Added phase-1 tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
 - Added phase-1 insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.

@@ -67,7 +67,10 @@ impl Parser {
             b'8' => vec![Action::RestoreCursor],
             b'=' => vec![Action::SetKeypadMode(true)],
             b'>' => vec![Action::SetKeypadMode(false)],
-            b'c' => vec![Action::ResetTerminal],
+            b'c' => {
+                self.last_printed_char = None;
+                vec![Action::ResetTerminal]
+            }
             _ => Vec::new(),
         }
     }
