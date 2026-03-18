@@ -51,9 +51,13 @@ fn terminal_applies_all_erase_display_modes() {
     );
 
     terminal.write_char('Z').unwrap();
+    assert_eq!(
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
+        Some('Z')
+    );
     terminal.apply_action(Action::EraseDisplay(3)).unwrap();
     assert_eq!(
-        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        terminal.grid.cell(1, 0).map(|cell| cell.character),
         Some(' ')
     );
 }
@@ -92,6 +96,10 @@ fn terminal_applies_all_erase_line_modes() {
     );
 
     terminal.apply_action(Action::EraseLine(2)).unwrap();
+    assert_eq!(
+        terminal.grid.cell(0, 3).map(|cell| cell.character),
+        Some(' ')
+    );
     assert_eq!(
         terminal.grid.cell(0, 4).map(|cell| cell.character),
         Some(' ')
