@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 bitflags = "2.6"
+smallvec = "1.13"
 thiserror = "1.0"
 unicode-width = "0.1"
 

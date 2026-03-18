@@ -1,5 +1,5 @@
 use super::control::parse_control;
-use super::csi::parse_csi;
+use super::csi::parse_csi_into;
 use super::dcs::parse_dcs;
 use super::osc::parse_osc;
 use super::Action;

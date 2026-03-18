@@ -81,16 +81,19 @@ fn terminal_applies_cursor_and_erase_actions() {
 fn terminal_applies_sgr_and_modes() {
     let mut terminal = Terminal::new(2, 4).unwrap();
     terminal
-        .apply_action(Action::SetGraphicsRendition(vec![
-            GraphicsRendition::Bold(true),
-            GraphicsRendition::Foreground(Color::Indexed(33)),
-        ]))
+        .apply_action(Action::SetGraphicsRendition(
+            vec![
+                GraphicsRendition::Bold(true),
+                GraphicsRendition::Foreground(Color::Indexed(33)),
+            ]
+            .into(),
+        ))
         .unwrap();
     terminal.write_char('X').unwrap();
     terminal
         .apply_action(Action::ResetModes {
             private: true,
-            modes: vec![25],
+            modes: vec![25].into(),
         })
         .unwrap();
 
@@ -128,7 +131,7 @@ fn terminal_mode_application_respects_private_marker() {
     terminal
         .apply_action(Action::SetModes {
             private: false,
-            modes: vec![4],
+            modes: vec![4].into(),
         })
         .unwrap();
     assert!(terminal.modes.insert);
@@ -136,7 +139,7 @@ fn terminal_mode_application_respects_private_marker() {
     terminal
         .apply_action(Action::ResetModes {
             private: true,
-            modes: vec![4],
+            modes: vec![4].into(),
         })
         .unwrap();
     assert!(terminal.modes.insert);
@@ -153,7 +156,7 @@ fn terminal_origin_mode_homes_cursor_on_set_and_reset() {
     terminal
         .apply_action(Action::SetModes {
             private: true,
-            modes: vec![6],
+            modes: vec![6].into(),
         })
         .unwrap();
 
@@ -164,7 +167,7 @@ fn terminal_origin_mode_homes_cursor_on_set_and_reset() {
     terminal
         .apply_action(Action::ResetModes {
             private: true,
-            modes: vec![6],
+            modes: vec![6].into(),
         })
         .unwrap();
 
@@ -182,7 +185,7 @@ fn terminal_origin_mode_constrains_absolute_cursor_addressing() {
     terminal
         .apply_action(Action::SetModes {
             private: true,
-            modes: vec![6],
+            modes: vec![6].into(),
         })
         .unwrap();
 
@@ -292,7 +295,7 @@ fn terminal_switches_between_primary_and_alternate_screen() {
     terminal
         .apply_action(Action::SetModes {
             private: true,
-            modes: vec![1049],
+            modes: vec![1049].into(),
         })
         .unwrap();
     terminal.write_char('B').unwrap();
@@ -306,7 +309,7 @@ fn terminal_switches_between_primary_and_alternate_screen() {
     terminal
         .apply_action(Action::ResetModes {
             private: true,
-            modes: vec![1049],
+            modes: vec![1049].into(),
         })
         .unwrap();
 
@@ -337,7 +340,7 @@ fn terminal_reset_restores_initial_state() {
     terminal
         .apply_action(Action::SetModes {
             private: true,
-            modes: vec![1049],
+            modes: vec![1049].into(),
         })
         .unwrap();
     terminal.write_char('B').unwrap();

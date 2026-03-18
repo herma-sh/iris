@@ -7,5 +7,5 @@ mod dcs;
 mod osc;
 mod state;
 
-pub use actions::{Action, GraphicsRendition};
+pub use actions::{Action, GraphicsRendition, GraphicsRenditions, ModeParams};
 pub use state::{Parser, ParserConfig, ParserState};

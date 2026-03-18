@@ -1,4 +1,4 @@
-use super::{parse_csi, Action, Parser, ParserState};
+use super::{parse_csi_into, Action, Parser, ParserState};
 
 impl Parser {
     pub(super) fn parse_csi_entry(&mut self, byte: u8, actions: &mut Vec<Action>) {
@@ -33,7 +33,7 @@ impl Parser {
                 if byte == b'b' && private_marker.is_none() {
                     self.repeat_last_printed_into(1, actions);
                 } else {
-                    actions.extend(parse_csi(&[], private_marker, byte));
+                    parse_csi_into(&[], private_marker, byte, actions);
                 }
             }
             _ => {
@@ -81,7 +81,7 @@ impl Parser {
                     let count = self.params.first().copied().unwrap_or(1);
                     self.repeat_last_printed_into(count, actions);
                 } else {
-                    actions.extend(parse_csi(&self.params, private_marker, byte));
+                    parse_csi_into(&self.params, private_marker, byte, actions);
                 }
                 self.params.clear();
                 self.intermediates.clear();

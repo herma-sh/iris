@@ -54,16 +54,19 @@ fn parser_handles_private_modes_and_sgr() {
         parser.parse(b"\x1b[?25l"),
         vec![Action::ResetModes {
             private: true,
-            modes: vec![25],
+            modes: vec![25].into(),
         }]
     );
     assert_eq!(
         parser.parse(b"\x1b[1;31;48;5;240m"),
-        vec![Action::SetGraphicsRendition(vec![
-            GraphicsRendition::Bold(true),
-            GraphicsRendition::Foreground(Color::Ansi(1)),
-            GraphicsRendition::Background(Color::Indexed(240)),
-        ])]
+        vec![Action::SetGraphicsRendition(
+            vec![
+                GraphicsRendition::Bold(true),
+                GraphicsRendition::Foreground(Color::Ansi(1)),
+                GraphicsRendition::Background(Color::Indexed(240)),
+            ]
+            .into()
+        )]
     );
 }
 

@@ -61,6 +61,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.11.0",
  "pretty_assertions",
+ "smallvec",
  "thiserror",
  "unicode-width",
 ]
@@ -186,6 +187,12 @@ name = "shell-words"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
+
+[[package]]
+name = "smallvec"
+version = "1.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "syn"
