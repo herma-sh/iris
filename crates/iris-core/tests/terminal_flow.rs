@@ -1,5 +1,23 @@
 use iris_core::{DamageRegion, Parser, Terminal};
 
+fn advance_chunks(parser: &mut Parser, terminal: &mut Terminal, chunks: &[&[u8]]) {
+    for chunk in chunks {
+        parser.advance(terminal, chunk).unwrap();
+    }
+}
+
+fn row_text(terminal: &Terminal, row: usize) -> String {
+    (0..terminal.grid.cols())
+        .map(|col| {
+            terminal
+                .grid
+                .cell(row, col)
+                .map(|cell| cell.character)
+                .unwrap_or(' ')
+        })
+        .collect()
+}
+
 #[test]
 fn parser_and_terminal_update_damage_and_cursor_state() {
     let mut terminal = Terminal::new(2, 6).unwrap();
@@ -159,6 +177,32 @@ fn parser_applies_osc_title_and_hyperlink_actions() {
 }
 
 #[test]
+fn parser_handles_chunked_mixed_sequence_stream() {
+    let mut terminal = Terminal::new(3, 12).unwrap();
+    let mut parser = Parser::new();
+
+    advance_chunks(
+        &mut parser,
+        &mut terminal,
+        &[
+            b"\x1b]2;Sta",
+            b"tus\x07\x1b[1;",
+            b"31mER",
+            b"R\x1b[0m ",
+            b"\x1b*0\x1bNq",
+            b"\x1b[2;",
+            b"5HOK",
+        ],
+    );
+
+    assert_eq!(terminal.window_title.as_deref(), Some("Status"));
+    assert_eq!(row_text(&terminal, 0), format!("ERR {}       ", '\u{2500}'));
+    assert_eq!(row_text(&terminal, 1), "    OK      ");
+    assert_eq!(terminal.cursor.position.row, 1);
+    assert_eq!(terminal.cursor.position.col, 6);
+}
+
+#[test]
 fn parser_recovers_after_dcs_and_ignored_string_sequences() {
     let mut terminal = Terminal::new(2, 8).unwrap();
     let mut parser = Parser::new();
@@ -290,6 +334,84 @@ fn parser_applies_tab_stop_sequences() {
 }
 
 #[test]
+fn parser_applies_forward_tab_sequences() {
+    let mut terminal = Terminal::new(1, 20).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\x1b[2IB").unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 16).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(terminal.cursor.position.col, 17);
+}
+
+#[test]
+fn parser_applies_common_csi_alias_sequences() {
+    let mut terminal = Terminal::new(3, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"A\x1b[2e\x1b[4`B\x1b[2aC")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 3).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 6).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(terminal.cursor.position.row, 2);
+    assert_eq!(terminal.cursor.position.col, 7);
+}
+
+#[test]
+fn parser_applies_repeat_previous_character_sequences() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\x1b[3bB").unwrap();
+
+    assert_eq!(row_text(&terminal, 0), "AAAAB   ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 5);
+}
+
+#[test]
+fn parser_applies_g2_and_g3_single_shift_sequences() {
+    let mut terminal = Terminal::new(1, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"\x1b*0\x1b+A\x1bNq\x1bO#q")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('\u{2500}')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('\u{00a3}')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('q')
+    );
+}
+
+#[test]
 fn parser_applies_insert_and_delete_character_sequences() {
     let mut terminal = Terminal::new(4, 6).unwrap();
     let mut parser = Parser::new();
@@ -338,4 +460,29 @@ fn parser_applies_insert_line_sequences_within_scroll_region() {
         terminal.grid.cell(2, 0).map(|cell| cell.character),
         Some('B')
     );
+}
+
+#[test]
+fn parser_replays_combined_screen_update_stream() {
+    let mut terminal = Terminal::new(3, 24).unwrap();
+    let mut parser = Parser::new();
+
+    advance_chunks(
+        &mut parser,
+        &mut terminal,
+        &[
+            b"\x1b[2J\x1b[HHEAD",
+            b"\x1b7\x1b[2;1H\x1b[1;32mOK\x1b[0m",
+            b"\x1b8\x1b[2I",
+            b"\x1b*0\x1bNq",
+        ],
+    );
+
+    assert_eq!(
+        row_text(&terminal, 0),
+        format!("HEAD            {}       ", '\u{2500}')
+    );
+    assert_eq!(row_text(&terminal, 1), "OK                      ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 17);
 }

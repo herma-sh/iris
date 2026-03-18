@@ -28,7 +28,12 @@ impl Parser {
             }
             0x40..=0x7e => {
                 self.state = ParserState::Ground;
-                parse_csi(&[], self.private_marker.take(), byte)
+                let private_marker = self.private_marker.take();
+                if byte == b'b' && private_marker.is_none() {
+                    self.repeat_last_printed(1)
+                } else {
+                    parse_csi(&[], private_marker, byte)
+                }
             }
             _ => {
                 self.reset();
@@ -72,7 +77,11 @@ impl Parser {
                 let private_marker = self.private_marker.take();
                 self.state = ParserState::Ground;
                 self.current_param = None;
-                parse_csi(&params, private_marker, byte)
+                if byte == b'b' && private_marker.is_none() {
+                    self.repeat_last_printed(params.first().copied().unwrap_or(1))
+                } else {
+                    parse_csi(&params, private_marker, byte)
+                }
             }
             _ => {
                 self.reset();

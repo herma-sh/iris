@@ -22,7 +22,7 @@ pub enum ParserState {
     Ground,
     /// `ESC` has been seen.
     Escape,
-    /// `ESC (` or `ESC )` charset designation is pending.
+    /// `ESC (` / `ESC )` / `ESC *` / `ESC +` charset designation is pending.
     EscapeCharset(usize),
     /// `OSC` string collection.
     OscString,
@@ -74,8 +74,10 @@ pub struct Parser {
     params: Vec<u16>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
-    charsets: [Charset; 2],
+    charsets: [Charset; 4],
     active_charset: usize,
+    single_shift_charset: Option<usize>,
+    last_printed_char: Option<char>,
     osc_buffer: Vec<u8>,
     dcs_buffer: Vec<u8>,
     ignored_string_len: usize,
@@ -105,8 +107,10 @@ impl Parser {
             params: Vec::with_capacity(config.max_params.min(16)),
             current_param: None,
             private_marker: None,
-            charsets: [Charset::Ascii; 2],
+            charsets: [Charset::Ascii; 4],
             active_charset: 0,
+            single_shift_charset: None,
+            last_printed_char: None,
             osc_buffer: Vec::with_capacity(config.max_osc_bytes.min(256)),
             dcs_buffer: Vec::with_capacity(config.max_dcs_bytes.min(256)),
             ignored_string_len: 0,
@@ -132,6 +136,19 @@ impl Parser {
         self.osc_buffer.clear();
         self.dcs_buffer.clear();
         self.ignored_string_len = 0;
+        self.single_shift_charset = None;
+        self.reset_utf8();
+    }
+
+    fn reset_terminal_state(&mut self) {
+        self.state = ParserState::Ground;
+        self.params.clear();
+        self.current_param = None;
+        self.private_marker = None;
+        self.charsets = [Charset::Ascii; 4];
+        self.active_charset = 0;
+        self.single_shift_charset = None;
+        self.last_printed_char = None;
         self.reset_utf8();
     }
 
@@ -188,10 +205,24 @@ impl Parser {
                 self.state = ParserState::Escape;
                 Vec::new()
             }
-            0x20..=0x7e => vec![Action::Print(self.translate_printable_byte(byte))],
+            0x20..=0x7e => {
+                let character = self.translate_printable_byte(byte);
+                vec![self.print_action(character)]
+            }
             0x80..=0xff => self.parse_utf8_lead(byte),
             _ => Vec::new(),
         }
+    }
+
+    fn print_action(&mut self, character: char) -> Action {
+        self.last_printed_char = Some(character);
+        Action::Print(character)
+    }
+
+    fn repeat_last_printed(&self, count: u16) -> Vec<Action> {
+        self.last_printed_char
+            .map(|character| vec![Action::Print(character); usize::from(count.max(1))])
+            .unwrap_or_default()
     }
 }
 

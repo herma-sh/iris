@@ -106,6 +106,7 @@ impl Terminal {
             Action::Bell => {}
             Action::Backspace => self.backspace(),
             Action::Tab => self.tab(),
+            Action::ForwardTab(count) => self.forward_tab(count),
             Action::LineFeed | Action::VerticalTab | Action::FormFeed => self.line_feed()?,
             Action::CarriageReturn => self.carriage_return(),
             Action::Index => self.index(),

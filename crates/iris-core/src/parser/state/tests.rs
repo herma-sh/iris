@@ -1,4 +1,4 @@
-use super::{Parser, ParserConfig, ParserState};
+use super::{Charset, Parser, ParserConfig, ParserState};
 use crate::cell::{CellFlags, Color};
 use crate::parser::{Action, GraphicsRendition};
 
@@ -26,6 +26,10 @@ fn parser_collects_csi_parameters_and_defaults() {
 
     let mut parser = Parser::new();
     assert_eq!(parser.parse(b"\x1b[A"), vec![Action::CursorUp(1)]);
+    assert_eq!(parser.parse(b"\x1b[I"), vec![Action::ForwardTab(1)]);
+    assert_eq!(parser.parse(b"\x1b[`"), vec![Action::CursorColumn(1)]);
+    assert_eq!(parser.parse(b"\x1b[a"), vec![Action::CursorForward(1)]);
+    assert_eq!(parser.parse(b"\x1b[e"), vec![Action::CursorDown(1)]);
 }
 
 #[test]
@@ -64,6 +68,33 @@ fn parser_handles_escape_terminal_control_sequences() {
     assert_eq!(parser.parse(b"\x1b="), vec![Action::SetKeypadMode(true)]);
     assert_eq!(parser.parse(b"\x1b>"), vec![Action::SetKeypadMode(false)]);
     assert_eq!(parser.parse(b"\x1bc"), vec![Action::ResetTerminal]);
+}
+
+#[test]
+fn esc_c_clears_pending_single_shift_charset() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b*0\x1bN\x1bcq"),
+        vec![Action::ResetTerminal, Action::Print('q')]
+    );
+}
+
+#[test]
+fn esc_c_restores_terminal_interpretation_defaults() {
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b(A").is_empty());
+    assert!(parser.parse(b"\x1b)0\x0e\x1bN").is_empty());
+
+    assert_eq!(parser.charsets[0], Charset::Uk);
+    assert_eq!(parser.charsets[1], Charset::DecSpecial);
+    assert_eq!(parser.active_charset, 1);
+    assert_eq!(parser.single_shift_charset, Some(2));
+
+    assert_eq!(parser.parse(b"\x1bc"), vec![Action::ResetTerminal]);
+    assert_eq!(parser.charsets, [Charset::Ascii; 4]);
+    assert_eq!(parser.active_charset, 0);
+    assert_eq!(parser.single_shift_charset, None);
+    assert_eq!(parser.last_printed_char, None);
 }
 
 #[test]
@@ -185,6 +216,36 @@ fn parser_switches_between_g0_and_g1_charsets() {
         vec![
             Action::Print('\u{2500}'),
             Action::Print('\u{2502}'),
+            Action::Print('q'),
+        ]
+    );
+}
+
+#[test]
+fn parser_repeats_the_previous_graphic_character() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"A\x1b[3b"),
+        vec![
+            Action::Print('A'),
+            Action::Print('A'),
+            Action::Print('A'),
+            Action::Print('A'),
+        ]
+    );
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b[b").is_empty());
+}
+
+#[test]
+fn parser_designates_g2_and_g3_for_single_shift_sequences() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b*0\x1b+A\x1bNq\x1bO#q"),
+        vec![
+            Action::Print('\u{2500}'),
+            Action::Print('\u{00a3}'),
             Action::Print('q'),
         ]
     );
