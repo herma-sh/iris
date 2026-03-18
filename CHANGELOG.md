@@ -75,6 +75,7 @@ Target release: `0.1.0`
 - Optimized the shipped parser-to-terminal path by extending the ASCII ground-state fast path to `Parser::advance` and adding batched ASCII terminal/grid writes with range-based damage marking for contiguous single-width output.
 - Hardened the grid and terminal ASCII fast paths so `write_ascii_run` now rejects control bytes and raw UTF-8 bytes instead of treating arbitrary input bytes as printable single-width characters.
 - Strengthened the terminal erase-mode regression tests so `ED 3` and `EL 2` assertions now verify cells that would expose partial or no-op erase implementations.
+- Hardened the public `Grid::write_ascii_run` bounds arithmetic with checked addition so oversized ASCII-run lengths fail safely instead of relying on unchecked `usize` math.
 - Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, with verified 2026-03-18 runs ranging roughly from `144 MiB/s` to `151 MiB/s` on the plain-text fixture and from `11.1M` to `11.2M seq/s` on the CSI fixture.
 - Clarified the phase plan so VTtest remains deferred until Phase 6, when Iris first has a runnable standalone terminal binary that can host an interactive VTtest session.
 - Cleaned up the benchmark, testing, and documentation index docs so Phase 1 now points at the shipped `Parser::advance` parser-to-terminal harness, marks documentation cleanup complete, and removes stale claims that VTtest already passes before a runnable binary exists.

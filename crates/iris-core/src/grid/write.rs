@@ -43,12 +43,20 @@ impl Grid {
 
         validate_printable_ascii(bytes)?;
 
-        if row >= self.rows() || col >= self.cols() || col + bytes.len() > self.cols() {
+        let end_col = col
+            .checked_add(bytes.len())
+            .ok_or_else(|| self.invalid_position(row, col))?;
+        if row >= self.rows() || col >= self.cols() || end_col > self.cols() {
             return Err(self.invalid_position(row, col));
         }
 
-        let start = row * self.cols() + col;
-        let end = start + bytes.len();
+        let start = row
+            .checked_mul(self.cols())
+            .and_then(|start| start.checked_add(col))
+            .ok_or_else(|| self.invalid_position(row, col))?;
+        let end = start
+            .checked_add(bytes.len())
+            .ok_or_else(|| self.invalid_position(row, col))?;
         let mut requires_cleanup = false;
 
         for offset in 0..bytes.len() {
@@ -72,7 +80,7 @@ impl Grid {
             };
         }
 
-        self.damage.mark_range(row, col, col + bytes.len() - 1);
+        self.damage.mark_range(row, col, end_col - 1);
         Ok(())
     }
 
