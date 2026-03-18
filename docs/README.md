@@ -81,7 +81,7 @@ Iris v1 is complete when:
 2. Renders at 60fps with smooth scrolling.
 3. Passes VTtest basic sequences once the standalone binary can host an interactive session.
 4. Handles real-world workloads such as `tmux`, `htop`, and `vim`.
-5. Keeps input latency below 16ms.
+5. Keeps input latency below 4ms.
 6. Stays below 50MB at 10k lines of scrollback.
 7. Embeds cleanly into host applications through the documented integration surface.
 8. Supports platform-native launch and shell workflows on Windows.
