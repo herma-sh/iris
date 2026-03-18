@@ -1,43 +1,27 @@
 # Iris
 
-Iris is a Rust-first, cross-platform terminal platform built for speed, correctness, and clean embedding.
+Iris is a Rust-first terminal platform for standalone and embedded use.
 
-It is designed to work in two modes:
+The project is being built in phases. `iris-core` now has Phase 1 parser coverage complete on `main`, and the next implementation phase is the GPU renderer in `iris-render-wgpu`.
 
-- standalone terminal application
-- embeddable terminal surface for host applications
+Windows, Linux, and macOS are first-class targets. Windows is treated as a design-time priority.
 
-Windows, Linux, and macOS are all first-class targets, with Windows treated as a design-time priority.
+## Current Status
 
-## Goals
+- Phase 0 complete: core workspace and platform foundations
+- Phase 1 complete: ANSI/VT parser, terminal behavior, integration coverage, and parser throughput target
+- Phase 2 next: `wgpu` renderer, glyph atlas, damage-driven drawing, and visible text output
+- VTtest is deferred until Phase 6, when Iris has a runnable standalone terminal binary that can host an interactive session
 
-- fast input-to-screen latency
-- smooth scrolling under large scrollback
-- reliable ANSI and VT behavior
-- clean typography and rendering
-- strong platform integration for PTY, clipboard, IME, fonts, and DPI
-- a clear API boundary between terminal core, platform services, renderer, and host integration
+## Workspace
 
-## Architecture
-
-Iris is organized around a small set of focused layers:
-
-- `iris-core`: terminal state, parser, buffer, scrollback, selection, search, themes, and events
-- `iris-platform`: PTY, clipboard, keyboard normalization, IME, and font integration
-- `iris-render-wgpu`: GPU rendering via `wgpu`
-- `iris-standalone`: standalone terminal entry point
-- `@iris/contract` and `@iris/react`: host-facing contracts and a thin React adapter
+- `iris-core`: terminal state, parser, grid, damage tracking, and related tests
+- `iris-platform`: PTY, clipboard, IME, keyboard, and font abstractions
+- `iris-render-wgpu`: GPU renderer
+- `iris-standalone`: standalone application entry point planned for a later phase
+- `@iris/contract` and `@iris/react`: host-facing contracts and embedding adapters planned for later phases
 
 Core rule: terminal behavior lives in Rust, not in the UI layer.
-
-## Design Principles
-
-- Correctness before optimization
-- Measured performance over vague smoothness claims
-- No unnecessary allocations in hot paths
-- Strict crate boundaries
-- Minimal, readable code
-- Original, restrained terminal UX
 
 ## Performance Targets
 
@@ -48,37 +32,25 @@ Core rule: terminal behavior lives in Rust, not in the UI layer.
 | Scroll performance | `60fps` under heavy scrollback |
 | Memory at 10k scrollback | `< 50MB` release target |
 
-## Planned Feature Areas
-
-- ANSI, VT, XTerm, and modern escape-sequence support
-- GPU text rendering with damage tracking
-- selection, clipboard, and search
-- shell integration with prompt markers
-- hyperlink support
-- inline graphics support
-- platform-native PTY, IME, font, and clipboard behavior
-- standalone terminal workflows including configuration and session features
-
 ## Roadmap
 
-Development is phased. The current plan runs from:
+Development is phased:
 
 - Phase 0: foundation
 - Phase 1: core parser
-- Phase 2: wgpu renderer
+- Phase 2: `wgpu` renderer
 - Phase 3: selection and clipboard
 - Phase 4: scrollback and search
 - Phase 5: platform polish
-- Phase 6+: standalone, embedding, shell integration, performance, and polish
+- Phase 6: standalone terminal application
+- Later phases: embedding, shell integration, advanced rendering, performance, and polish
 
-See [docs/phases.md](./docs/phases.md) for the full roadmap.
+See [docs/phases.md](./docs/phases.md) for the full phase plan and [docs/phases/02.md](./docs/phases/02.md) for the active next phase.
 
 ## Development Workflow
 
-The repository now uses a staged branch model:
-
 - `main`: completed phases only
-- `dev`: active integration branch for the current phase
+- `dev`: active integration branch
 - `feature/*`: focused work branches created from `dev`
 
 Normal development should branch from `dev` and merge back into `dev`. `main` should only receive deliberate phase-complete merges from `dev`.
@@ -86,14 +58,9 @@ Normal development should branch from `dev` and merge back into `dev`. `main` sh
 ## Documentation
 
 - [docs/README.md](./docs/README.md)
+- [docs/phases.md](./docs/phases.md)
 - [docs/design.md](./docs/design.md)
-- [docs/api-design.md](./docs/api-design.md)
 - [docs/implementation.md](./docs/implementation.md)
-- [docs/features.md](./docs/features.md)
-- [docs/code-style.md](./docs/code-style.md)
 - [docs/testing-strategy.md](./docs/testing-strategy.md)
+- [docs/benchmarks.md](./docs/benchmarks.md)
 - [docs/security-threat-model.md](./docs/security-threat-model.md)
-
-## Status
-
-Iris is currently documented in depth and organized around phased implementation work. The documentation set defines architecture, standards, security posture, performance targets, and release criteria for the build-out of the terminal platform.
