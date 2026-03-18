@@ -64,6 +64,8 @@ Target release: `0.1.0`
 - Updated parser string and sequence handling so embedded controls continue to execute without corrupting buffered OSC/DCS payloads, while `CAN` and `SUB` now cancel the active sequence cleanly.
 - Added comprehensive phase-1 SGR coverage for supported style toggles, standard/default ANSI colors, bright colors, and extended-color clamping.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark full supported SGR attribute-code coverage complete.
+- Added phase-1 parser and integration coverage for nested-like OSC streams so malformed in-string `ESC ]` introducers stay literal until BEL/ST termination and subsequent real OSC updates still resynchronize cleanly.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark nested OSC coverage complete.
 
 ## 0.0.1 - 2026-03-17
 

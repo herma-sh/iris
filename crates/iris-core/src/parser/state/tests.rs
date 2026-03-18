@@ -234,6 +234,22 @@ fn parser_parses_osc_hyperlink_with_st_terminator() {
 }
 
 #[test]
+fn parser_treats_nested_osc_introducers_as_literal_string_content() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b]2;Outer\x1b]2;Inner\x07"),
+        vec![Action::SetWindowTitle("Outer\x1b]2;Inner".to_string())]
+    );
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b]2;Chunked\x1b").is_empty());
+    assert_eq!(
+        parser.parse(b"]Tail\x07"),
+        vec![Action::SetWindowTitle("Chunked\x1b]Tail".to_string())]
+    );
+}
+
+#[test]
 fn parser_handles_dcs_with_st_terminator() {
     let mut parser = Parser::new();
     assert_eq!(
