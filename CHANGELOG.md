@@ -51,6 +51,7 @@ Target release: `0.1.0`
 - Hardened phase-1 `ESC c` handling so parser-side terminal interpretation resets restore default charset slots and active charset instead of only clearing transient single-shift state.
 - Expanded phase-1 integration coverage with chunked mixed-sequence streams and combined screen-update flows closer to real terminal redraw behavior.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark the parser and integration milestones that are now complete, so progress tracking stays aligned with merged work.
+- Updated the phase-1 implementation-order section in `docs/phases/01.md` to mark completed parser, charset, unit-test, and integration-test milestones while leaving VTtest, benchmarking, and final cleanup open.
 - Added phase-1 tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
 - Added phase-1 insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.
 - Added phase-1 ESC handling for `ESC Z`, `ESC c`, `ESC =`, and `ESC >`, including keypad-mode tracking and full terminal reset coverage across parser, terminal, and integration tests.
