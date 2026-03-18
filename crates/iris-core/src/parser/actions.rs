@@ -79,6 +79,12 @@ pub enum Action {
     SetWindowTitle(String),
     /// Update the active hyperlink target.
     SetHyperlink { id: Option<String>, uri: String },
+    /// Request primary device attributes from the terminal.
+    DeviceAttributes,
+    /// Reset the terminal to its initial state.
+    ResetTerminal,
+    /// Toggle keypad application mode (`true`) or numeric mode (`false`).
+    SetKeypadMode(bool),
     /// Enable ANSI or DEC terminal modes.
     SetModes { private: bool, modes: Vec<u16> },
     /// Disable ANSI or DEC terminal modes.

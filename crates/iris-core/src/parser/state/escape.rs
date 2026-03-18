@@ -46,8 +46,12 @@ impl Parser {
             b'E' => vec![Action::NextLine],
             b'H' => vec![Action::SetTabStop],
             b'M' => vec![Action::ReverseIndex],
+            b'Z' => vec![Action::DeviceAttributes],
             b'7' => vec![Action::SaveCursor],
             b'8' => vec![Action::RestoreCursor],
+            b'=' => vec![Action::SetKeypadMode(true)],
+            b'>' => vec![Action::SetKeypadMode(false)],
+            b'c' => vec![Action::ResetTerminal],
             _ => Vec::new(),
         }
     }

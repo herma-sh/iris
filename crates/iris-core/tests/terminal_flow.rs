@@ -212,6 +212,34 @@ fn parser_switches_between_primary_and_alternate_screen() {
 }
 
 #[test]
+fn parser_escape_reset_restores_initial_terminal_state() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(
+            &mut terminal,
+            b"A\x1b]2;Iris\x07\x1b]8;;https://example.com\x1b\\\x1b=\x1b[?1049hB\x1bZ\x1bcC",
+        )
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 1);
+    assert_eq!(terminal.window_title, None);
+    assert_eq!(terminal.active_hyperlink, None);
+    assert!(!terminal.modes.alternate_screen);
+    assert!(!terminal.modes.keypad);
+}
+
+#[test]
 fn parser_applies_scroll_region_and_scroll_commands() {
     let mut terminal = Terminal::new(4, 2).unwrap();
     let mut parser = Parser::new();

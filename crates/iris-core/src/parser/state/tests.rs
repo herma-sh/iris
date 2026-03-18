@@ -58,6 +58,15 @@ fn parser_handles_escape_index_sequences() {
 }
 
 #[test]
+fn parser_handles_escape_terminal_control_sequences() {
+    let mut parser = Parser::new();
+    assert_eq!(parser.parse(b"\x1bZ"), vec![Action::DeviceAttributes]);
+    assert_eq!(parser.parse(b"\x1b="), vec![Action::SetKeypadMode(true)]);
+    assert_eq!(parser.parse(b"\x1b>"), vec![Action::SetKeypadMode(false)]);
+    assert_eq!(parser.parse(b"\x1bc"), vec![Action::ResetTerminal]);
+}
+
+#[test]
 fn parser_decodes_utf8_printable_characters() {
     let mut parser = Parser::new();
     assert_eq!(

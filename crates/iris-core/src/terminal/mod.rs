@@ -141,6 +141,9 @@ impl Terminal {
                     Some(Hyperlink { id, uri })
                 };
             }
+            Action::DeviceAttributes => {}
+            Action::ResetTerminal => self.reset_state()?,
+            Action::SetKeypadMode(enabled) => self.modes.keypad = enabled,
             Action::SetModes { private, modes } => self.apply_modes(false, private, &modes)?,
             Action::ResetModes { private, modes } => self.apply_modes(true, private, &modes)?,
             Action::SetTabStop => self.set_tab_stop(),
@@ -205,5 +208,23 @@ impl Terminal {
     /// Returns and clears the current damage list.
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
         self.grid.take_damage()
+    }
+
+    fn reset_state(&mut self) -> Result<()> {
+        if self.modes.alternate_screen {
+            self.exit_alternate_screen();
+        }
+
+        self.alternate_screen_state = None;
+        self.grid.clear();
+        self.cursor = Cursor::new();
+        self.modes = TerminalModes::new();
+        self.attrs = CellAttrs::default();
+        self.window_title = None;
+        self.active_hyperlink = None;
+        self.tab_stops = default_tab_stops(self.grid.cols());
+        self.scroll_region = None;
+        self.saved_cursor = None;
+        Ok(())
     }
 }
