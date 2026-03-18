@@ -71,6 +71,15 @@ fn parser_handles_escape_terminal_control_sequences() {
 }
 
 #[test]
+fn esc_c_clears_pending_single_shift_charset() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b*0\x1bN\x1bcq"),
+        vec![Action::ResetTerminal, Action::Print('q')]
+    );
+}
+
+#[test]
 fn parser_decodes_utf8_printable_characters() {
     let mut parser = Parser::new();
     assert_eq!(

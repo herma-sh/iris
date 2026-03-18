@@ -68,6 +68,7 @@ impl Parser {
             b'=' => vec![Action::SetKeypadMode(true)],
             b'>' => vec![Action::SetKeypadMode(false)],
             b'c' => {
+                self.single_shift_charset = None;
                 self.last_printed_char = None;
                 vec![Action::ResetTerminal]
             }
