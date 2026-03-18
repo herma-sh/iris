@@ -77,8 +77,9 @@ Target release: `0.1.0`
 - Optimized `Parser::advance` with the same ASCII ground-state fast path used by `parse`, so parser-to-terminal throughput now avoids per-byte slow-path dispatch for contiguous printable text and common C0 controls.
 - Aligned the parser throughput harness with the shipped parser-to-terminal path by benchmarking `Parser::advance` against a real `Terminal`, with current runs at roughly `75-76 MiB/s` for plain text and `10.9M-12.2M seq/s` for CSI-heavy streams.
 - Added batched ASCII terminal/grid write paths plus range-based damage marking so contiguous single-width output no longer pays per-cell damage updates or Unicode width calculation in the hot path.
-- Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, reaching roughly `176-177 MiB/s` on the plain-text fixture and `11.0M-11.1M seq/s` on the CSI fixture.
+- Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, with verified 2026-03-18 runs ranging roughly from `157 MiB/s` to `177 MiB/s` on the plain-text fixture and from `10.6M` to `11.1M seq/s` on the CSI fixture.
 - Clarified the phase plan so VTtest remains deferred until Phase 6, when Iris first has a runnable standalone terminal binary that can host an interactive VTtest session.
+- Cleaned up the benchmark, testing, and documentation index docs so Phase 1 now points at the shipped `Parser::advance` parser-to-terminal harness, marks documentation cleanup complete, and removes stale claims that VTtest already passes before a runnable binary exists.
 
 ## 0.0.1 - 2026-03-17
 
