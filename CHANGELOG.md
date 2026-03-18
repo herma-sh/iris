@@ -68,6 +68,8 @@ Target release: `0.1.0`
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark nested OSC coverage complete.
 - Added app-style phase-1 integration coverage for realistic `vim`-like alternate-screen redraws and `tmux`-like status-line redraws on the main screen.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark real-terminal-output coverage complete.
+- Added explicit phase-1 CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark CSI intermediate coverage complete.
 
 ## 0.0.1 - 2026-03-17
 

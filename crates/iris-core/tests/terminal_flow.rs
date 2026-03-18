@@ -90,6 +90,18 @@ fn parser_handles_csi_cursor_and_erase_sequences() {
 }
 
 #[test]
+fn parser_ignores_unsupported_csi_intermediate_sequences_in_streams() {
+    let mut terminal = Terminal::new(2, 6).unwrap();
+    let mut parser = Parser::new();
+
+    parser.advance(&mut terminal, b"A\x1b[1 $qB").unwrap();
+
+    assert_eq!(row_text(&terminal, 0), "AB    ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 2);
+}
+
+#[test]
 fn parser_applies_sgr_attributes_to_printed_cells() {
     let mut terminal = Terminal::new(2, 8).unwrap();
     let mut parser = Parser::new();

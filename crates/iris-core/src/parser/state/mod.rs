@@ -40,6 +40,8 @@ pub enum ParserState {
     CsiEntry,
     /// `CSI` parameter collection.
     CsiParam,
+    /// `CSI` intermediate-byte collection.
+    CsiIntermediate,
 }
 
 /// Parser bounds used to avoid unbounded sequence accumulation.
@@ -72,6 +74,7 @@ pub struct Parser {
     state: ParserState,
     config: ParserConfig,
     params: Vec<u16>,
+    intermediates: Vec<u8>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
     charsets: [Charset; 4],
@@ -105,6 +108,7 @@ impl Parser {
         Self {
             state: ParserState::Ground,
             params: Vec::with_capacity(config.max_params.min(16)),
+            intermediates: Vec::with_capacity(4),
             current_param: None,
             private_marker: None,
             charsets: [Charset::Ascii; 4],
@@ -131,6 +135,7 @@ impl Parser {
     pub fn reset(&mut self) {
         self.state = ParserState::Ground;
         self.params.clear();
+        self.intermediates.clear();
         self.current_param = None;
         self.private_marker = None;
         self.osc_buffer.clear();
@@ -143,6 +148,7 @@ impl Parser {
     fn reset_terminal_state(&mut self) {
         self.state = ParserState::Ground;
         self.params.clear();
+        self.intermediates.clear();
         self.current_param = None;
         self.private_marker = None;
         self.charsets = [Charset::Ascii; 4];
@@ -184,6 +190,7 @@ impl Parser {
             ParserState::IgnoreStringEscape => self.parse_ignored_string_escape(byte),
             ParserState::CsiEntry => self.parse_csi_entry(byte),
             ParserState::CsiParam => self.parse_csi_param(byte),
+            ParserState::CsiIntermediate => self.parse_csi_intermediate(byte),
         }
     }
 

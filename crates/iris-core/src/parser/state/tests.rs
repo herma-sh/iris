@@ -33,6 +33,21 @@ fn parser_collects_csi_parameters_and_defaults() {
 }
 
 #[test]
+fn parser_collects_csi_intermediates_and_ignores_unsupported_sequences() {
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b[12 ").is_empty());
+    assert_eq!(parser.state(), ParserState::CsiIntermediate);
+    assert_eq!(parser.params, vec![12]);
+    assert_eq!(parser.intermediates, vec![b' ']);
+
+    assert!(parser.parse(b"$q").is_empty());
+    assert_eq!(parser.state(), ParserState::Ground);
+    assert!(parser.params.is_empty());
+    assert!(parser.intermediates.is_empty());
+    assert_eq!(parser.parse(b"A"), vec![Action::Print('A')]);
+}
+
+#[test]
 fn parser_handles_private_modes_and_sgr() {
     let mut parser = Parser::new();
     assert_eq!(
@@ -128,7 +143,7 @@ fn parser_recovers_from_malformed_utf8_sequences() {
 #[test]
 fn parser_handles_malformed_sequences_gracefully() {
     let mut parser = Parser::new();
-    assert!(parser.parse(b"\x1b[12$").is_empty());
+    assert!(parser.parse(b"\x1b[12$\x7f").is_empty());
     assert_eq!(parser.state(), ParserState::Ground);
     assert_eq!(parser.parse(b"B"), vec![Action::Print('B')]);
 }
@@ -154,6 +169,11 @@ fn parser_executes_controls_inside_active_escape_and_csi_sequences() {
     assert!(parser.parse(b"\x0e0").is_empty());
     assert_eq!(parser.charsets[0], Charset::DecSpecial);
     assert_eq!(parser.active_charset, 1);
+    assert_eq!(parser.state(), ParserState::Ground);
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b[1 ").is_empty());
+    assert_eq!(parser.parse(b"\r$q"), vec![Action::CarriageReturn]);
     assert_eq!(parser.state(), ParserState::Ground);
 }
 

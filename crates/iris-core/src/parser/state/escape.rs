@@ -31,6 +31,7 @@ impl Parser {
             b'[' => {
                 self.state = ParserState::CsiEntry;
                 self.params.clear();
+                self.intermediates.clear();
                 self.current_param = None;
                 self.private_marker = None;
                 Vec::new()
