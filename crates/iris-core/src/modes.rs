@@ -9,6 +9,8 @@ pub struct TerminalModes {
     pub insert: bool,
     /// Whether line feed also performs carriage return.
     pub newline: bool,
+    /// Whether keypad application mode is active.
+    pub keypad: bool,
     /// Whether the cursor is visible.
     pub cursor_visible: bool,
     /// Whether cursor blinking is enabled.
@@ -32,6 +34,7 @@ impl TerminalModes {
             wrap: true,
             insert: false,
             newline: false,
+            keypad: false,
             cursor_visible: true,
             cursor_blink: true,
             alternate_screen: false,
@@ -48,6 +51,7 @@ impl TerminalModes {
             Mode::Wrap => self.wrap = enabled,
             Mode::Insert => self.insert = enabled,
             Mode::Newline => self.newline = enabled,
+            Mode::Keypad => self.keypad = enabled,
             Mode::CursorVisible => self.cursor_visible = enabled,
             Mode::CursorBlink => self.cursor_blink = enabled,
             Mode::AlternateScreen => self.alternate_screen = enabled,
@@ -75,6 +79,8 @@ pub enum Mode {
     Insert,
     /// Newline mode.
     Newline,
+    /// Keypad application mode.
+    Keypad,
     /// Cursor visible.
     CursorVisible,
     /// Cursor blinking.
@@ -125,6 +131,7 @@ mod tests {
     fn terminal_modes_default_to_wrap_and_visible_cursor() {
         let modes = TerminalModes::new();
         assert!(modes.wrap);
+        assert!(!modes.keypad);
         assert!(modes.cursor_visible);
         assert!(modes.cursor_blink);
     }
@@ -137,6 +144,9 @@ mod tests {
 
         modes.set_mode(Mode::BracketedPaste, true);
         assert!(modes.bracketed_paste);
+
+        modes.set_mode(Mode::Keypad, true);
+        assert!(modes.keypad);
     }
 
     #[test]

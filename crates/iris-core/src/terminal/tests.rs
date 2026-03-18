@@ -143,6 +143,17 @@ fn terminal_mode_application_respects_private_marker() {
 }
 
 #[test]
+fn terminal_tracks_keypad_mode_actions() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+
+    terminal.apply_action(Action::SetKeypadMode(true)).unwrap();
+    assert!(terminal.modes.keypad);
+
+    terminal.apply_action(Action::SetKeypadMode(false)).unwrap();
+    assert!(!terminal.modes.keypad);
+}
+
+#[test]
 fn terminal_scrolls_within_active_region() {
     let mut terminal = Terminal::new(4, 2).unwrap();
     terminal.write_char('A').unwrap();
@@ -247,6 +258,44 @@ fn terminal_switches_between_primary_and_alternate_screen() {
     assert_eq!(terminal.scroll_region, Some((0, 1)));
     assert_eq!(terminal.cursor.position.row, 1);
     assert_eq!(terminal.cursor.position.col, 2);
+}
+
+#[test]
+fn terminal_reset_restores_initial_state() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal
+        .apply_action(Action::SetWindowTitle("Iris".to_string()))
+        .unwrap();
+    terminal
+        .apply_action(Action::SetHyperlink {
+            id: Some("prompt-1".to_string()),
+            uri: "https://example.com".to_string(),
+        })
+        .unwrap();
+    terminal.apply_action(Action::SetKeypadMode(true)).unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![1049],
+        })
+        .unwrap();
+    terminal.write_char('B').unwrap();
+
+    terminal.apply_action(Action::ResetTerminal).unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some(' ')
+    );
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 0);
+    assert_eq!(terminal.window_title, None);
+    assert_eq!(terminal.active_hyperlink, None);
+    assert!(!terminal.modes.alternate_screen);
+    assert!(!terminal.modes.keypad);
+    assert!(terminal.cursor.visible);
+    assert!(terminal.cursor.blinking);
 }
 
 #[test]

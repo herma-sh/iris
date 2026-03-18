@@ -124,7 +124,7 @@ impl Terminal {
         Ok(())
     }
 
-    fn exit_alternate_screen(&mut self) {
+    pub(super) fn exit_alternate_screen(&mut self) {
         if !self.modes.alternate_screen {
             return;
         }
