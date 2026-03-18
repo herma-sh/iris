@@ -191,6 +191,19 @@ fn parser_switches_between_g0_and_g1_charsets() {
 }
 
 #[test]
+fn parser_designates_g2_and_g3_for_single_shift_sequences() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b*0\x1b+A\x1bNq\x1bO#q"),
+        vec![
+            Action::Print('\u{2500}'),
+            Action::Print('\u{00a3}'),
+            Action::Print('q'),
+        ]
+    );
+}
+
+#[test]
 fn parser_limits_osc_payload_growth() {
     let mut parser = Parser::with_config(ParserConfig {
         max_params: 16,

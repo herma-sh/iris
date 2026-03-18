@@ -23,8 +23,12 @@ impl Parser {
         }
     }
 
-    pub(super) fn translate_printable_byte(&self, byte: u8) -> char {
-        self.charsets[self.active_charset].translate(byte)
+    pub(super) fn translate_printable_byte(&mut self, byte: u8) -> char {
+        let charset = self
+            .single_shift_charset
+            .take()
+            .unwrap_or(self.active_charset);
+        self.charsets[charset].translate(byte)
     }
 }
 

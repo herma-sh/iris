@@ -22,7 +22,7 @@ pub enum ParserState {
     Ground,
     /// `ESC` has been seen.
     Escape,
-    /// `ESC (` or `ESC )` charset designation is pending.
+    /// `ESC (` / `ESC )` / `ESC *` / `ESC +` charset designation is pending.
     EscapeCharset(usize),
     /// `OSC` string collection.
     OscString,
@@ -74,8 +74,9 @@ pub struct Parser {
     params: Vec<u16>,
     current_param: Option<u16>,
     private_marker: Option<u8>,
-    charsets: [Charset; 2],
+    charsets: [Charset; 4],
     active_charset: usize,
+    single_shift_charset: Option<usize>,
     osc_buffer: Vec<u8>,
     dcs_buffer: Vec<u8>,
     ignored_string_len: usize,
@@ -105,8 +106,9 @@ impl Parser {
             params: Vec::with_capacity(config.max_params.min(16)),
             current_param: None,
             private_marker: None,
-            charsets: [Charset::Ascii; 2],
+            charsets: [Charset::Ascii; 4],
             active_charset: 0,
+            single_shift_charset: None,
             osc_buffer: Vec::with_capacity(config.max_osc_bytes.min(256)),
             dcs_buffer: Vec::with_capacity(config.max_dcs_bytes.min(256)),
             ignored_string_len: 0,
@@ -132,6 +134,7 @@ impl Parser {
         self.osc_buffer.clear();
         self.dcs_buffer.clear();
         self.ignored_string_len = 0;
+        self.single_shift_charset = None;
         self.reset_utf8();
     }
 

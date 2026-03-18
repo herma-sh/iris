@@ -20,6 +20,14 @@ impl Parser {
                 self.state = ParserState::EscapeCharset(1);
                 Vec::new()
             }
+            b'*' => {
+                self.state = ParserState::EscapeCharset(2);
+                Vec::new()
+            }
+            b'+' => {
+                self.state = ParserState::EscapeCharset(3);
+                Vec::new()
+            }
             b'[' => {
                 self.state = ParserState::CsiEntry;
                 self.params.clear();
@@ -46,6 +54,14 @@ impl Parser {
             b'E' => vec![Action::NextLine],
             b'H' => vec![Action::SetTabStop],
             b'M' => vec![Action::ReverseIndex],
+            b'N' => {
+                self.single_shift_charset = Some(2);
+                Vec::new()
+            }
+            b'O' => {
+                self.single_shift_charset = Some(3);
+                Vec::new()
+            }
             b'Z' => vec![Action::DeviceAttributes],
             b'7' => vec![Action::SaveCursor],
             b'8' => vec![Action::RestoreCursor],

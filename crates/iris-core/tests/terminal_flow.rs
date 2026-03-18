@@ -290,6 +290,29 @@ fn parser_applies_tab_stop_sequences() {
 }
 
 #[test]
+fn parser_applies_g2_and_g3_single_shift_sequences() {
+    let mut terminal = Terminal::new(1, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"\x1b*0\x1b+A\x1bNq\x1bO#q")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('\u{2500}')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 1).map(|cell| cell.character),
+        Some('\u{00a3}')
+    );
+    assert_eq!(
+        terminal.grid.cell(0, 2).map(|cell| cell.character),
+        Some('q')
+    );
+}
+
+#[test]
 fn parser_applies_insert_and_delete_character_sequences() {
     let mut terminal = Terminal::new(4, 6).unwrap();
     let mut parser = Parser::new();
