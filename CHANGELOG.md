@@ -66,6 +66,8 @@ Target release: `0.1.0`
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark full supported SGR attribute-code coverage complete.
 - Added phase-1 parser and integration coverage for nested-like OSC streams so malformed in-string `ESC ]` introducers stay literal until BEL/ST termination and subsequent real OSC updates still resynchronize cleanly.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark nested OSC coverage complete.
+- Added app-style phase-1 integration coverage for realistic `vim`-like alternate-screen redraws and `tmux`-like status-line redraws on the main screen.
+- Updated the phase-1 checklist in `docs/phases/01.md` to mark real-terminal-output coverage complete.
 
 ## 0.0.1 - 2026-03-17
 
