@@ -3,7 +3,7 @@ use self::screen::normalize_scroll_region;
 use crate::cell::{Cell, CellAttrs};
 use crate::cursor::{Cursor, SavedCursor};
 use crate::damage::DamageRegion;
-use crate::error::Result;
+use crate::error::{validate_printable_ascii, Result};
 use crate::grid::{Grid, GridSize};
 use crate::modes::TerminalModes;
 use crate::parser::Action;
@@ -14,6 +14,8 @@ mod screen;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ascii;
 #[cfg(test)]
 mod tests_erase;
 
@@ -106,6 +108,8 @@ impl Terminal {
         if bytes.is_empty() || self.grid.rows() == 0 || self.grid.cols() == 0 {
             return Ok(());
         }
+
+        validate_printable_ascii(bytes)?;
 
         let cols = self.grid.cols();
         let mut remaining = bytes;

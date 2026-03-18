@@ -51,8 +51,8 @@ Verified runs on 2026-03-18 ranged roughly:
 
 | Fixture | Result |
 |---------|--------|
-| `plain_text_1mb` | `157-177 MiB/s` |
-| `csi_stream_100k` | `10.6M-11.1M seq/s` |
+| `plain_text_1mb` | `144-151 MiB/s` |
+| `csi_stream_100k` | `11.1M-11.2M seq/s` |
 
 These runs were taken after the parser action-buffer reuse work, CSI allocation reductions, ASCII ground-state fast path, and batched terminal/grid ASCII writes.
 

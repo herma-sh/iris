@@ -1,6 +1,6 @@
 use super::Grid;
 use crate::cell::{Cell, CellAttrs, CellWidth};
-use crate::error::Result;
+use crate::error::{validate_printable_ascii, Result};
 
 impl Grid {
     /// Writes a cell to a visible position and records the damaged columns.
@@ -40,6 +40,8 @@ impl Grid {
         if bytes.is_empty() {
             return Ok(());
         }
+
+        validate_printable_ascii(bytes)?;
 
         if row >= self.rows() || col >= self.cols() || col + bytes.len() > self.cols() {
             return Err(self.invalid_position(row, col));

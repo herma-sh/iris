@@ -3,6 +3,7 @@ use pretty_assertions::assert_eq;
 use super::{Grid, GridSize};
 use crate::cell::{Cell, CellWidth};
 use crate::damage::DamageRegion;
+use crate::error::Error;
 
 #[test]
 fn grid_write_updates_damage() {
@@ -37,6 +38,32 @@ fn grid_write_ascii_run_clears_existing_wide_cells() {
     assert_eq!(grid.cell(0, 1), Some(&Cell::new('x')));
     assert_eq!(grid.cell(0, 2), Some(&Cell::new('y')));
     assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 1, 2)]);
+}
+
+#[test]
+fn grid_write_ascii_run_rejects_non_printable_bytes() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 4 }).unwrap();
+
+    let error = grid
+        .write_ascii_run(0, 1, b"a\n", crate::cell::CellAttrs::default())
+        .unwrap_err();
+
+    assert_eq!(error, Error::InvalidAsciiRun { byte: b'\n' });
+    assert_eq!(grid.cell(0, 1), Some(&Cell::default()));
+    assert!(grid.take_damage().is_empty());
+}
+
+#[test]
+fn grid_write_ascii_run_rejects_utf8_bytes() {
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 4 }).unwrap();
+
+    let error = grid
+        .write_ascii_run(0, 0, &[0xc3], crate::cell::CellAttrs::default())
+        .unwrap_err();
+
+    assert_eq!(error, Error::InvalidAsciiRun { byte: 0xc3 });
+    assert_eq!(grid.cell(0, 0), Some(&Cell::default()));
+    assert!(grid.take_damage().is_empty());
 }
 
 #[test]
