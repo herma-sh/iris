@@ -352,6 +352,31 @@ fn parser_applies_forward_tab_sequences() {
 }
 
 #[test]
+fn parser_applies_common_csi_alias_sequences() {
+    let mut terminal = Terminal::new(3, 8).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"A\x1b[2e\x1b[4`B\x1b[2aC")
+        .unwrap();
+
+    assert_eq!(
+        terminal.grid.cell(0, 0).map(|cell| cell.character),
+        Some('A')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 3).map(|cell| cell.character),
+        Some('B')
+    );
+    assert_eq!(
+        terminal.grid.cell(2, 6).map(|cell| cell.character),
+        Some('C')
+    );
+    assert_eq!(terminal.cursor.position.row, 2);
+    assert_eq!(terminal.cursor.position.col, 7);
+}
+
+#[test]
 fn parser_applies_g2_and_g3_single_shift_sequences() {
     let mut terminal = Terminal::new(1, 8).unwrap();
     let mut parser = Parser::new();

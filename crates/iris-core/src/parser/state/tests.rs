@@ -27,6 +27,9 @@ fn parser_collects_csi_parameters_and_defaults() {
     let mut parser = Parser::new();
     assert_eq!(parser.parse(b"\x1b[A"), vec![Action::CursorUp(1)]);
     assert_eq!(parser.parse(b"\x1b[I"), vec![Action::ForwardTab(1)]);
+    assert_eq!(parser.parse(b"\x1b[`"), vec![Action::CursorColumn(1)]);
+    assert_eq!(parser.parse(b"\x1b[a"), vec![Action::CursorForward(1)]);
+    assert_eq!(parser.parse(b"\x1b[e"), vec![Action::CursorDown(1)]);
 }
 
 #[test]

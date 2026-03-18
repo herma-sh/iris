@@ -10,7 +10,7 @@ pub fn parse_csi(params: &[u16], private_marker: Option<u8>, final_byte: u8) -> 
         b'D' => vec![Action::CursorBack(param_or(params, 0, 1))],
         b'E' => vec![Action::CursorNextLine(param_or(params, 0, 1))],
         b'F' => vec![Action::CursorPreviousLine(param_or(params, 0, 1))],
-        b'G' => vec![Action::CursorColumn(param_or(params, 0, 1))],
+        b'G' | b'`' => vec![Action::CursorColumn(param_or(params, 0, 1))],
         b'I' => vec![Action::ForwardTab(param_or(params, 0, 1))],
         b'H' | b'f' => vec![Action::CursorPosition {
             row: param_or(params, 0, 1),
@@ -19,7 +19,9 @@ pub fn parse_csi(params: &[u16], private_marker: Option<u8>, final_byte: u8) -> 
         b'L' => vec![Action::InsertLines(param_or(params, 0, 1))],
         b'M' => vec![Action::DeleteLines(param_or(params, 0, 1))],
         b'P' => vec![Action::DeleteCharacters(param_or(params, 0, 1))],
+        b'a' => vec![Action::CursorForward(param_or(params, 0, 1))],
         b'd' => vec![Action::VerticalPosition(param_or(params, 0, 1))],
+        b'e' => vec![Action::CursorDown(param_or(params, 0, 1))],
         b'@' => vec![Action::InsertCharacters(param_or(params, 0, 1))],
         b'J' => vec![Action::EraseDisplay(param_or(params, 0, 0))],
         b'K' => vec![Action::EraseLine(param_or(params, 0, 0))],
@@ -103,6 +105,9 @@ mod tests {
         assert_eq!(parse_csi(&[], None, b'S'), vec![Action::ScrollUp(1)]);
         assert_eq!(parse_csi(&[], None, b'I'), vec![Action::ForwardTab(1)]);
         assert_eq!(parse_csi(&[], None, b'Z'), vec![Action::BackTab(1)]);
+        assert_eq!(parse_csi(&[], None, b'`'), vec![Action::CursorColumn(1)]);
+        assert_eq!(parse_csi(&[], None, b'a'), vec![Action::CursorForward(1)]);
+        assert_eq!(parse_csi(&[], None, b'e'), vec![Action::CursorDown(1)]);
         assert_eq!(parse_csi(&[], None, b'g'), vec![Action::ClearTabStop(0)]);
         assert_eq!(
             parse_csi(&[], None, b'r'),
