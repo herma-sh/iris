@@ -1,7 +1,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use iris_core::Parser;
+use iris_core::{Parser, Terminal};
 
 const TARGET_PLAIN_MIB_PER_SEC: f64 = 100.0;
 const TARGET_CSI_SEQ_PER_SEC: f64 = 10_000_000.0;
@@ -22,7 +22,9 @@ fn main() {
 
     let plain_result = run_benchmark(&plain_text, |data| {
         let mut parser = Parser::new();
-        black_box(parser.parse(black_box(data)));
+        let mut terminal = Terminal::new(24, 80).unwrap();
+        parser.advance(&mut terminal, black_box(data)).unwrap();
+        black_box(terminal);
     });
     let plain_mib_per_sec = throughput_mib_per_sec(plain_text.len(), &plain_result);
     println!(
@@ -34,7 +36,9 @@ fn main() {
 
     let csi_result = run_benchmark(&csi_stream, |data| {
         let mut parser = Parser::new();
-        black_box(parser.parse(black_box(data)));
+        let mut terminal = Terminal::new(24, 80).unwrap();
+        parser.advance(&mut terminal, black_box(data)).unwrap();
+        black_box(terminal);
     });
     let csi_mib_per_sec = throughput_mib_per_sec(csi_stream.len(), &csi_result);
     let csi_seq_per_sec =
