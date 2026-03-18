@@ -224,6 +224,17 @@ impl Parser {
             .map(|character| vec![Action::Print(character); usize::from(count.max(1))])
             .unwrap_or_default()
     }
+
+    fn parse_embedded_control(&mut self, byte: u8) -> Option<Vec<Action>> {
+        match byte {
+            0x18 | 0x1a => {
+                self.reset();
+                Some(Vec::new())
+            }
+            _ if self.handle_charset_shift(byte) => Some(Vec::new()),
+            _ => parse_control(byte).map(|action| vec![action]),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

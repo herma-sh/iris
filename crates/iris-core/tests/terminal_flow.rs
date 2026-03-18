@@ -237,6 +237,20 @@ fn parser_recovers_after_dcs_and_ignored_string_sequences() {
 }
 
 #[test]
+fn parser_executes_controls_inside_dcs_sequences() {
+    let mut terminal = Terminal::new(2, 6).unwrap();
+    let mut parser = Parser::new();
+
+    parser
+        .advance(&mut terminal, b"A\x1bPskip\r\x1b\\B")
+        .unwrap();
+
+    assert_eq!(row_text(&terminal, 0), "B     ");
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 1);
+}
+
+#[test]
 fn parser_switches_between_primary_and_alternate_screen() {
     let mut terminal = Terminal::new(2, 4).unwrap();
     let mut parser = Parser::new();

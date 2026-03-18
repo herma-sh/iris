@@ -60,6 +60,8 @@ Target release: `0.1.0`
 - Corrected DEC origin-mode handling so enabling or resetting `CSI ? 6 h/l` homes the cursor appropriately and absolute cursor addressing clamps within the active scroll region while origin mode is active.
 - Added phase-1 parser, terminal, and integration coverage for explicit `CSI J`/`CSI K` erase modes and for `CSI r` scroll-region reset semantics.
 - Updated the phase-1 checklist in `docs/phases/01.md` to mark erase-mode and scroll-region reset coverage complete.
+- Added phase-1 parser recovery and control-handling coverage for embedded C0 controls plus `CAN`/`SUB` cancellation across CSI, escape, charset-designation, and string states.
+- Updated parser string and sequence handling so embedded controls continue to execute without corrupting buffered OSC/DCS payloads, while `CAN` and `SUB` now cancel the active sequence cleanly.
 
 ## 0.0.1 - 2026-03-17
 

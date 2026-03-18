@@ -2,6 +2,12 @@ use super::{parse_dcs, parse_osc, Action, Parser, ParserState};
 
 impl Parser {
     pub(super) fn parse_osc_string(&mut self, byte: u8) -> Vec<Action> {
+        if byte != 0x07 && byte != 0x1b {
+            if let Some(actions) = self.parse_embedded_control(byte) {
+                return actions;
+            }
+        }
+
         match byte {
             0x07 => self.finish_osc(),
             0x1b => {
@@ -39,6 +45,12 @@ impl Parser {
     }
 
     pub(super) fn parse_dcs_string(&mut self, byte: u8) -> Vec<Action> {
+        if byte != 0x1b {
+            if let Some(actions) = self.parse_embedded_control(byte) {
+                return actions;
+            }
+        }
+
         match byte {
             0x1b => {
                 self.state = ParserState::DcsEscape;
@@ -75,6 +87,12 @@ impl Parser {
     }
 
     pub(super) fn parse_ignored_string(&mut self, byte: u8) -> Vec<Action> {
+        if byte != 0x1b {
+            if let Some(actions) = self.parse_embedded_control(byte) {
+                return actions;
+            }
+        }
+
         match byte {
             0x1b => {
                 self.state = ParserState::IgnoreStringEscape;

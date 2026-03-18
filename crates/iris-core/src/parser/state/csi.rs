@@ -1,9 +1,9 @@
-use super::{parse_control, parse_csi, Action, Parser, ParserState};
+use super::{parse_csi, Action, Parser, ParserState};
 
 impl Parser {
     pub(super) fn parse_csi_entry(&mut self, byte: u8) -> Vec<Action> {
-        if let Some(action) = parse_control(byte) {
-            return vec![action];
+        if let Some(actions) = self.parse_embedded_control(byte) {
+            return actions;
         }
 
         match byte {
@@ -43,8 +43,8 @@ impl Parser {
     }
 
     pub(super) fn parse_csi_param(&mut self, byte: u8) -> Vec<Action> {
-        if let Some(action) = parse_control(byte) {
-            return vec![action];
+        if let Some(actions) = self.parse_embedded_control(byte) {
+            return actions;
         }
 
         match byte {

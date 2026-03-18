@@ -134,6 +134,68 @@ fn parser_handles_malformed_sequences_gracefully() {
 }
 
 #[test]
+fn parser_executes_controls_inside_active_escape_and_csi_sequences() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b[12\r3A"),
+        vec![Action::CarriageReturn, Action::CursorUp(123)]
+    );
+    assert_eq!(parser.state(), ParserState::Ground);
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b)0").is_empty());
+    assert_eq!(
+        parser.parse(b"\x1b[1\x0e2Aq"),
+        vec![Action::CursorUp(12), Action::Print('\u{2500}')]
+    );
+
+    let mut parser = Parser::new();
+    assert!(parser.parse(b"\x1b(").is_empty());
+    assert!(parser.parse(b"\x0e0").is_empty());
+    assert_eq!(parser.charsets[0], Charset::DecSpecial);
+    assert_eq!(parser.active_charset, 1);
+    assert_eq!(parser.state(), ParserState::Ground);
+}
+
+#[test]
+fn parser_executes_controls_inside_string_states_without_keeping_them_in_payloads() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b]2;Hi\rThere\x07"),
+        vec![
+            Action::CarriageReturn,
+            Action::SetWindowTitle("HiThere".to_string()),
+        ]
+    );
+
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1bPab\tcd\x1b\\Z"),
+        vec![Action::Tab, Action::Print('Z')]
+    );
+
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1bXab\x0bcd\x1b\\Q"),
+        vec![Action::VerticalTab, Action::Print('Q')]
+    );
+}
+
+#[test]
+fn can_and_sub_cancel_active_sequences_and_strings() {
+    let mut parser = Parser::new();
+    assert_eq!(
+        parser.parse(b"\x1b[31\x18mA"),
+        vec![Action::Print('m'), Action::Print('A')]
+    );
+    assert_eq!(parser.state(), ParserState::Ground);
+
+    let mut parser = Parser::new();
+    assert_eq!(parser.parse(b"\x1b]2;Oops\x1aA"), vec![Action::Print('A')]);
+    assert_eq!(parser.state(), ParserState::Ground);
+}
+
+#[test]
 fn parser_applies_actions_to_terminal() {
     let mut parser = Parser::new();
     let mut terminal = crate::terminal::Terminal::new(2, 8).unwrap();

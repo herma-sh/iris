@@ -1,9 +1,9 @@
-use super::{parse_control, Action, Parser, ParserState};
+use super::{Action, Parser, ParserState};
 
 impl Parser {
     pub(super) fn parse_escape(&mut self, byte: u8) -> Vec<Action> {
-        if let Some(action) = parse_control(byte) {
-            return vec![action];
+        if let Some(actions) = self.parse_embedded_control(byte) {
+            return actions;
         }
 
         self.state = ParserState::Ground;
