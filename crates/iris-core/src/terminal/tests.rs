@@ -143,6 +143,66 @@ fn terminal_mode_application_respects_private_marker() {
 }
 
 #[test]
+fn terminal_origin_mode_homes_cursor_on_set_and_reset() {
+    let mut terminal = Terminal::new(5, 6).unwrap();
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal.move_cursor(4, 5);
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![6],
+        })
+        .unwrap();
+
+    assert!(terminal.modes.origin);
+    assert_eq!(terminal.cursor.position.row, 1);
+    assert_eq!(terminal.cursor.position.col, 0);
+
+    terminal
+        .apply_action(Action::ResetModes {
+            private: true,
+            modes: vec![6],
+        })
+        .unwrap();
+
+    assert!(!terminal.modes.origin);
+    assert_eq!(terminal.cursor.position.row, 0);
+    assert_eq!(terminal.cursor.position.col, 0);
+}
+
+#[test]
+fn terminal_origin_mode_constrains_absolute_cursor_addressing() {
+    let mut terminal = Terminal::new(5, 6).unwrap();
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![6],
+        })
+        .unwrap();
+
+    terminal
+        .apply_action(Action::CursorPosition { row: 3, col: 7 })
+        .unwrap();
+    assert_eq!(terminal.cursor.position.row, 3);
+    assert_eq!(terminal.cursor.position.col, 5);
+
+    terminal.apply_action(Action::VerticalPosition(9)).unwrap();
+    assert_eq!(terminal.cursor.position.row, 3);
+
+    terminal.apply_action(Action::CursorUp(9)).unwrap();
+    assert_eq!(terminal.cursor.position.row, 1);
+
+    terminal.apply_action(Action::CursorDown(9)).unwrap();
+    assert_eq!(terminal.cursor.position.row, 3);
+}
+
+#[test]
 fn terminal_tracks_keypad_mode_actions() {
     let mut terminal = Terminal::new(2, 4).unwrap();
 
