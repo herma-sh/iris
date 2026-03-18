@@ -127,6 +127,54 @@ fn grid_scroll_down_range_preserves_outside_rows() {
 }
 
 #[test]
+fn grid_scroll_up_range_rejects_invalid_row_ranges() {
+    let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+
+    assert_eq!(
+        grid.scroll_up_range(3, 2, 1),
+        Err(Error::InvalidPosition {
+            row: 3,
+            col: 0,
+            rows: 4,
+            cols: 1,
+        })
+    );
+    assert_eq!(
+        grid.scroll_up_range(0, 4, 1),
+        Err(Error::InvalidPosition {
+            row: 4,
+            col: 0,
+            rows: 4,
+            cols: 1,
+        })
+    );
+}
+
+#[test]
+fn grid_scroll_down_range_rejects_invalid_row_ranges() {
+    let mut grid = Grid::new(GridSize { rows: 4, cols: 1 }).unwrap();
+
+    assert_eq!(
+        grid.scroll_down_range(3, 2, 1),
+        Err(Error::InvalidPosition {
+            row: 3,
+            col: 0,
+            rows: 4,
+            cols: 1,
+        })
+    );
+    assert_eq!(
+        grid.scroll_down_range(0, 4, 1),
+        Err(Error::InvalidPosition {
+            row: 4,
+            col: 0,
+            rows: 4,
+            cols: 1,
+        })
+    );
+}
+
+#[test]
 fn grid_insert_blank_cells_shifts_row_contents() {
     let mut grid = Grid::new(GridSize { rows: 1, cols: 5 }).unwrap();
     grid.write(0, 0, Cell::new('A')).unwrap();
