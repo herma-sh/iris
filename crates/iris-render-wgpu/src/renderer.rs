@@ -179,4 +179,36 @@ mod tests {
 
         renderer.clear_texture_surface(&surface, wgpu::Color::BLACK);
     }
+
+    #[test]
+    fn renderer_reports_request_device_error_for_unsupported_features() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapter =
+            match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: None,
+            })) {
+                Some(adapter) => adapter,
+                None => return,
+            };
+
+        let unsupported_features = wgpu::Features::all() & !adapter.features();
+        if unsupported_features.is_empty() {
+            return;
+        }
+
+        let result = pollster::block_on(Renderer::new(RendererConfig {
+            required_features: unsupported_features,
+            ..RendererConfig::default()
+        }));
+
+        assert!(matches!(
+            result,
+            Err(Error::RequestDevice { .. }) | Err(Error::NoAdapter)
+        ));
+    }
 }
