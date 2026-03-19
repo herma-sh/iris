@@ -82,6 +82,7 @@ mod tests {
 
     #[test]
     fn fullscreen_pipeline_tracks_requested_format() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let adapter =
             match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

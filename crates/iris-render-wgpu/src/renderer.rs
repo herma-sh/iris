@@ -1,5 +1,6 @@
 use crate::atlas::{AtlasConfig, GlyphAtlas};
 use crate::error::{Error, Result};
+use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
 use crate::pipeline::FullscreenPipeline;
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
@@ -125,6 +126,23 @@ impl Renderer {
         GlyphAtlas::new(&self.device, config)
     }
 
+    /// Creates the CPU-side glyph cache used to track atlas residency.
+    #[must_use]
+    pub fn create_glyph_cache(&self) -> GlyphCache {
+        GlyphCache::new()
+    }
+
+    /// Caches a glyph bitmap in the provided atlas.
+    pub fn cache_glyph(
+        &self,
+        cache: &mut GlyphCache,
+        atlas: &mut GlyphAtlas,
+        key: GlyphKey,
+        bitmap: GlyphBitmap<'_>,
+    ) -> Result<CachedGlyph> {
+        cache.cache_glyph(atlas, &self.queue, key, bitmap)
+    }
+
     /// Creates the temporary fullscreen pipeline used for renderer bootstrap.
     #[must_use]
     pub fn create_fullscreen_pipeline(&self, format: wgpu::TextureFormat) -> FullscreenPipeline {
@@ -205,6 +223,7 @@ mod tests {
     use super::{Renderer, RendererConfig};
     use crate::atlas::{AtlasConfig, AtlasSize};
     use crate::error::Error;
+    use crate::glyph::{GlyphBitmap, GlyphKey};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
 
     #[test]
@@ -217,6 +236,7 @@ mod tests {
 
     #[test]
     fn renderer_bootstrap_creates_a_texture_surface() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
             Ok(renderer) => renderer,
             Err(Error::NoAdapter) => return,
@@ -237,6 +257,7 @@ mod tests {
 
     #[test]
     fn renderer_reports_request_device_error_for_unsupported_features() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -269,6 +290,7 @@ mod tests {
 
     #[test]
     fn renderer_rejects_texture_surfaces_without_render_attachment_usage() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
             Ok(renderer) => renderer,
             Err(Error::NoAdapter) => return,
@@ -286,6 +308,7 @@ mod tests {
 
     #[test]
     fn renderer_creates_and_draws_the_fullscreen_pipeline() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
             Ok(renderer) => renderer,
             Err(Error::NoAdapter) => return,
@@ -305,6 +328,7 @@ mod tests {
 
     #[test]
     fn renderer_creates_a_glyph_atlas() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
             Ok(renderer) => renderer,
             Err(Error::NoAdapter) => return,
@@ -320,5 +344,35 @@ mod tests {
         assert_eq!(atlas.size().width, 128);
         assert_eq!(atlas.size().height, 64);
         assert_eq!(atlas.format(), wgpu::TextureFormat::R8Unorm);
+    }
+
+    #[test]
+    fn renderer_caches_a_glyph_in_the_atlas() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(64, 64).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let mut cache = renderer.create_glyph_cache();
+
+        let entry = renderer
+            .cache_glyph(
+                &mut cache,
+                &mut atlas,
+                GlyphKey::new(42),
+                GlyphBitmap::new(4, 4, &[255; 16]),
+            )
+            .expect("glyph should be cached");
+
+        assert_eq!(entry.region().width, 4);
+        assert_eq!(entry.region().height, 4);
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains(GlyphKey::new(42)));
     }
 }

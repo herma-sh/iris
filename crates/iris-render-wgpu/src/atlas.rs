@@ -434,6 +434,7 @@ mod tests {
 
     #[test]
     fn glyph_atlas_rejects_invalid_upload_size() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let adapter =
             match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
