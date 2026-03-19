@@ -265,13 +265,24 @@ impl AtlasAllocator {
             return Err(Error::InvalidAtlasAllocation { width, height });
         }
 
-        if self.next_x + width > self.size.width {
-            self.next_y = self.next_y.saturating_add(self.row_height);
+        if self
+            .next_x
+            .checked_add(width)
+            .is_none_or(|next_x| next_x > self.size.width)
+        {
+            self.next_y = self
+                .next_y
+                .checked_add(self.row_height)
+                .ok_or(Error::AtlasFull { width, height })?;
             self.next_x = 0;
             self.row_height = 0;
         }
 
-        if self.next_y + height > self.size.height {
+        if self
+            .next_y
+            .checked_add(height)
+            .is_none_or(|next_y| next_y > self.size.height)
+        {
             return Err(Error::AtlasFull { width, height });
         }
 
@@ -338,6 +349,19 @@ mod tests {
     }
 
     #[test]
+    fn atlas_allocator_advances_by_the_tallest_item_in_a_row() {
+        let mut allocator =
+            AtlasAllocator::new(AtlasSize::new(10, 10).expect("atlas size is valid"));
+
+        allocator.allocate(3, 5).expect("first region should fit");
+        allocator.allocate(3, 2).expect("second region should fit");
+        allocator.allocate(3, 3).expect("third region should fit");
+        let wrapped = allocator.allocate(3, 1).expect("wrapped region should fit");
+
+        assert_eq!((wrapped.x, wrapped.y), (0, 5));
+    }
+
+    #[test]
     fn atlas_allocator_rejects_oversized_regions() {
         let mut allocator = AtlasAllocator::new(AtlasSize::new(8, 8).expect("atlas size is valid"));
         let result = allocator.allocate(9, 1);
@@ -345,6 +369,47 @@ mod tests {
             result,
             Err(Error::InvalidAtlasAllocation {
                 width: 9,
+                height: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn atlas_allocator_rejects_zero_dimensions() {
+        let mut allocator = AtlasAllocator::new(AtlasSize::new(8, 8).expect("atlas size is valid"));
+
+        let zero_width = allocator.allocate(0, 1);
+        assert!(matches!(
+            zero_width,
+            Err(Error::InvalidAtlasAllocation {
+                width: 0,
+                height: 1
+            })
+        ));
+
+        let zero_height = allocator.allocate(1, 0);
+        assert!(matches!(
+            zero_height,
+            Err(Error::InvalidAtlasAllocation {
+                width: 1,
+                height: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn atlas_allocator_fills_exactly_before_reporting_full() {
+        let mut allocator = AtlasAllocator::new(AtlasSize::new(4, 4).expect("atlas size is valid"));
+
+        for _ in 0..4 {
+            allocator.allocate(4, 1).expect("row should fit exactly");
+        }
+
+        let result = allocator.allocate(1, 1);
+        assert!(matches!(
+            result,
+            Err(Error::AtlasFull {
+                width: 1,
                 height: 1
             })
         ));
