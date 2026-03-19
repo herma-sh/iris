@@ -1,0 +1,182 @@
+use crate::error::{Error, Result};
+use crate::texture::{TextureSurface, TextureSurfaceConfig};
+
+/// Bootstrap configuration for the GPU renderer.
+#[derive(Clone, Debug)]
+pub struct RendererConfig {
+    /// Backends that may be used to create the renderer.
+    pub backends: wgpu::Backends,
+    /// Adapter selection preference.
+    pub power_preference: wgpu::PowerPreference,
+    /// Whether to force a fallback adapter.
+    pub force_fallback_adapter: bool,
+    /// Features that must be enabled on the requested device.
+    pub required_features: wgpu::Features,
+    /// Limits that must be supported by the requested device.
+    pub required_limits: wgpu::Limits,
+}
+
+impl Default for RendererConfig {
+    fn default() -> Self {
+        Self {
+            backends: wgpu::Backends::all(),
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+        }
+    }
+}
+
+/// Owns the `wgpu` instance, adapter, device, and queue used for rendering.
+#[derive(Debug)]
+pub struct Renderer {
+    instance: wgpu::Instance,
+    adapter: wgpu::Adapter,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+impl Renderer {
+    /// Creates a renderer with a headless adapter/device bootstrap.
+    pub async fn new(config: RendererConfig) -> Result<Self> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: config.backends,
+            ..Default::default()
+        });
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: config.power_preference,
+                force_fallback_adapter: config.force_fallback_adapter,
+                compatible_surface: None,
+            })
+            .await
+            .ok_or(Error::NoAdapter)?;
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("iris-render-wgpu-device"),
+                    required_features: config.required_features,
+                    required_limits: config.required_limits,
+                },
+                None,
+            )
+            .await
+            .map_err(|request_error| Error::RequestDevice {
+                reason: request_error.to_string(),
+            })?;
+
+        Ok(Self {
+            instance,
+            adapter,
+            device,
+            queue,
+        })
+    }
+
+    /// Returns the `wgpu` instance used by the renderer.
+    #[must_use]
+    pub const fn instance(&self) -> &wgpu::Instance {
+        &self.instance
+    }
+
+    /// Returns the selected adapter metadata.
+    #[must_use]
+    pub fn adapter_info(&self) -> wgpu::AdapterInfo {
+        self.adapter.get_info()
+    }
+
+    /// Returns the selected adapter feature set.
+    #[must_use]
+    pub fn adapter_features(&self) -> wgpu::Features {
+        self.adapter.features()
+    }
+
+    /// Returns the selected adapter limits.
+    #[must_use]
+    pub fn adapter_limits(&self) -> wgpu::Limits {
+        self.adapter.limits()
+    }
+
+    /// Returns the initialized device.
+    #[must_use]
+    pub const fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    /// Returns the initialized queue.
+    #[must_use]
+    pub const fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Allocates an off-screen texture render target.
+    pub fn create_texture_surface(&self, config: TextureSurfaceConfig) -> Result<TextureSurface> {
+        TextureSurface::new(&self.device, config)
+    }
+
+    /// Clears an off-screen render target to the provided color.
+    pub fn clear_texture_surface(&self, surface: &TextureSurface, color: wgpu::Color) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("iris-render-wgpu-clear"),
+            });
+
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("iris-render-wgpu-clear-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface.view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Renderer, RendererConfig};
+    use crate::error::Error;
+    use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
+
+    #[test]
+    fn renderer_config_defaults_are_headless_safe() {
+        let config = RendererConfig::default();
+        assert_eq!(config.required_features, wgpu::Features::empty());
+        assert_eq!(config.required_limits, wgpu::Limits::default());
+        assert!(!config.force_fallback_adapter);
+    }
+
+    #[test]
+    fn renderer_bootstrap_creates_a_texture_surface() {
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(64, 32).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+
+        assert_eq!(surface.size().width, 64);
+        assert_eq!(surface.size().height, 32);
+
+        renderer.clear_texture_surface(&surface, wgpu::Color::BLACK);
+    }
+}

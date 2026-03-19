@@ -25,10 +25,11 @@ This project uses a phase-based versioning scheme:
 
 ## Unreleased
 
-Target release: `0.1.0`
+Target release: `0.2.0`
 
 ### Added
 
+- Began the phase-2 renderer bootstrap in `iris-render-wgpu` with concrete `wgpu` instance/adapter/device initialization, validated off-screen texture render targets, and smoke coverage for clear-pass submission.
 - Began the phase-1 ANSI/VT parser implementation in `iris-core` with a modular parser state machine, CSI parsing, SGR decoding, and parser-driven terminal action application.
 - Extended the phase-1 parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
 - Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
@@ -37,6 +38,7 @@ Target release: `0.1.0`
 
 ### Changed
 
+- Replaced the phase-0 renderer trait stub with a concrete phase-2 bootstrap API so follow-up PRs can add real surfaces, pipelines, glyph caches, and damage-driven cell rendering without reworking crate boundaries again.
 - Split the `iris-core` grid implementation into focused submodules so storage, write normalization, scrolling/editing operations, resize behavior, and tests stay below the structural warning threshold for oversized files.
 - Corrected parser string-state cleanup so finishing DCS leaves ignored-string tracking untouched and finishing ignored strings no longer clears unrelated OSC or DCS buffers.
 - Adjusted OSC overflow recovery to reset parser state while reprocessing the current byte in ground state instead of dropping it.

@@ -1,0 +1,20 @@
+use thiserror::Error;
+
+/// The result type used by `iris-render-wgpu`.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Errors returned by the renderer bootstrap layer.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// No compatible GPU adapter could be found for the configured backend set.
+    #[error("no suitable GPU adapter found for the configured backends")]
+    NoAdapter,
+
+    /// The GPU device request failed.
+    #[error("GPU device creation failed: {reason}")]
+    RequestDevice { reason: String },
+
+    /// A texture surface requires non-zero dimensions.
+    #[error("texture surface size must be non-zero, got {width}x{height}")]
+    InvalidTextureSurfaceSize { width: u32, height: u32 },
+}
