@@ -1,8 +1,8 @@
 //! GPU-backed renderer bootstrap for Iris.
 //!
 //! This crate currently establishes `wgpu` device initialization and
-//! testable off-screen render targets. Text rasterization and on-screen
-//! rendering land in follow-up changes.
+//! testable off-screen render targets. Text rasterization, grid batching, and
+//! on-screen rendering land in follow-up changes.
 
 pub mod atlas;
 pub mod cell;
@@ -17,7 +17,7 @@ pub use atlas::{AtlasConfig, AtlasRegion, AtlasSize, GlyphAtlas};
 pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, TextUniforms};
 pub use error::{Error, Result};
 pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
-pub use pipeline::FullscreenPipeline;
+pub use pipeline::{FullscreenPipeline, TextPipeline};
 pub use renderer::{Renderer, RendererConfig};
 pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
@@ -32,6 +32,6 @@ pub(crate) mod test_support {
         GPU_TEST_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("GPU test lock should not be poisoned")
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
