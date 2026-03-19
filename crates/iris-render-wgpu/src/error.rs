@@ -51,6 +51,10 @@ pub enum Error {
         requested_height: u32,
     },
 
+    /// Continuation cells must not be emitted as standalone text instances.
+    #[error("continuation cells cannot be encoded as renderable text instances")]
+    ContinuationCellNotRenderable,
+
     /// A texture surface requires non-zero dimensions.
     #[error("texture surface size must be non-zero, got {width}x{height}")]
     InvalidTextureSurfaceSize { width: u32, height: u32 },

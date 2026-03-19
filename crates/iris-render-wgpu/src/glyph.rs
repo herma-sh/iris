@@ -54,6 +54,12 @@ pub struct CachedGlyph {
 }
 
 impl CachedGlyph {
+    /// Creates a cached glyph entry for the provided atlas region.
+    #[must_use]
+    pub const fn new(region: AtlasRegion) -> Self {
+        Self { region }
+    }
+
     /// Returns the atlas region occupied by this cached glyph.
     #[must_use]
     pub const fn region(self) -> AtlasRegion {
@@ -138,7 +144,7 @@ impl GlyphCache {
         let region = atlas.allocate(bitmap.width, bitmap.height)?;
         atlas.upload(queue, region, bitmap.data)?;
 
-        let entry = CachedGlyph { region };
+        let entry = CachedGlyph::new(region);
         self.entries.insert(key, entry);
 
         Ok(entry)

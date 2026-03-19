@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bytemuck = { version = "1.15", features = ["derive"] }
 iris-core = { path = "../iris-core" }
 thiserror = "1.0"
 wgpu = "0.19"
