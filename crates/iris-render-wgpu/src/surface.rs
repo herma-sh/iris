@@ -50,9 +50,34 @@ impl SurfaceConfig {
 #[derive(Debug)]
 pub struct RendererSurface<'window> {
     surface: wgpu::Surface<'window>,
+    state: SurfaceState,
+}
+
+#[derive(Debug)]
+struct SurfaceState {
     capabilities: wgpu::SurfaceCapabilities,
     config: wgpu::SurfaceConfiguration,
     size: SurfaceSize,
+}
+
+impl SurfaceState {
+    fn new(
+        capabilities: wgpu::SurfaceCapabilities,
+        config: wgpu::SurfaceConfiguration,
+        size: SurfaceSize,
+    ) -> Self {
+        Self {
+            capabilities,
+            config,
+            size,
+        }
+    }
+
+    fn resize(&mut self, size: SurfaceSize) {
+        self.config.width = size.width;
+        self.config.height = size.height;
+        self.size = size;
+    }
 }
 
 impl<'window> RendererSurface<'window> {
@@ -69,42 +94,38 @@ impl<'window> RendererSurface<'window> {
 
         Ok(Self {
             surface,
-            capabilities,
-            config: surface_config,
-            size,
+            state: SurfaceState::new(capabilities, surface_config, size),
         })
     }
 
     pub(crate) fn resize(&mut self, device: &wgpu::Device, size: SurfaceSize) -> Result<()> {
-        self.config.width = size.width;
-        self.config.height = size.height;
-        self.surface.configure(device, &self.config);
-        self.size = size;
+        self.state.resize(size);
+        self.surface.configure(device, &self.state.config);
         Ok(())
     }
 
     /// Returns the configured presentation surface size.
     #[must_use]
     pub const fn size(&self) -> SurfaceSize {
-        self.size
+        self.state.size
     }
 
     /// Returns the texture format used for presentation.
     #[must_use]
     pub const fn format(&self) -> wgpu::TextureFormat {
-        self.config.format
+        self.state.config.format
     }
 
     /// Returns the applied `wgpu` surface configuration.
     #[must_use]
     pub fn config(&self) -> &wgpu::SurfaceConfiguration {
-        &self.config
+        &self.state.config
     }
 
     /// Returns the cached surface capabilities for the selected adapter.
     #[must_use]
     pub fn capabilities(&self) -> &wgpu::SurfaceCapabilities {
-        &self.capabilities
+        &self.state.capabilities
     }
 
     /// Acquires the next presentation texture from the swapchain.
@@ -173,6 +194,7 @@ fn supports_alpha_mode(
 mod tests {
     use super::{
         build_surface_configuration, preferred_surface_format, SurfaceConfig, SurfaceSize,
+        SurfaceState,
     };
     use crate::error::Error;
 
@@ -294,5 +316,34 @@ mod tests {
 
         let result = build_surface_configuration(&capabilities, config);
         assert!(matches!(result, Err(Error::SurfaceUnsupportedByAdapter)));
+    }
+
+    #[test]
+    fn surface_state_resize_updates_size_and_configuration() {
+        let initial_size = SurfaceSize::new(800, 600).expect("surface size is valid");
+        let resized_size = SurfaceSize::new(1024, 768).expect("surface size is valid");
+        let capabilities = wgpu::SurfaceCapabilities {
+            formats: vec![wgpu::TextureFormat::Bgra8UnormSrgb],
+            present_modes: vec![wgpu::PresentMode::Fifo],
+            alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
+            usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        };
+        let expected_formats = capabilities.formats.clone();
+        let expected_present_modes = capabilities.present_modes.clone();
+        let expected_alpha_modes = capabilities.alpha_modes.clone();
+        let initial_config =
+            build_surface_configuration(&capabilities, SurfaceConfig::new(initial_size))
+                .expect("surface config should build");
+        let mut state = SurfaceState::new(capabilities, initial_config, initial_size);
+
+        state.resize(resized_size);
+
+        assert_eq!(state.size, resized_size);
+        assert_eq!(state.config.width, resized_size.width);
+        assert_eq!(state.config.height, resized_size.height);
+        assert_eq!(state.config.format, wgpu::TextureFormat::Bgra8UnormSrgb);
+        assert_eq!(state.capabilities.formats, expected_formats);
+        assert_eq!(state.capabilities.present_modes, expected_present_modes);
+        assert_eq!(state.capabilities.alpha_modes, expected_alpha_modes);
     }
 }

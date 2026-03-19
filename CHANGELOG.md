@@ -39,6 +39,7 @@ Target release: `0.2.0`
 
 ### Changed
 
+- Expanded renderer surface coverage with direct tests for surface-state resize behavior and stored surface configuration metadata.
 - Hardened renderer texture-surface creation so configs that omit `RENDER_ATTACHMENT` are rejected before allocating invalid render targets.
 - Replaced the phase-0 renderer trait stub with a concrete renderer bootstrap API so follow-up PRs can add real surfaces, pipelines, glyph caches, and damage-driven cell rendering without reworking crate boundaries again.
 - Split the `iris-core` grid implementation into focused submodules so storage, write normalization, scrolling/editing operations, resize behavior, and tests stay below the structural warning threshold for oversized files.
