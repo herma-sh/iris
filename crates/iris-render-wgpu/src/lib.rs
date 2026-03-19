@@ -5,11 +5,13 @@
 //! on-screen surface integration land in follow-up changes.
 
 pub mod error;
+pub mod pipeline;
 pub mod renderer;
 pub mod surface;
 pub mod texture;
 
 pub use error::{Error, Result};
+pub use pipeline::FullscreenPipeline;
 pub use renderer::{Renderer, RendererConfig};
 pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
