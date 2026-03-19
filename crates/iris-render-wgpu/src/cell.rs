@@ -5,6 +5,16 @@ use crate::atlas::AtlasSize;
 use crate::error::{Error, Result};
 use crate::glyph::CachedGlyph;
 
+const CELL_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    0 => Float32x2,
+    1 => Float32x2,
+    2 => Float32x2,
+    3 => Float32x4,
+    4 => Float32x4,
+    5 => Float32,
+    6 => Uint32
+];
+
 /// Resolved foreground and background colors used for text rendering.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CellColors {
@@ -46,6 +56,12 @@ impl TextUniforms {
             scroll_offset,
             _padding: 0,
         }
+    }
+
+    /// Returns the uniform payload as raw bytes for buffer uploads.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
     }
 }
 
@@ -103,6 +119,16 @@ impl CellInstance {
             style_flags: u32::from(cell.attrs.flags.bits()),
         })
     }
+
+    /// Returns the vertex-buffer layout used when binding cell instances.
+    #[must_use]
+    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &CELL_INSTANCE_ATTRIBUTES,
+        }
+    }
 }
 
 /// Returns the raw bytes for a contiguous cell-instance slice.
@@ -111,16 +137,131 @@ pub fn cell_instances_as_bytes(instances: &[CellInstance]) -> &[u8] {
     bytemuck::cast_slice(instances)
 }
 
+/// Uniform and instance buffers used by the text renderer.
+#[derive(Debug)]
+pub struct TextBuffers {
+    uniform_buffer: wgpu::Buffer,
+    instance_buffer: wgpu::Buffer,
+    instance_capacity: usize,
+    instance_count: usize,
+}
+
+impl TextBuffers {
+    /// Creates text-rendering buffers sized for the provided instance capacity.
+    pub fn new(device: &wgpu::Device, instance_capacity: usize) -> Result<Self> {
+        let instance_capacity = instance_capacity.max(1);
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("iris-render-wgpu-text-uniforms"),
+            size: std::mem::size_of::<TextUniforms>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("iris-render-wgpu-text-instances"),
+            size: instance_buffer_size(instance_capacity)?,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        Ok(Self {
+            uniform_buffer,
+            instance_buffer,
+            instance_capacity,
+            instance_count: 0,
+        })
+    }
+
+    /// Returns the uniform buffer.
+    #[must_use]
+    pub const fn uniform_buffer(&self) -> &wgpu::Buffer {
+        &self.uniform_buffer
+    }
+
+    /// Returns the instance buffer.
+    #[must_use]
+    pub const fn instance_buffer(&self) -> &wgpu::Buffer {
+        &self.instance_buffer
+    }
+
+    /// Returns the number of cells that currently fit in the instance buffer.
+    #[must_use]
+    pub const fn instance_capacity(&self) -> usize {
+        self.instance_capacity
+    }
+
+    /// Returns the number of instances written in the latest upload.
+    #[must_use]
+    pub const fn instance_count(&self) -> usize {
+        self.instance_count
+    }
+
+    /// Uploads the latest text uniforms.
+    pub fn write_uniforms(&self, queue: &wgpu::Queue, uniforms: &TextUniforms) {
+        queue.write_buffer(&self.uniform_buffer, 0, uniforms.as_bytes());
+    }
+
+    /// Uploads text instances, growing the instance buffer when required.
+    pub fn write_instances(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        instances: &[CellInstance],
+    ) -> Result<()> {
+        self.ensure_instance_capacity(device, instances.len())?;
+
+        if !instances.is_empty() {
+            queue.write_buffer(&self.instance_buffer, 0, cell_instances_as_bytes(instances));
+        }
+
+        self.instance_count = instances.len();
+        Ok(())
+    }
+
+    fn ensure_instance_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        required_capacity: usize,
+    ) -> Result<()> {
+        if required_capacity <= self.instance_capacity {
+            return Ok(());
+        }
+
+        let grown_capacity = required_capacity.checked_next_power_of_two().ok_or(
+            Error::TextInstanceBufferTooLarge {
+                capacity: required_capacity,
+            },
+        )?;
+        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("iris-render-wgpu-text-instances"),
+            size: instance_buffer_size(grown_capacity)?,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        self.instance_buffer = instance_buffer;
+        self.instance_capacity = grown_capacity;
+        Ok(())
+    }
+}
+
+fn instance_buffer_size(capacity: usize) -> Result<wgpu::BufferAddress> {
+    let byte_len = capacity
+        .checked_mul(std::mem::size_of::<CellInstance>())
+        .ok_or(Error::TextInstanceBufferTooLarge { capacity })?;
+    u64::try_from(byte_len).map_err(|_| Error::TextInstanceBufferTooLarge { capacity })
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::size_of;
 
     use iris_core::cell::{Cell, CellAttrs, CellFlags};
 
-    use super::{cell_instances_as_bytes, CellColors, CellInstance, TextUniforms};
+    use super::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, TextUniforms};
     use crate::atlas::{AtlasRegion, AtlasSize};
     use crate::error::Error;
     use crate::glyph::CachedGlyph;
+    use crate::renderer::{Renderer, RendererConfig};
 
     #[test]
     fn text_uniforms_store_viewport_and_cell_metrics() {
@@ -228,5 +369,95 @@ mod tests {
         let bytes = cell_instances_as_bytes(&instances);
 
         assert_eq!(bytes.len(), size_of::<CellInstance>() * instances.len());
+    }
+
+    #[test]
+    fn text_uniform_bytes_cover_the_full_struct() {
+        let uniforms = TextUniforms::new([640.0, 480.0], [8.0, 16.0], 12.0);
+
+        assert_eq!(uniforms.as_bytes().len(), size_of::<TextUniforms>());
+    }
+
+    #[test]
+    fn cell_instance_layout_matches_the_struct_layout() {
+        let layout = CellInstance::layout();
+
+        assert_eq!(
+            layout.array_stride,
+            size_of::<CellInstance>() as wgpu::BufferAddress
+        );
+        assert_eq!(layout.step_mode, wgpu::VertexStepMode::Instance);
+        assert_eq!(layout.attributes.len(), 7);
+        assert_eq!(layout.attributes[0].offset, 0);
+        assert_eq!(layout.attributes[3].offset, 24);
+        assert_eq!(layout.attributes[5].offset, 56);
+        assert_eq!(layout.attributes[6].offset, 60);
+        assert_eq!(layout.attributes[6].format, wgpu::VertexFormat::Uint32);
+    }
+
+    #[test]
+    fn text_buffers_create_with_requested_capacity() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let buffers =
+            TextBuffers::new(renderer.device(), 8).expect("text buffers should be created");
+
+        assert_eq!(buffers.instance_capacity(), 8);
+        assert_eq!(buffers.instance_count(), 0);
+    }
+
+    #[test]
+    fn text_buffers_grow_when_more_instances_are_uploaded() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut buffers =
+            TextBuffers::new(renderer.device(), 1).expect("text buffers should be created");
+        let instance = CellInstance::from_cell(
+            Cell::new('a'),
+            0,
+            0,
+            CachedGlyph::new(AtlasRegion {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            }),
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("cell should encode into an instance");
+
+        buffers
+            .write_instances(renderer.device(), renderer.queue(), &[instance, instance])
+            .expect("instance upload should succeed");
+
+        assert_eq!(buffers.instance_count(), 2);
+        assert!(buffers.instance_capacity() >= 2);
+    }
+
+    #[test]
+    fn text_buffers_accept_uniform_updates() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let buffers =
+            TextBuffers::new(renderer.device(), 1).expect("text buffers should be created");
+
+        buffers.write_uniforms(
+            renderer.queue(),
+            &TextUniforms::new([800.0, 600.0], [9.0, 18.0], 32.0),
+        );
     }
 }

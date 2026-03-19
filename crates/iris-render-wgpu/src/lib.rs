@@ -14,7 +14,7 @@ pub mod surface;
 pub mod texture;
 
 pub use atlas::{AtlasConfig, AtlasRegion, AtlasSize, GlyphAtlas};
-pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextUniforms};
+pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, TextUniforms};
 pub use error::{Error, Result};
 pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
 pub use pipeline::FullscreenPipeline;
