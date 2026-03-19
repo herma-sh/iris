@@ -211,4 +211,21 @@ mod tests {
             Err(Error::RequestDevice { .. }) | Err(Error::NoAdapter)
         ));
     }
+
+    #[test]
+    fn renderer_rejects_texture_surfaces_without_render_attachment_usage() {
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let result = renderer.create_texture_surface(TextureSurfaceConfig {
+            size: TextureSurfaceSize::new(64, 32).expect("surface dimensions are valid"),
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            usage: wgpu::TextureUsages::COPY_SRC,
+        });
+
+        assert!(matches!(result, Err(Error::InvalidTextureSurfaceUsage)));
+    }
 }

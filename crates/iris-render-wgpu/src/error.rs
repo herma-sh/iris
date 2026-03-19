@@ -17,4 +17,8 @@ pub enum Error {
     /// A texture surface requires non-zero dimensions.
     #[error("texture surface size must be non-zero, got {width}x{height}")]
     InvalidTextureSurfaceSize { width: u32, height: u32 },
+
+    /// A texture surface must be usable as a render attachment.
+    #[error("texture surface usage must include RENDER_ATTACHMENT")]
+    InvalidTextureSurfaceUsage,
 }

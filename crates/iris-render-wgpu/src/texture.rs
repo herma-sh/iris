@@ -67,6 +67,12 @@ impl TextureSurface {
     /// Allocates a new texture render target.
     pub(crate) fn new(device: &wgpu::Device, config: TextureSurfaceConfig) -> Result<Self> {
         let size = TextureSurfaceSize::new(config.size.width, config.size.height)?;
+        if !config
+            .usage
+            .contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+        {
+            return Err(Error::InvalidTextureSurfaceUsage);
+        }
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("iris-render-wgpu-texture-surface"),
