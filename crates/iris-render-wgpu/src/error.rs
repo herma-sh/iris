@@ -34,6 +34,23 @@ pub enum Error {
     #[error("atlas is full for allocation {width}x{height}")]
     AtlasFull { width: u32, height: u32 },
 
+    /// A glyph cache entry must not be reused with different dimensions.
+    #[error(
+        "glyph cache entry {key} already exists with size {cached_width}x{cached_height}, cannot reuse it for {requested_width}x{requested_height}"
+    )]
+    GlyphCacheEntryMismatch {
+        /// The caller-defined glyph cache key.
+        key: u64,
+        /// The cached glyph width.
+        cached_width: u32,
+        /// The cached glyph height.
+        cached_height: u32,
+        /// The requested glyph width.
+        requested_width: u32,
+        /// The requested glyph height.
+        requested_height: u32,
+    },
+
     /// A texture surface requires non-zero dimensions.
     #[error("texture surface size must be non-zero, got {width}x{height}")]
     InvalidTextureSurfaceSize { width: u32, height: u32 },
