@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::surface::{RendererSurface, SurfaceConfig};
+use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
 
 /// Bootstrap configuration for the GPU renderer.
@@ -138,7 +138,7 @@ impl Renderer {
     pub fn resize_surface(
         &self,
         surface: &mut RendererSurface<'_>,
-        size: crate::surface::SurfaceSize,
+        size: SurfaceSize,
     ) -> Result<()> {
         surface.resize(&self.device, size)
     }

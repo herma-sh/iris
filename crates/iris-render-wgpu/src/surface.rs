@@ -62,7 +62,7 @@ impl<'window> RendererSurface<'window> {
         device: &wgpu::Device,
         config: SurfaceConfig,
     ) -> Result<Self> {
-        let size = SurfaceSize::new(config.size.width, config.size.height)?;
+        let size = config.size;
         let capabilities = surface.get_capabilities(adapter);
         let surface_config = build_surface_configuration(&capabilities, config)?;
         surface.configure(device, &surface_config);
@@ -76,7 +76,6 @@ impl<'window> RendererSurface<'window> {
     }
 
     pub(crate) fn resize(&mut self, device: &wgpu::Device, size: SurfaceSize) -> Result<()> {
-        let size = SurfaceSize::new(size.width, size.height)?;
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(device, &self.config);
