@@ -209,6 +209,8 @@ mod tests {
     use crate::glyph::CachedGlyph;
     use crate::renderer::{Renderer, RendererConfig};
 
+    const CLEARED_BGRA8_UNORM_SRGB_PIXEL: [u8; 4] = [0, 0, 0, 255];
+
     #[test]
     fn fullscreen_pipeline_tracks_requested_format() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
@@ -324,6 +326,14 @@ mod tests {
             &buffers,
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert!(
+            pixels
+                .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
+                .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
+            "text draw should write pixels beyond the cleared black target"
+        );
     }
 
     #[test]
@@ -372,5 +382,13 @@ mod tests {
             &buffers,
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert!(
+            pixels
+                .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
+                .all(|pixel| pixel == CLEARED_BGRA8_UNORM_SRGB_PIXEL),
+            "zero-instance text draw should leave the target at the pass clear color"
+        );
     }
 }

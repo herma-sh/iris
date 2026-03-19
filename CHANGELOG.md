@@ -35,7 +35,7 @@ Target release: `0.2.0`
 
 #### Changed
 
-- Expanded text-pipeline coverage with a zero-instance off-screen draw smoke test so the no-op render path is exercised explicitly.
+- Expanded text-pipeline coverage with GPU readback assertions for populated and zero-instance off-screen draws so the tests verify rendered output instead of only checking submission succeeds.
 
 ## 0.2.0 (In Progress)
 

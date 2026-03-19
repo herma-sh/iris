@@ -291,6 +291,8 @@ mod tests {
     use crate::glyph::{GlyphBitmap, GlyphKey};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
 
+    const CLEARED_BGRA8_UNORM_SRGB_PIXEL: [u8; 4] = [0, 0, 0, 255];
+
     #[test]
     fn renderer_config_defaults_are_headless_safe() {
         let config = RendererConfig::default();
@@ -526,6 +528,14 @@ mod tests {
             &atlas,
             &buffers,
             &surface,
+        );
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert!(
+            pixels
+                .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
+                .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
+            "renderer text draw helper should write pixels beyond the cleared black target"
         );
     }
 }
