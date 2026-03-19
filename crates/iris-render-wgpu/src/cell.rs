@@ -460,4 +460,23 @@ mod tests {
             &TextUniforms::new([800.0, 600.0], [9.0, 18.0], 32.0),
         );
     }
+
+    #[test]
+    fn text_buffers_reject_unrepresentable_instance_capacity() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let result = TextBuffers::new(renderer.device(), usize::MAX);
+
+        assert!(matches!(
+            result,
+            Err(Error::TextInstanceBufferTooLarge {
+                capacity: usize::MAX,
+            })
+        ));
+    }
 }
