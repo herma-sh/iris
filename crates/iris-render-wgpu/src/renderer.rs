@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
 
 /// Bootstrap configuration for the GPU renderer.
@@ -115,6 +116,31 @@ impl Renderer {
     /// Allocates an off-screen texture render target.
     pub fn create_texture_surface(&self, config: TextureSurfaceConfig) -> Result<TextureSurface> {
         TextureSurface::new(&self.device, config)
+    }
+
+    /// Creates and configures a presentation surface for a window target.
+    pub fn create_surface<'window>(
+        &self,
+        target: impl Into<wgpu::SurfaceTarget<'window>>,
+        config: SurfaceConfig,
+    ) -> Result<RendererSurface<'window>> {
+        let surface = self
+            .instance
+            .create_surface(target)
+            .map_err(|create_surface_error| Error::CreateSurface {
+                reason: create_surface_error.to_string(),
+            })?;
+
+        RendererSurface::new(surface, &self.adapter, &self.device, config)
+    }
+
+    /// Reconfigures an existing presentation surface for a new size.
+    pub fn resize_surface(
+        &self,
+        surface: &mut RendererSurface<'_>,
+        size: SurfaceSize,
+    ) -> Result<()> {
+        surface.resize(&self.device, size)
     }
 
     /// Clears an off-screen render target to the provided color.

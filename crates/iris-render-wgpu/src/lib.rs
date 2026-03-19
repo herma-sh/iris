@@ -6,8 +6,10 @@
 
 pub mod error;
 pub mod renderer;
+pub mod surface;
 pub mod texture;
 
 pub use error::{Error, Result};
 pub use renderer::{Renderer, RendererConfig};
+pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
