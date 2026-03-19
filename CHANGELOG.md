@@ -27,6 +27,20 @@ This project uses a phase-based versioning scheme:
 
 Target release: `0.2.0`
 
+### 2026-03-19
+
+#### Added
+
+- Added a bootstrap atlas-backed text render pipeline and WGSL shader in `iris-render-wgpu`, including uniform bind-group creation and smoke coverage for off-screen text draw submission.
+
+#### Changed
+
+- Expanded text-pipeline coverage with GPU readback assertions for populated and zero-instance off-screen draws so the tests verify rendered output instead of only checking submission succeeds.
+
+## 0.2.0 (In Progress)
+
+Work window: `2026-03-19`
+
 ### Added
 
 - Began the renderer bootstrap in `iris-render-wgpu` with concrete `wgpu` instance/adapter/device initialization, validated off-screen texture render targets, and smoke coverage for clear-pass submission.
@@ -36,11 +50,6 @@ Target release: `0.2.0`
 - Added a CPU-side glyph cache in `iris-render-wgpu` with typed cache keys, atlas-backed glyph entries, idempotent cache insertion, and a renderer helper for caching uploaded glyph masks.
 - Added GPU-ready text uniforms and per-cell instance encoding in `iris-render-wgpu`, including atlas UV generation, style-flag packing, continuation-cell rejection, and raw instance-byte conversion for later buffer uploads.
 - Added resizable text uniform and instance buffer helpers in `iris-render-wgpu`, including `CellInstance` vertex-layout metadata and renderer helpers for uploading text uniforms and instance data.
-- Began the phase-1 ANSI/VT parser implementation in `iris-core` with a modular parser state machine, CSI parsing, SGR decoding, and parser-driven terminal action application.
-- Extended the phase-1 parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
-- Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
-- Added bounded phase-1 handling for DCS, SOS, PM, and APC string states so unsupported payloads terminate cleanly and resume normal parsing without unbounded growth.
-- Rewrote the root `README.md` to describe the current implemented capabilities, the immediate renderer work, current test coverage, standard verification commands, and the `main` / `dev` / `feature/*` branch workflow without the old pre-start roadmap framing.
 
 ### Changed
 
@@ -48,53 +57,61 @@ Target release: `0.2.0`
 - Hardened glyph-atlas allocation bounds checks with checked arithmetic and expanded atlas allocator edge-case coverage for row-height tracking, zero-sized allocations, and exact-fill behavior.
 - Expanded renderer surface coverage with direct tests for surface-state resize behavior and stored surface configuration metadata.
 - Hardened renderer texture-surface creation so configs that omit `RENDER_ATTACHMENT` are rejected before allocating invalid render targets.
-- Replaced the phase-0 renderer trait stub with a concrete renderer bootstrap API so follow-up PRs can add real surfaces, pipelines, glyph caches, and damage-driven cell rendering without reworking crate boundaries again.
+- Replaced the renderer trait stub with a concrete renderer bootstrap API so follow-up PRs can add real surfaces, pipelines, glyph caches, and damage-driven cell rendering without reworking crate boundaries again.
+
+## 0.1.0 - 2026-03-18
+
+Work window: `2026-03-17` to `2026-03-18`
+
+### Added
+
+- Began the parser implementation in `iris-core` with a modular parser state machine, CSI parsing, SGR decoding, and parser-driven terminal action application.
+- Extended the parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
+- Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
+- Added bounded handling for DCS, SOS, PM, and APC string states so unsupported payloads terminate cleanly and resume normal parsing without unbounded growth.
+- Added scroll-region handling for `CSI r`, `CSI S`, and `CSI T`, and made `Index`/`ReverseIndex` respect the active scrolling margins.
+- Added G0/G1 character-set designation and `SI`/`SO` shifting in the parser, including DEC Special Graphics and UK ASCII translations for printable bytes.
+- Completed G2/G3 character-set designation and `SS2`/`SS3` single-shift handling so one-shot charset selection now covers all four VT charset slots.
+- Added `CSI I` forward-tabulation support so counted tab movement now covers both forward and backward CSI tab controls.
+- Added support for common CSI cursor aliases ``CSI ` ``, `CSI a`, and `CSI e`, mapping them onto the existing absolute-column, forward, and downward cursor motions.
+- Added `CSI b` repeat-previous-character support with parser-state tracking so repeated graphic output works across normal printable and UTF-8 decoded characters.
+- Added tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
+- Added insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.
+- Added ESC handling for `ESC Z`, `ESC c`, `ESC =`, and `ESC >`, including keypad-mode tracking and full terminal reset coverage across parser, terminal, and integration tests.
+- Added chunked vttest-style redraw coverage with scroll margins, origin mode, save/restore cursor, SGR, tabs, charset shifts, and scroll operations in a dedicated `iris-core` integration test file.
+- Added parser, terminal, and integration coverage for explicit `CSI J`/`CSI K` erase modes and for `CSI r` scroll-region reset semantics.
+- Added parser recovery and control-handling coverage for embedded C0 controls plus `CAN`/`SUB` cancellation across CSI, escape, charset-designation, and string states.
+- Added comprehensive SGR coverage for supported style toggles, standard/default ANSI colors, bright colors, and extended-color clamping.
+- Added parser and integration coverage for nested-like OSC streams so malformed in-string `ESC ]` introducers stay literal until BEL/ST termination and subsequent real OSC updates still resynchronize cleanly.
+- Added app-style integration coverage for realistic `vim`-like alternate-screen redraws and `tmux`-like status-line redraws on the main screen.
+- Added explicit CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
+- Added a `cargo bench` parser throughput harness in `crates/iris-core/benches/parser_throughput.rs` so plain-text MiB/s and CSI sequence throughput can be measured directly against the documented targets.
+- Rewrote the root `README.md` to describe the current implemented capabilities, the immediate renderer work, current test coverage, standard verification commands, and the `main` / `dev` / `feature/*` branch workflow without the old pre-start roadmap framing.
+
+### Changed
+
 - Split the `iris-core` grid implementation into focused submodules so storage, write normalization, scrolling/editing operations, resize behavior, and tests stay below the structural warning threshold for oversized files.
 - Corrected parser string-state cleanup so finishing DCS leaves ignored-string tracking untouched and finishing ignored strings no longer clears unrelated OSC or DCS buffers.
 - Adjusted OSC overflow recovery to reset parser state while reprocessing the current byte in ground state instead of dropping it.
 - Split the parser state machine into focused submodules so escape handling, string-state handling, UTF-8 decoding, and state tests are easier to maintain.
 - Split the terminal state implementation into focused modules so movement, editing, screen-state handling, and tests stay below the structural warning threshold for oversized files.
 - DEC private mode `1049` now switches between the primary and alternate screen buffers in `iris-core`, restoring the saved primary cursor when returning to the main screen.
-- Added phase-1 scroll-region handling for `CSI r`, `CSI S`, and `CSI T`, and made `Index`/`ReverseIndex` respect the active scrolling margins.
-- Added phase-1 G0/G1 character-set designation and `SI`/`SO` shifting in the parser, including DEC Special Graphics and UK ASCII translations for printable bytes.
-- Completed phase-1 G2/G3 character-set designation and `SS2`/`SS3` single-shift handling so one-shot charset selection now covers all four VT charset slots.
-- Added phase-1 `CSI I` forward-tabulation support so counted tab movement now covers both forward and backward CSI tab controls.
-- Added phase-1 support for common CSI cursor aliases ``CSI ` ``, `CSI a`, and `CSI e`, mapping them onto the existing absolute-column, forward, and downward cursor motions.
-- Added phase-1 `CSI b` repeat-previous-character support with parser-state tracking so repeated graphic output works across normal printable and UTF-8 decoded characters.
-- Hardened phase-1 `ESC c` handling so parser-side terminal interpretation resets restore default charset slots and active charset instead of only clearing transient single-shift state.
-- Expanded phase-1 integration coverage with chunked mixed-sequence streams and combined screen-update flows closer to real terminal redraw behavior.
-- Updated the phase-1 checklist in `docs/phases/01.md` to mark the parser and integration milestones that are now complete, so progress tracking stays aligned with merged work.
-- Updated the phase-1 implementation-order section in `docs/phases/01.md` to mark parser, integration, benchmarking, and documentation cleanup milestones complete while explicitly deferring VTtest to Phase 6.
-- Added phase-1 tab-stop handling for `HT`, `ESC H`, `CSI Z`, and `CSI g`, including configurable stops and backward tab movement.
-- Added phase-1 insert/delete editing support for `CSI @`, `CSI P`, `CSI L`, and `CSI M`, including character shifts within a row and line shifts within the active scrolling region.
-- Added phase-1 ESC handling for `ESC Z`, `ESC c`, `ESC =`, and `ESC >`, including keypad-mode tracking and full terminal reset coverage across parser, terminal, and integration tests.
+- Hardened `ESC c` handling so parser-side terminal interpretation resets restore default charset slots and active charset instead of only clearing transient single-shift state.
+- Expanded integration coverage with chunked mixed-sequence streams and combined screen-update flows closer to real terminal redraw behavior.
+- Updated `docs/phases/01.md` to mark completed parser, integration, benchmark, and documentation milestones while explicitly deferring VTtest until the standalone terminal binary exists.
 - Hardened full terminal reset so it always clears cached alternate-screen state even if the active mode flag is already false, and documented that keypad mode is controlled by `ESC =` / `ESC >` rather than CSI mode parameters.
-- Added chunked vttest-style redraw coverage with scroll margins, origin mode, save/restore cursor, SGR, tabs, charset shifts, and scroll operations in a dedicated `iris-core` integration test file.
 - Corrected DEC origin-mode handling so enabling or resetting `CSI ? 6 h/l` homes the cursor appropriately and absolute cursor addressing clamps within the active scroll region while origin mode is active.
-- Added phase-1 parser, terminal, and integration coverage for explicit `CSI J`/`CSI K` erase modes and for `CSI r` scroll-region reset semantics.
-- Updated the phase-1 checklist in `docs/phases/01.md` to mark erase-mode and scroll-region reset coverage complete.
-- Added phase-1 parser recovery and control-handling coverage for embedded C0 controls plus `CAN`/`SUB` cancellation across CSI, escape, charset-designation, and string states.
 - Updated parser string and sequence handling so embedded controls continue to execute without corrupting buffered OSC/DCS payloads, while `CAN` and `SUB` now cancel the active sequence cleanly.
-- Added comprehensive phase-1 SGR coverage for supported style toggles, standard/default ANSI colors, bright colors, and extended-color clamping.
-- Updated the phase-1 checklist in `docs/phases/01.md` to mark full supported SGR attribute-code coverage complete.
-- Added phase-1 parser and integration coverage for nested-like OSC streams so malformed in-string `ESC ]` introducers stay literal until BEL/ST termination and subsequent real OSC updates still resynchronize cleanly.
-- Updated the phase-1 checklist in `docs/phases/01.md` to mark nested OSC coverage complete.
-- Added app-style phase-1 integration coverage for realistic `vim`-like alternate-screen redraws and `tmux`-like status-line redraws on the main screen.
-- Updated the phase-1 checklist in `docs/phases/01.md` to mark real-terminal-output coverage complete.
-- Added explicit phase-1 CSI intermediate handling so unsupported intermediate-byte sequences are consumed and ignored cleanly instead of being treated as malformed input.
-- Updated the phase-1 checklist in `docs/phases/01.md` to mark CSI intermediate coverage complete.
-- Added a phase-1 `cargo bench` parser throughput harness in `crates/iris-core/benches/parser_throughput.rs` so plain-text MiB/s and CSI sequence throughput can be measured directly against the documented targets.
 - Reduced parser and CSI hot-path allocation churn by reusing parser buffers, appending into shared action output, pushing completed CSI actions directly into that buffer, and storing common SGR and mode payloads inline with `smallvec`.
 - Optimized the shipped parser-to-terminal path by extending the ASCII ground-state fast path to `Parser::advance` and adding batched ASCII terminal/grid writes with range-based damage marking for contiguous single-width output.
 - Hardened the grid and terminal ASCII fast paths so `write_ascii_run` now rejects control bytes and raw UTF-8 bytes instead of treating arbitrary input bytes as printable single-width characters.
 - Strengthened the terminal erase-mode regression tests so `ED 3` and `EL 2` assertions now verify cells that would expose partial or no-op erase implementations.
 - Hardened the public `Grid::write_ascii_run` bounds arithmetic with checked addition so oversized ASCII-run lengths fail safely instead of relying on unchecked `usize` math.
 - Added explicit grid tests for invalid scroll-range arguments so the `top > bottom` and `bottom >= rows` error paths are now covered for both range-scroll APIs.
-- Phase-1 parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, with verified 2026-03-18 runs ranging roughly from `144 MiB/s` to `151 MiB/s` on the plain-text fixture and from `11.1M` to `11.2M seq/s` on the CSI fixture.
-- Clarified the phase plan so VTtest remains deferred until Phase 6, when Iris first has a runnable standalone terminal binary that can host an interactive VTtest session.
-- Cleaned up the benchmark, testing, and documentation index docs so Phase 1 now points at the shipped `Parser::advance` parser-to-terminal harness, marks documentation cleanup complete, and removes stale claims that VTtest already passes before a runnable binary exists.
+- Parser throughput now clears the documented targets with `cargo bench -p iris-core --bench parser_throughput`, with verified 2026-03-18 runs ranging roughly from `144 MiB/s` to `151 MiB/s` on the plain-text fixture and from `11.1M` to `11.2M seq/s` on the CSI fixture.
+- Cleaned up the benchmark, testing, and documentation index docs so `Parser::advance` is the documented parser-to-terminal harness and stale VTtest claims are removed.
 - Corrected the docs index success criteria so the `docs/README.md` input latency target now matches the `< 4ms` value used in the performance targets table.
-- Corrected the Phase 1 acceptance-criteria table to use `MiB/s` instead of `MB/s` for the parser throughput target so it matches the benchmark docs.
+- Corrected the acceptance-criteria table to use `MiB/s` instead of `MB/s` for the parser throughput target so it matches the benchmark docs.
 - Corrected stale `docs/testing-strategy.md` code examples to use the current `Terminal`/`Grid` API, including `terminal.grid`, `Cell.character`, and row/column ordering in grid assertions.
 
 ## 0.0.1 - 2026-03-17
