@@ -120,6 +120,21 @@ impl GlyphCache {
             return Ok(entry);
         }
 
+        let expected = bitmap
+            .width
+            .checked_mul(bitmap.height)
+            .and_then(|bytes| usize::try_from(bytes).ok())
+            .ok_or(Error::InvalidAtlasUploadSize {
+                expected: usize::MAX,
+                actual: bitmap.data.len(),
+            })?;
+        if bitmap.data.len() != expected {
+            return Err(Error::InvalidAtlasUploadSize {
+                expected,
+                actual: bitmap.data.len(),
+            });
+        }
+
         let region = atlas.allocate(bitmap.width, bitmap.height)?;
         atlas.upload(queue, region, bitmap.data)?;
 
@@ -217,5 +232,111 @@ mod tests {
                 requested_height: 4,
             })
         ));
+    }
+
+    #[test]
+    fn glyph_cache_rejects_invalid_upload_size_without_consuming_atlas_space() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(4, 4).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let mut cache = GlyphCache::new();
+
+        let result = cache.cache_glyph(
+            &mut atlas,
+            renderer.queue(),
+            GlyphKey::new(11),
+            GlyphBitmap::new(4, 4, &[0; 15]),
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidAtlasUploadSize {
+                expected: 16,
+                actual: 15,
+            })
+        ));
+        assert!(cache.is_empty());
+        assert!(atlas.allocate(4, 4).is_ok());
+    }
+
+    #[test]
+    fn glyph_cache_rejects_zero_dimension_bitmaps() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(8, 8).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let mut cache = GlyphCache::new();
+
+        let result = cache.cache_glyph(
+            &mut atlas,
+            renderer.queue(),
+            GlyphKey::new(12),
+            GlyphBitmap::new(0, 1, &[]),
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidAtlasAllocation {
+                width: 0,
+                height: 1,
+            })
+        ));
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn glyph_cache_reports_when_the_atlas_is_full() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(4, 4).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let mut cache = GlyphCache::new();
+
+        cache
+            .cache_glyph(
+                &mut atlas,
+                renderer.queue(),
+                GlyphKey::new(13),
+                GlyphBitmap::new(4, 4, &[255; 16]),
+            )
+            .expect("first glyph should fill the atlas");
+
+        let result = cache.cache_glyph(
+            &mut atlas,
+            renderer.queue(),
+            GlyphKey::new(14),
+            GlyphBitmap::new(1, 1, &[255; 1]),
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::AtlasFull {
+                width: 1,
+                height: 1,
+            })
+        ));
+        assert_eq!(cache.len(), 1);
     }
 }

@@ -42,6 +42,7 @@ Target release: `0.2.0`
 
 ### Changed
 
+- Hardened glyph-cache insertion to validate atlas upload sizing before allocation so failed uploads do not leak atlas space, and expanded glyph-cache edge-case coverage for invalid upload sizes, zero-sized bitmaps, and full-atlas behavior.
 - Hardened glyph-atlas allocation bounds checks with checked arithmetic and expanded atlas allocator edge-case coverage for row-height tracking, zero-sized allocations, and exact-fill behavior.
 - Expanded renderer surface coverage with direct tests for surface-state resize behavior and stored surface configuration metadata.
 - Hardened renderer texture-surface creation so configs that omit `RENDER_ATTACHMENT` are rejected before allocating invalid render targets.
