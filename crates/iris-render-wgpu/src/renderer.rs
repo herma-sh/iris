@@ -1,4 +1,5 @@
 use crate::atlas::{AtlasConfig, GlyphAtlas};
+use crate::cell::{CellInstance, TextBuffers, TextUniforms};
 use crate::error::{Error, Result};
 use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
 use crate::pipeline::FullscreenPipeline;
@@ -132,6 +133,11 @@ impl Renderer {
         GlyphCache::new()
     }
 
+    /// Creates the uniform and instance buffers used by later text rendering work.
+    pub fn create_text_buffers(&self, instance_capacity: usize) -> Result<TextBuffers> {
+        TextBuffers::new(&self.device, instance_capacity)
+    }
+
     /// Caches a glyph bitmap in the provided atlas.
     pub fn cache_glyph(
         &self,
@@ -141,6 +147,20 @@ impl Renderer {
         bitmap: GlyphBitmap<'_>,
     ) -> Result<CachedGlyph> {
         cache.cache_glyph(atlas, &self.queue, key, bitmap)
+    }
+
+    /// Uploads the latest text uniforms.
+    pub fn write_text_uniforms(&self, buffers: &TextBuffers, uniforms: &TextUniforms) {
+        buffers.write_uniforms(&self.queue, uniforms);
+    }
+
+    /// Uploads text instances, growing the instance buffer when required.
+    pub fn write_text_instances(
+        &self,
+        buffers: &mut TextBuffers,
+        instances: &[CellInstance],
+    ) -> Result<()> {
+        buffers.write_instances(&self.device, &self.queue, instances)
     }
 
     /// Creates the temporary fullscreen pipeline used for renderer bootstrap.
@@ -222,6 +242,7 @@ impl Renderer {
 mod tests {
     use super::{Renderer, RendererConfig};
     use crate::atlas::{AtlasConfig, AtlasSize};
+    use crate::cell::{CellColors, CellInstance, TextUniforms};
     use crate::error::Error;
     use crate::glyph::{GlyphBitmap, GlyphKey};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
@@ -374,5 +395,43 @@ mod tests {
         assert_eq!(entry.region().height, 4);
         assert_eq!(cache.len(), 1);
         assert!(cache.contains(GlyphKey::new(42)));
+    }
+
+    #[test]
+    fn renderer_creates_and_updates_text_buffers() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut buffers = renderer
+            .create_text_buffers(1)
+            .expect("text buffers should be created");
+        let instance = CellInstance::from_cell(
+            iris_core::cell::Cell::new('a'),
+            2,
+            3,
+            crate::glyph::CachedGlyph::new(crate::atlas::AtlasRegion {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            }),
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("cell should encode into an instance");
+
+        renderer.write_text_uniforms(
+            &buffers,
+            &TextUniforms::new([800.0, 600.0], [9.0, 18.0], 10.0),
+        );
+        renderer
+            .write_text_instances(&mut buffers, &[instance, instance])
+            .expect("text instances should upload");
+
+        assert_eq!(buffers.instance_count(), 2);
+        assert!(buffers.instance_capacity() >= 2);
     }
 }
