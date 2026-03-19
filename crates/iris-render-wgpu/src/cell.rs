@@ -412,6 +412,22 @@ mod tests {
     }
 
     #[test]
+    fn text_buffers_clamp_zero_capacity_to_one_instance() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let buffers =
+            TextBuffers::new(renderer.device(), 0).expect("text buffers should be created");
+
+        assert_eq!(buffers.instance_capacity(), 1);
+        assert_eq!(buffers.instance_count(), 0);
+    }
+
+    #[test]
     fn text_buffers_grow_when_more_instances_are_uploaded() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
@@ -442,6 +458,26 @@ mod tests {
 
         assert_eq!(buffers.instance_count(), 2);
         assert!(buffers.instance_capacity() >= 2);
+        assert!(buffers.instance_capacity().is_power_of_two());
+    }
+
+    #[test]
+    fn text_buffers_accept_empty_instance_uploads() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut buffers =
+            TextBuffers::new(renderer.device(), 4).expect("text buffers should be created");
+
+        buffers
+            .write_instances(renderer.device(), renderer.queue(), &[])
+            .expect("empty instance upload should succeed");
+
+        assert_eq!(buffers.instance_capacity(), 4);
+        assert_eq!(buffers.instance_count(), 0);
     }
 
     #[test]
