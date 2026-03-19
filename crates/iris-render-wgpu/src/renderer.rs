@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::pipeline::FullscreenPipeline;
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
 
@@ -118,6 +119,12 @@ impl Renderer {
         TextureSurface::new(&self.device, config)
     }
 
+    /// Creates the temporary fullscreen pipeline used for renderer bootstrap.
+    #[must_use]
+    pub fn create_fullscreen_pipeline(&self, format: wgpu::TextureFormat) -> FullscreenPipeline {
+        FullscreenPipeline::new(&self.device, format)
+    }
+
     /// Creates and configures a presentation surface for a window target.
     pub fn create_surface<'window>(
         &self,
@@ -141,6 +148,21 @@ impl Renderer {
         size: SurfaceSize,
     ) -> Result<()> {
         surface.resize(&self.device, size)
+    }
+
+    /// Draws the bootstrap fullscreen pipeline into an off-screen texture surface.
+    pub fn draw_fullscreen_pipeline_to_texture_surface(
+        &self,
+        pipeline: &FullscreenPipeline,
+        surface: &TextureSurface,
+    ) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("iris-render-wgpu-fullscreen-encoder"),
+            });
+        pipeline.render(&mut encoder, surface.view());
+        self.queue.submit(std::iter::once(encoder.finish()));
     }
 
     /// Clears an off-screen render target to the provided color.
@@ -253,5 +275,24 @@ mod tests {
         });
 
         assert!(matches!(result, Err(Error::InvalidTextureSurfaceUsage)));
+    }
+
+    #[test]
+    fn renderer_creates_and_draws_the_fullscreen_pipeline() {
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(64, 64).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let pipeline = renderer.create_fullscreen_pipeline(surface.format());
+
+        assert_eq!(pipeline.format(), surface.format());
+        renderer.draw_fullscreen_pipeline_to_texture_surface(&pipeline, &surface);
     }
 }
