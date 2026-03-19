@@ -1,3 +1,4 @@
+use crate::atlas::{AtlasConfig, GlyphAtlas};
 use crate::error::{Error, Result};
 use crate::pipeline::FullscreenPipeline;
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
@@ -119,6 +120,11 @@ impl Renderer {
         TextureSurface::new(&self.device, config)
     }
 
+    /// Creates the glyph atlas texture used by later text rendering work.
+    pub fn create_glyph_atlas(&self, config: AtlasConfig) -> Result<GlyphAtlas> {
+        GlyphAtlas::new(&self.device, config)
+    }
+
     /// Creates the temporary fullscreen pipeline used for renderer bootstrap.
     #[must_use]
     pub fn create_fullscreen_pipeline(&self, format: wgpu::TextureFormat) -> FullscreenPipeline {
@@ -197,6 +203,7 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::{Renderer, RendererConfig};
+    use crate::atlas::{AtlasConfig, AtlasSize};
     use crate::error::Error;
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
 
@@ -294,5 +301,24 @@ mod tests {
 
         assert_eq!(pipeline.format(), surface.format());
         renderer.draw_fullscreen_pipeline_to_texture_surface(&pipeline, &surface);
+    }
+
+    #[test]
+    fn renderer_creates_a_glyph_atlas() {
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+
+        let atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(128, 64).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+
+        assert_eq!(atlas.size().width, 128);
+        assert_eq!(atlas.size().height, 64);
+        assert_eq!(atlas.format(), wgpu::TextureFormat::R8Unorm);
     }
 }

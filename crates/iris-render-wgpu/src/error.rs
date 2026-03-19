@@ -18,6 +18,22 @@ pub enum Error {
     #[error("surface creation failed: {reason}")]
     CreateSurface { reason: String },
 
+    /// An atlas requires non-zero dimensions.
+    #[error("atlas size must be non-zero, got {width}x{height}")]
+    InvalidAtlasSize { width: u32, height: u32 },
+
+    /// Atlas allocations must fit within the atlas.
+    #[error("atlas allocation must fit within the atlas, got {width}x{height}")]
+    InvalidAtlasAllocation { width: u32, height: u32 },
+
+    /// Atlas upload data must match the target region dimensions.
+    #[error("atlas upload size mismatch: expected {expected} bytes, got {actual}")]
+    InvalidAtlasUploadSize { expected: usize, actual: usize },
+
+    /// The atlas has no remaining room for the requested allocation.
+    #[error("atlas is full for allocation {width}x{height}")]
+    AtlasFull { width: u32, height: u32 },
+
     /// A texture surface requires non-zero dimensions.
     #[error("texture surface size must be non-zero, got {width}x{height}")]
     InvalidTextureSurfaceSize { width: u32, height: u32 },
