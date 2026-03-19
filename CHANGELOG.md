@@ -45,6 +45,7 @@ Target release: `0.2.0`
 
 ### Changed
 
+- Expanded text-pipeline coverage with a zero-instance off-screen draw smoke test so the no-op render path is exercised explicitly.
 - Hardened glyph-cache insertion to validate atlas upload sizing before allocation so failed uploads do not leak atlas space, and expanded glyph-cache edge-case coverage for invalid upload sizes, zero-sized bitmaps, and full-atlas behavior.
 - Hardened glyph-atlas allocation bounds checks with checked arithmetic and expanded atlas allocator edge-case coverage for row-height tracking, zero-sized allocations, and exact-fill behavior.
 - Expanded renderer surface coverage with direct tests for surface-state resize behavior and stored surface configuration metadata.

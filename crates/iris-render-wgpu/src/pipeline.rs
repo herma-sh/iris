@@ -325,4 +325,52 @@ mod tests {
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
     }
+
+    #[test]
+    fn text_pipeline_draws_with_zero_instances() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(32, 32).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let buffers =
+            TextBuffers::new(renderer.device(), 1).expect("text buffers should be created");
+        buffers.write_uniforms(
+            renderer.queue(),
+            &TextUniforms::new([64.0, 64.0], [8.0, 16.0], 0.0),
+        );
+        let pipeline = TextPipeline::new(
+            renderer.device(),
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            &atlas,
+        );
+        let uniform_bind_group = pipeline.create_uniform_bind_group(renderer.device(), &buffers);
+        let surface = renderer
+            .create_texture_surface(crate::texture::TextureSurfaceConfig::new(
+                crate::texture::TextureSurfaceSize::new(64, 64)
+                    .expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut encoder =
+            renderer
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("iris-render-wgpu-text-pipeline-empty-encoder"),
+                });
+
+        pipeline.render(
+            &mut encoder,
+            surface.view(),
+            &uniform_bind_group,
+            &atlas,
+            &buffers,
+        );
+        renderer.queue().submit(std::iter::once(encoder.finish()));
+    }
 }
