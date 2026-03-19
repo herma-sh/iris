@@ -32,6 +32,7 @@ Target release: `0.2.0`
 - Began the renderer bootstrap in `iris-render-wgpu` with concrete `wgpu` instance/adapter/device initialization, validated off-screen texture render targets, and smoke coverage for clear-pass submission.
 - Added renderer surface creation and configuration types in `iris-render-wgpu`, including validated surface sizing, capability-based format selection, and resize support for window-backed presentation targets.
 - Added a bootstrap fullscreen render pipeline and WGSL shader in `iris-render-wgpu` so off-screen draw submission can be exercised before cell, glyph, and atlas rendering are implemented.
+- Added a row-packed glyph atlas in `iris-render-wgpu` with validated atlas sizing, allocation, upload checks, and a renderer helper for atlas creation.
 - Began the phase-1 ANSI/VT parser implementation in `iris-core` with a modular parser state machine, CSI parsing, SGR decoding, and parser-driven terminal action application.
 - Extended the phase-1 parser foundation with UTF-8 printable character decoding across chunk boundaries and malformed-sequence recovery.
 - Added the first bounded OSC parser support in `iris-core` for window-title and OSC 8 hyperlink sequences terminated by BEL or ST.
