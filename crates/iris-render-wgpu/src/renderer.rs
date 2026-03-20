@@ -1,10 +1,13 @@
 use crate::atlas::{AtlasConfig, GlyphAtlas};
-use crate::cell::{CellInstance, TextBuffers, TextUniforms};
+use crate::cell::{encode_damage_instances, CellInstance, TextBuffers, TextUniforms};
 use crate::error::{Error, Result};
 use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
 use crate::pipeline::{FullscreenPipeline, TextPipeline};
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
+use crate::theme::Theme;
+use iris_core::damage::DamageRegion;
+use iris_core::grid::Grid;
 
 /// Bootstrap configuration for the GPU renderer.
 #[derive(Clone, Debug)]
@@ -163,6 +166,22 @@ impl Renderer {
         buffers.write_instances(&self.device, &self.queue, instances)
     }
 
+    /// Encodes damaged grid cells into reusable text instances using cached glyphs.
+    pub fn encode_text_instances_for_damage<F>(
+        &self,
+        instances: &mut Vec<CellInstance>,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        atlas: &GlyphAtlas,
+        theme: &Theme,
+        resolve_glyph: F,
+    ) -> Result<()>
+    where
+        F: FnMut(iris_core::cell::Cell) -> Option<CachedGlyph>,
+    {
+        encode_damage_instances(instances, grid, damage, atlas.size(), theme, resolve_glyph)
+    }
+
     /// Creates the temporary fullscreen pipeline used for renderer bootstrap.
     #[must_use]
     pub fn create_fullscreen_pipeline(&self, format: wgpu::TextureFormat) -> FullscreenPipeline {
@@ -290,6 +309,9 @@ mod tests {
     use crate::error::Error;
     use crate::glyph::{GlyphBitmap, GlyphKey};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
+    use crate::theme::Theme;
+    use iris_core::damage::DamageRegion;
+    use iris_core::grid::{Grid, GridSize};
 
     const CLEARED_BGRA8_UNORM_SRGB_PIXEL: [u8; 4] = [0, 0, 0, 255];
 
@@ -537,5 +559,45 @@ mod tests {
                 .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
             "renderer text draw helper should write pixels beyond the cleared black target"
         );
+    }
+
+    #[test]
+    fn renderer_encodes_text_instances_from_grid_damage() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(64, 64).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, iris_core::cell::Cell::new('a'))
+            .expect("grid write should succeed");
+        let mut instances = Vec::new();
+
+        renderer
+            .encode_text_instances_for_damage(
+                &mut instances,
+                &grid,
+                &[DamageRegion::new(0, 0, 0, 0)],
+                &atlas,
+                &Theme::default(),
+                |_| {
+                    Some(crate::glyph::CachedGlyph::new(crate::atlas::AtlasRegion {
+                        x: 0,
+                        y: 0,
+                        width: 8,
+                        height: 16,
+                    }))
+                },
+            )
+            .expect("damage should encode");
+
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].grid_position, [0.0, 0.0]);
     }
 }
