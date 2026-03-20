@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use iris_core::cell::Cell;
+use iris_core::cell::{Cell, CellWidth};
 use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 
@@ -220,12 +220,21 @@ fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<Damage
         }
 
         for row_index in region.start_row..=end_row {
-            normalized.push(DamageRegion::new(
-                row_index,
-                row_index,
-                region.start_col,
-                end_col,
-            ));
+            let mut start_col = region.start_col;
+            if start_col > 0
+                && matches!(
+                    grid.cell(row_index, start_col).map(|cell| cell.width),
+                    Some(CellWidth::Continuation)
+                )
+                && matches!(
+                    grid.cell(row_index, start_col - 1).map(|cell| cell.width),
+                    Some(CellWidth::Double)
+                )
+            {
+                start_col -= 1;
+            }
+
+            normalized.push(DamageRegion::new(row_index, row_index, start_col, end_col));
         }
     }
 
@@ -376,8 +385,8 @@ mod tests {
     use iris_core::grid::{Grid, GridSize};
 
     use super::{
-        cell_instances_as_bytes, encode_damage_instances, CellColors, CellInstance, TextBuffers,
-        TextUniforms,
+        cell_instances_as_bytes, encode_damage_instances, normalized_damage_regions, CellColors,
+        CellInstance, TextBuffers, TextUniforms,
     };
     use crate::atlas::{AtlasRegion, AtlasSize};
     use crate::error::Error;
@@ -873,5 +882,37 @@ mod tests {
         .expect("out-of-bounds damage should clamp");
 
         assert_eq!(instances.len(), 2);
+    }
+
+    #[test]
+    fn normalized_damage_regions_include_wide_cell_lead_for_continuation_damage() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('中'))
+            .expect("wide cell should be written");
+
+        let normalized = normalized_damage_regions(&grid, &[DamageRegion::new(0, 0, 1, 1)]);
+        assert_eq!(normalized, vec![DamageRegion::new(0, 0, 0, 1)]);
+
+        let mut instances = Vec::new();
+        encode_damage_instances(
+            &mut instances,
+            &grid,
+            &[DamageRegion::new(0, 0, 1, 1)],
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            &Theme::default(),
+            |cell| {
+                (cell.character == '中').then_some(CachedGlyph::new(AtlasRegion {
+                    x: 0,
+                    y: 0,
+                    width: 16,
+                    height: 16,
+                }))
+            },
+        )
+        .expect("continuation damage should still encode the lead cell");
+
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].grid_position, [0.0, 0.0]);
+        assert_eq!(instances[0].cell_span, 2.0);
     }
 }

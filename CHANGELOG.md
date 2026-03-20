@@ -38,6 +38,7 @@ Target release: `0.2.0`
 
 - Hardened renderer theme color resolution so low-index indexed colors respect custom theme palettes, dimmed colors retain minimum visibility for dark values, and boundary coverage now exercises ANSI wrapping plus 256-color cube and grayscale edges.
 - Normalized overlapping renderer damage regions before text-instance encoding, added aggregate debug logging for cache-miss glyph skips, and expanded encoder coverage for empty, zero-sized, and out-of-bounds damage inputs.
+- Normalized continuation-only damage spans so wide-cell lead glyphs are still encoded when a damage region begins on the trailing continuation column.
 
 ### 2026-03-19
 
