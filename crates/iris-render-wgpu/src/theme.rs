@@ -2,7 +2,9 @@ use iris_core::cell::{CellAttrs, CellFlags, Color};
 
 use crate::cell::CellColors;
 
-const ANSI_COLORS: [ThemeColor; 16] = [
+const INV_255: f32 = 1.0 / 255.0;
+
+const DEFAULT_ANSI_COLORS: [ThemeColor; 16] = [
     ThemeColor::rgb(0x00, 0x00, 0x00),
     ThemeColor::rgb(0xcd, 0x31, 0x31),
     ThemeColor::rgb(0x0f, 0xa8, 0x00),
@@ -51,18 +53,19 @@ impl ThemeColor {
     #[must_use]
     pub fn to_f32_array(self) -> [f32; 4] {
         [
-            f32::from(self.r) / 255.0,
-            f32::from(self.g) / 255.0,
-            f32::from(self.b) / 255.0,
-            f32::from(self.a) / 255.0,
+            f32::from(self.r) * INV_255,
+            f32::from(self.g) * INV_255,
+            f32::from(self.b) * INV_255,
+            f32::from(self.a) * INV_255,
         ]
     }
 
+    #[must_use]
     fn dimmed(self) -> Self {
         Self {
-            r: self.r / 2,
-            g: self.g / 2,
-            b: self.b / 2,
+            r: dim_channel(self.r),
+            g: dim_channel(self.g),
+            b: dim_channel(self.b),
             a: self.a,
         }
     }
@@ -92,12 +95,10 @@ impl Theme {
             std::mem::swap(&mut fg, &mut bg);
         }
 
-        if attrs.flags.contains(CellFlags::DIM) {
-            fg = fg.dimmed();
-        }
-
         if attrs.flags.contains(CellFlags::HIDDEN) {
             fg = bg;
+        } else if attrs.flags.contains(CellFlags::DIM) {
+            fg = fg.dimmed();
         }
 
         CellColors::new(fg.to_f32_array(), bg.to_f32_array())
@@ -119,8 +120,9 @@ impl Theme {
         match color {
             Color::Default => default,
             Color::Ansi(index) | Color::Indexed(index) if index < 16 => self.ansi[index as usize],
-            Color::Indexed(index) => indexed_color(index),
+            Color::Indexed(index) => indexed_color(index, &self.ansi),
             Color::Rgb { r, g, b } => ThemeColor::rgb(r, g, b),
+            // Xterm-compatible extended ANSI indices wrap into the base 16-color table.
             Color::Ansi(index) => self.ansi[usize::from(index % 16)],
         }
     }
@@ -129,17 +131,18 @@ impl Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self {
-            foreground: ANSI_COLORS[7],
+            foreground: DEFAULT_ANSI_COLORS[7],
             background: ThemeColor::rgb(0x1e, 0x1e, 0x1e),
-            cursor: ANSI_COLORS[7],
-            ansi: ANSI_COLORS,
+            cursor: DEFAULT_ANSI_COLORS[7],
+            ansi: DEFAULT_ANSI_COLORS,
         }
     }
 }
 
-fn indexed_color(index: u8) -> ThemeColor {
+#[must_use]
+fn indexed_color(index: u8, ansi: &[ThemeColor; 16]) -> ThemeColor {
     if index < 16 {
-        return ANSI_COLORS[index as usize];
+        return ansi[index as usize];
     }
 
     if index >= 232 {
@@ -155,6 +158,7 @@ fn indexed_color(index: u8) -> ThemeColor {
     ThemeColor::rgb(cube_level(red), cube_level(green), cube_level(blue))
 }
 
+#[must_use]
 fn cube_level(component: u8) -> u8 {
     match component {
         0 => 0,
@@ -164,6 +168,11 @@ fn cube_level(component: u8) -> u8 {
         4 => 215,
         _ => 255,
     }
+}
+
+#[must_use]
+fn dim_channel(channel: u8) -> u8 {
+    u16::from(channel).div_ceil(2) as u8
 }
 
 #[cfg(test)]
@@ -218,7 +227,111 @@ mod tests {
     }
 
     #[test]
-    fn theme_resolve_cell_colors_applies_inverse_dim_and_hidden() {
+    fn theme_resolves_ansi_boundary_colors() {
+        let theme = Theme::default();
+
+        assert_eq!(
+            theme.resolve_foreground(Color::Ansi(0)),
+            ThemeColor::rgb(0x00, 0x00, 0x00)
+        );
+        assert_eq!(
+            theme.resolve_foreground(Color::Ansi(15)),
+            ThemeColor::rgb(0xff, 0xff, 0xff)
+        );
+        assert_eq!(theme.resolve_foreground(Color::Ansi(16)), theme.ansi[0]);
+        assert_eq!(theme.resolve_foreground(Color::Ansi(17)), theme.ansi[1]);
+        assert_eq!(theme.resolve_foreground(Color::Ansi(255)), theme.ansi[15]);
+    }
+
+    #[test]
+    fn theme_resolves_indexed_palette_boundaries() {
+        let theme = Theme::default();
+
+        assert_eq!(
+            theme.resolve_foreground(Color::Indexed(16)),
+            ThemeColor::rgb(0x00, 0x00, 0x00)
+        );
+        assert_eq!(
+            theme.resolve_foreground(Color::Indexed(231)),
+            ThemeColor::rgb(0xff, 0xff, 0xff)
+        );
+        assert_eq!(
+            theme.resolve_foreground(Color::Indexed(232)),
+            ThemeColor::rgb(0x08, 0x08, 0x08)
+        );
+        assert_eq!(
+            theme.resolve_foreground(Color::Indexed(255)),
+            ThemeColor::rgb(0xee, 0xee, 0xee)
+        );
+    }
+
+    #[test]
+    fn theme_resolves_low_palette_indices_from_the_theme_palette() {
+        let mut theme = Theme::default();
+        theme.ansi[1] = ThemeColor::rgb(0xaa, 0xbb, 0xcc);
+
+        assert_eq!(
+            theme.resolve_foreground(Color::Indexed(1)),
+            ThemeColor::rgb(0xaa, 0xbb, 0xcc)
+        );
+        assert_eq!(
+            theme.resolve_foreground(Color::Ansi(1)),
+            ThemeColor::rgb(0xaa, 0xbb, 0xcc)
+        );
+    }
+
+    #[test]
+    fn theme_resolve_cell_colors_applies_inverse_flag() {
+        let theme = Theme::default();
+        let colors = theme.resolve_cell_colors(CellAttrs {
+            fg: Color::Rgb {
+                r: 0xff,
+                g: 0xff,
+                b: 0xff,
+            },
+            bg: Color::Rgb {
+                r: 0x00,
+                g: 0x00,
+                b: 0x00,
+            },
+            flags: CellFlags::INVERSE,
+        });
+
+        assert_eq!(colors.fg, ThemeColor::rgb(0x00, 0x00, 0x00).to_f32_array());
+        assert_eq!(colors.bg, ThemeColor::rgb(0xff, 0xff, 0xff).to_f32_array());
+    }
+
+    #[test]
+    fn theme_resolve_cell_colors_applies_dim_flag_without_hiding_dark_colors() {
+        let theme = Theme::default();
+        let colors = theme.resolve_cell_colors(CellAttrs {
+            fg: Color::Rgb {
+                r: 0x01,
+                g: 0x03,
+                b: 0x05,
+            },
+            bg: Color::Default,
+            flags: CellFlags::DIM,
+        });
+
+        assert_eq!(colors.fg, ThemeColor::rgb(0x01, 0x02, 0x03).to_f32_array());
+        assert_eq!(colors.bg, theme.background.to_f32_array());
+    }
+
+    #[test]
+    fn theme_resolve_cell_colors_applies_hidden_flag() {
+        let theme = Theme::default();
+        let colors = theme.resolve_cell_colors(CellAttrs {
+            fg: Color::Ansi(2),
+            bg: Color::Ansi(3),
+            flags: CellFlags::HIDDEN,
+        });
+
+        assert_eq!(colors.fg, colors.bg);
+    }
+
+    #[test]
+    fn theme_resolve_cell_colors_prioritizes_hidden_over_dim() {
         let theme = Theme::default();
         let colors = theme.resolve_cell_colors(CellAttrs {
             fg: Color::Rgb {
@@ -227,19 +340,10 @@ mod tests {
                 b: 0x20,
             },
             bg: Color::Ansi(4),
-            flags: CellFlags::INVERSE | CellFlags::DIM,
+            flags: CellFlags::DIM | CellFlags::HIDDEN,
         });
 
-        assert_eq!(colors.fg, ThemeColor::rgb(0x12, 0x32, 0x6b).to_f32_array());
-        assert_eq!(colors.bg, ThemeColor::rgb(0x80, 0x40, 0x20).to_f32_array());
-
-        let hidden = theme.resolve_cell_colors(CellAttrs {
-            fg: Color::Ansi(2),
-            bg: Color::Ansi(3),
-            flags: CellFlags::HIDDEN,
-        });
-
-        assert_eq!(hidden.fg, hidden.bg);
+        assert_eq!(colors.fg, colors.bg);
     }
 
     #[test]

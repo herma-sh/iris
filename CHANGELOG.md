@@ -33,6 +33,10 @@ Target release: `0.2.0`
 
 - Added a renderer theme bootstrap in `iris-render-wgpu` with default terminal colors, ANSI and indexed color resolution, and cell-attribute mapping into render-ready foreground and background RGBA values.
 
+#### Changed
+
+- Hardened renderer theme color resolution so low-index indexed colors respect custom theme palettes, dimmed colors retain minimum visibility for dark values, and boundary coverage now exercises ANSI wrapping plus 256-color cube and grayscale edges.
+
 ### 2026-03-19
 
 #### Added
