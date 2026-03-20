@@ -149,52 +149,102 @@ where
     F: FnMut(Cell) -> Option<CachedGlyph>,
 {
     instances.clear();
+    let mut skipped_missing_glyphs = 0usize;
 
+    for region in normalized_damage_regions(grid, damage) {
+        let Some(row_cells) = grid.row(region.start_row) else {
+            continue;
+        };
+
+        for (col_index, &cell) in row_cells
+            .iter()
+            .enumerate()
+            .skip(region.start_col)
+            .take(region.end_col - region.start_col + 1)
+        {
+            if cell.is_empty() || cell.width.columns() == 0 {
+                continue;
+            }
+
+            let Some(glyph) = resolve_glyph(cell) else {
+                skipped_missing_glyphs += 1;
+                continue;
+            };
+
+            let row_index = region.start_row;
+            let row_u32 =
+                u32::try_from(row_index).map_err(|_| Error::GridCoordinateOutOfRange {
+                    row: row_index,
+                    col: col_index,
+                })?;
+            let col_u32 =
+                u32::try_from(col_index).map_err(|_| Error::GridCoordinateOutOfRange {
+                    row: row_index,
+                    col: col_index,
+                })?;
+            let colors = theme.resolve_cell_colors(cell.attrs);
+
+            instances.push(CellInstance::from_cell(
+                cell, col_u32, row_u32, glyph, atlas_size, colors,
+            )?);
+        }
+    }
+
+    if skipped_missing_glyphs > 0 {
+        tracing::debug!(
+            skipped_missing_glyphs,
+            encoded_instances = instances.len(),
+            damage_regions = damage.len(),
+            "skipped text instance encoding for cells without cached glyphs"
+        );
+    }
+
+    Ok(())
+}
+
+fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
+    if grid.rows() == 0 || grid.cols() == 0 || damage.is_empty() {
+        return Vec::new();
+    }
+
+    let mut normalized = Vec::new();
     for region in damage {
-        if grid.rows() == 0 || grid.cols() == 0 || region.start_row >= grid.rows() {
+        if region.start_row >= grid.rows() || region.start_col >= grid.cols() {
             continue;
         }
 
         let end_row = region.end_row.min(grid.rows().saturating_sub(1));
+        let end_col = region.end_col.min(grid.cols().saturating_sub(1));
+        if region.start_col > end_col {
+            continue;
+        }
+
         for row_index in region.start_row..=end_row {
-            let Some(row) = grid.row(row_index) else {
-                continue;
-            };
-            if region.start_col >= row.len() {
-                continue;
-            }
-
-            let end_col = region.end_col.min(row.len().saturating_sub(1));
-            for col_index in region.start_col..=end_col {
-                let cell = row[col_index];
-                if cell.is_empty() || cell.width.columns() == 0 {
-                    continue;
-                }
-
-                let Some(glyph) = resolve_glyph(cell) else {
-                    continue;
-                };
-
-                let row =
-                    u32::try_from(row_index).map_err(|_| Error::GridCoordinateOutOfRange {
-                        row: row_index,
-                        col: col_index,
-                    })?;
-                let col =
-                    u32::try_from(col_index).map_err(|_| Error::GridCoordinateOutOfRange {
-                        row: row_index,
-                        col: col_index,
-                    })?;
-                let colors = theme.resolve_cell_colors(cell.attrs);
-
-                instances.push(CellInstance::from_cell(
-                    cell, col, row, glyph, atlas_size, colors,
-                )?);
-            }
+            normalized.push(DamageRegion::new(
+                row_index,
+                row_index,
+                region.start_col,
+                end_col,
+            ));
         }
     }
 
-    Ok(())
+    normalized.sort_unstable_by_key(|region| (region.start_row, region.start_col, region.end_col));
+
+    let mut merged: Vec<DamageRegion> = Vec::with_capacity(normalized.len());
+    for region in normalized {
+        match merged.last_mut() {
+            Some(previous)
+                if previous.start_row == region.start_row
+                    && region.start_col <= previous.end_col.saturating_add(1) =>
+            {
+                previous.end_col = previous.end_col.max(region.end_col);
+            }
+            _ => merged.push(region),
+        }
+    }
+
+    merged
 }
 
 /// Returns the raw bytes for a contiguous cell-instance slice.
@@ -729,5 +779,99 @@ mod tests {
 
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].grid_position, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn encode_damage_instances_coalesces_overlapping_damage() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 3 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('a'))
+            .expect("first cell should be written");
+        grid.write(0, 1, Cell::new('b'))
+            .expect("second cell should be written");
+        grid.write(0, 2, Cell::new('c'))
+            .expect("third cell should be written");
+        let mut instances = Vec::new();
+
+        encode_damage_instances(
+            &mut instances,
+            &grid,
+            &[DamageRegion::new(0, 0, 0, 1), DamageRegion::new(0, 0, 1, 2)],
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            &Theme::default(),
+            |_| {
+                Some(CachedGlyph::new(AtlasRegion {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 16,
+                }))
+            },
+        )
+        .expect("damage should encode");
+
+        assert_eq!(instances.len(), 3);
+        assert_eq!(instances[0].grid_position, [0.0, 0.0]);
+        assert_eq!(instances[1].grid_position, [1.0, 0.0]);
+        assert_eq!(instances[2].grid_position, [2.0, 0.0]);
+    }
+
+    #[test]
+    fn encode_damage_instances_handles_empty_damage_and_zero_sized_grids() {
+        let grid = Grid::new(GridSize { rows: 0, cols: 0 }).expect("grid should be created");
+        let mut instances = vec![CellInstance::from_cell(
+            Cell::new('x'),
+            0,
+            0,
+            CachedGlyph::new(AtlasRegion {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            }),
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("seed instance should encode")];
+
+        encode_damage_instances(
+            &mut instances,
+            &grid,
+            &[],
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            &Theme::default(),
+            |_| None,
+        )
+        .expect("empty damage should encode");
+
+        assert!(instances.is_empty());
+    }
+
+    #[test]
+    fn encode_damage_instances_clamps_out_of_bounds_damage_regions() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('a'))
+            .expect("first cell should be written");
+        grid.write(0, 1, Cell::new('b'))
+            .expect("second cell should be written");
+        let mut instances = Vec::new();
+
+        encode_damage_instances(
+            &mut instances,
+            &grid,
+            &[DamageRegion::new(0, 4, 0, 4)],
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            &Theme::default(),
+            |_| {
+                Some(CachedGlyph::new(AtlasRegion {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 16,
+                }))
+            },
+        )
+        .expect("out-of-bounds damage should clamp");
+
+        assert_eq!(instances.len(), 2);
     }
 }
