@@ -32,10 +32,13 @@ Target release: `0.2.0`
 #### Added
 
 - Added a renderer theme bootstrap in `iris-render-wgpu` with default terminal colors, ANSI and indexed color resolution, and cell-attribute mapping into render-ready foreground and background RGBA values.
+- Added reusable text-instance encoding helpers in `iris-render-wgpu` that walk `iris-core` grid damage regions, resolve cell colors through the renderer theme, and collect cached-glyph-backed `CellInstance` values for later buffer uploads.
 
 #### Changed
 
 - Hardened renderer theme color resolution so low-index indexed colors respect custom theme palettes, dimmed colors retain minimum visibility for dark values, and boundary coverage now exercises ANSI wrapping plus 256-color cube and grayscale edges.
+- Normalized overlapping renderer damage regions before text-instance encoding, added aggregate debug logging for cache-miss glyph skips, and expanded encoder coverage for empty, zero-sized, and out-of-bounds damage inputs.
+- Normalized continuation-only damage spans so wide-cell lead glyphs are still encoded when a damage region begins on the trailing continuation column.
 
 ### 2026-03-19
 

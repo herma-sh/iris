@@ -55,6 +55,15 @@ pub enum Error {
     #[error("continuation cells cannot be encoded as renderable text instances")]
     ContinuationCellNotRenderable,
 
+    /// Renderer grid coordinates must fit within the GPU instance representation.
+    #[error("renderer grid coordinate is too large to encode: row {row}, col {col}")]
+    GridCoordinateOutOfRange {
+        /// Grid row that exceeded the supported encoding range.
+        row: usize,
+        /// Grid column that exceeded the supported encoding range.
+        col: usize,
+    },
+
     /// Requested text-instance buffer capacity exceeds supported allocation bounds.
     #[error("text instance buffer capacity is too large: {capacity}")]
     TextInstanceBufferTooLarge {

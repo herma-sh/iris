@@ -8,6 +8,7 @@ license.workspace = true
 bytemuck = { version = "1.15", features = ["derive"] }
 iris-core = { path = "../iris-core" }
 thiserror = "1.0"
+tracing = "0.1"
 wgpu = "0.19"
 
 [dev-dependencies]
