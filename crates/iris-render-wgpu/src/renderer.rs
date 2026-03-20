@@ -2,7 +2,7 @@ use crate::atlas::{AtlasConfig, GlyphAtlas};
 use crate::cell::{CellInstance, TextBuffers, TextUniforms};
 use crate::error::{Error, Result};
 use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
-use crate::pipeline::FullscreenPipeline;
+use crate::pipeline::{FullscreenPipeline, TextPipeline};
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
 
@@ -169,6 +169,26 @@ impl Renderer {
         FullscreenPipeline::new(&self.device, format)
     }
 
+    /// Creates the text pipeline used for atlas-backed cell rendering bootstrap.
+    #[must_use]
+    pub fn create_text_pipeline(
+        &self,
+        format: wgpu::TextureFormat,
+        atlas: &GlyphAtlas,
+    ) -> TextPipeline {
+        TextPipeline::new(&self.device, format, atlas)
+    }
+
+    /// Creates the uniform bind group used by the text pipeline.
+    #[must_use]
+    pub fn create_text_uniform_bind_group(
+        &self,
+        pipeline: &TextPipeline,
+        buffers: &TextBuffers,
+    ) -> wgpu::BindGroup {
+        pipeline.create_uniform_bind_group(&self.device, buffers)
+    }
+
     /// Creates and configures a presentation surface for a window target.
     pub fn create_surface<'window>(
         &self,
@@ -209,6 +229,30 @@ impl Renderer {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 
+    /// Draws the text pipeline into an off-screen texture surface.
+    pub fn draw_text_pipeline_to_texture_surface(
+        &self,
+        pipeline: &TextPipeline,
+        uniform_bind_group: &wgpu::BindGroup,
+        atlas: &GlyphAtlas,
+        buffers: &TextBuffers,
+        surface: &TextureSurface,
+    ) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("iris-render-wgpu-text-encoder"),
+            });
+        pipeline.render(
+            &mut encoder,
+            surface.view(),
+            uniform_bind_group,
+            atlas,
+            buffers,
+        );
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
     /// Clears an off-screen render target to the provided color.
     pub fn clear_texture_surface(&self, surface: &TextureSurface, color: wgpu::Color) {
         let mut encoder = self
@@ -246,6 +290,8 @@ mod tests {
     use crate::error::Error;
     use crate::glyph::{GlyphBitmap, GlyphKey};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
+
+    const CLEARED_BGRA8_UNORM_SRGB_PIXEL: [u8; 4] = [0, 0, 0, 255];
 
     #[test]
     fn renderer_config_defaults_are_headless_safe() {
@@ -433,5 +479,63 @@ mod tests {
 
         assert_eq!(buffers.instance_count(), 2);
         assert!(buffers.instance_capacity() >= 2);
+    }
+
+    #[test]
+    fn renderer_creates_and_draws_the_text_pipeline() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(64, 64).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let region = atlas.allocate(4, 4).expect("region should fit");
+        atlas
+            .upload(renderer.queue(), region, &[255; 16])
+            .expect("glyph upload should succeed");
+        let mut buffers = renderer
+            .create_text_buffers(1)
+            .expect("text buffers should be created");
+        let instance = CellInstance::from_cell(
+            iris_core::cell::Cell::new('a'),
+            1,
+            1,
+            crate::glyph::CachedGlyph::new(region),
+            atlas.size(),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("cell should encode into an instance");
+        renderer.write_text_uniforms(&buffers, &TextUniforms::new([64.0, 64.0], [8.0, 16.0], 0.0));
+        renderer
+            .write_text_instances(&mut buffers, &[instance])
+            .expect("instance upload should succeed");
+        let pipeline = renderer.create_text_pipeline(wgpu::TextureFormat::Bgra8UnormSrgb, &atlas);
+        let uniform_bind_group = renderer.create_text_uniform_bind_group(&pipeline, &buffers);
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(64, 64).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+
+        renderer.draw_text_pipeline_to_texture_surface(
+            &pipeline,
+            &uniform_bind_group,
+            &atlas,
+            &buffers,
+            &surface,
+        );
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert!(
+            pixels
+                .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
+                .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
+            "renderer text draw helper should write pixels beyond the cleared black target"
+        );
     }
 }
