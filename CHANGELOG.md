@@ -27,6 +27,12 @@ This project uses a phase-based versioning scheme:
 
 Target release: `0.2.0`
 
+### 2026-03-20
+
+#### Added
+
+- Added a renderer theme bootstrap in `iris-render-wgpu` with default terminal colors, ANSI and indexed color resolution, and cell-attribute mapping into render-ready foreground and background RGBA values.
+
 ### 2026-03-19
 
 #### Added
@@ -39,7 +45,7 @@ Target release: `0.2.0`
 
 ## 0.2.0 (In Progress)
 
-Work window: `2026-03-19`
+Work window: `2026-03-19` to `2026-03-20`
 
 ### Added
 
@@ -50,6 +56,7 @@ Work window: `2026-03-19`
 - Added a CPU-side glyph cache in `iris-render-wgpu` with typed cache keys, atlas-backed glyph entries, idempotent cache insertion, and a renderer helper for caching uploaded glyph masks.
 - Added GPU-ready text uniforms and per-cell instance encoding in `iris-render-wgpu`, including atlas UV generation, style-flag packing, continuation-cell rejection, and raw instance-byte conversion for later buffer uploads.
 - Added resizable text uniform and instance buffer helpers in `iris-render-wgpu`, including `CellInstance` vertex-layout metadata and renderer helpers for uploading text uniforms and instance data.
+- Added a renderer theme bootstrap in `iris-render-wgpu` with default terminal colors, ANSI and indexed color resolution, and cell-attribute mapping into render-ready foreground and background RGBA values.
 
 ### Changed
 
