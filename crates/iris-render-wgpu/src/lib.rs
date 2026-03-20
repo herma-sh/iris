@@ -12,6 +12,7 @@ pub mod pipeline;
 pub mod renderer;
 pub mod surface;
 pub mod texture;
+pub mod theme;
 
 pub use atlas::{AtlasConfig, AtlasRegion, AtlasSize, GlyphAtlas};
 pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, TextUniforms};
@@ -21,6 +22,7 @@ pub use pipeline::{FullscreenPipeline, TextPipeline};
 pub use renderer::{Renderer, RendererConfig};
 pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
+pub use theme::{Theme, ThemeColor};
 
 #[cfg(test)]
 pub(crate) mod test_support {
