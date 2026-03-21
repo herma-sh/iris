@@ -89,8 +89,7 @@ impl TerminalRenderer {
     /// Replaces the active renderer theme.
     pub fn set_theme(&mut self, theme: Theme) {
         self.text_renderer.set_theme(theme);
-        self.frame_initialized = false;
-        self.previous_cursor = None;
+        self.invalidate_cached_frame();
     }
 
     /// Returns the current text uniforms.
@@ -107,11 +106,15 @@ impl TerminalRenderer {
 
     /// Updates the viewport and cell metrics written to the uniform buffer.
     pub fn set_uniforms(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
+        let frame_uniforms = frame_uniforms_for_requested(uniforms);
+        let frame_uniforms_changed = self.text_renderer.uniforms() != frame_uniforms;
         self.requested_uniforms = uniforms;
-        self.text_renderer
-            .set_uniforms(renderer, frame_uniforms_for_requested(uniforms));
+        self.text_renderer.set_uniforms(renderer, frame_uniforms);
         self.resize_frame_surface(renderer, uniforms);
         self.write_present_uniforms(renderer);
+        if frame_uniforms_changed {
+            self.invalidate_cached_frame();
+        }
     }
 
     /// Returns the configured system font size in pixels.
@@ -140,8 +143,22 @@ impl TerminalRenderer {
     /// Applies an incremental terminal update into the cached frame using the
     /// terminal's accumulated damage plus cursor old/new regions.
     pub fn update_terminal(&mut self, renderer: &Renderer, terminal: &mut Terminal) -> Result<()> {
+        if !self.frame_initialized {
+            let result = self.prepare_grid_and_cursor(renderer, &terminal.grid, terminal.cursor);
+            if result.is_ok() {
+                let _ = terminal.take_damage();
+            }
+            return result;
+        }
+
         let damage = terminal.take_damage();
-        self.update_grid_and_cursor(renderer, &terminal.grid, &damage, terminal.cursor)
+        match self.update_grid_and_cursor(renderer, &terminal.grid, &damage, terminal.cursor) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                terminal.restore_damage(&damage);
+                Err(error)
+            }
+        }
     }
 
     /// Prepares a full visible frame from explicit grid and cursor state.
@@ -284,8 +301,7 @@ impl TerminalRenderer {
             .present_pipeline
             .create_texture_bind_group(renderer.device(), &self.frame_surface);
         self.write_present_uniforms(renderer);
-        self.frame_initialized = false;
-        self.previous_cursor = None;
+        self.invalidate_cached_frame();
     }
 
     fn write_present_uniforms(&self, renderer: &Renderer) {
@@ -299,6 +315,11 @@ impl TerminalRenderer {
             )
             .as_bytes(),
         );
+    }
+
+    fn invalidate_cached_frame(&mut self) {
+        self.frame_initialized = false;
+        self.previous_cursor = None;
     }
 }
 
@@ -361,6 +382,8 @@ mod tests {
     use iris_core::terminal::Terminal;
 
     use super::{TerminalRenderer, TerminalRendererConfig};
+    use crate::error::Error;
+    use crate::font::FontRasterizerConfig;
     use crate::renderer::{Renderer, RendererConfig};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
     use crate::theme::{Theme, ThemeColor};
@@ -686,6 +709,77 @@ mod tests {
     }
 
     #[test]
+    fn terminal_renderer_invalidates_cached_frame_when_cell_metrics_change() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                        cursor: ThemeColor::rgb(0xff, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        let initial_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_ne!(
+            pixel_at(&initial_pixels, surface.size(), (24, 8)),
+            background,
+            "the initial cursor should occupy the second 16px cell"
+        );
+
+        terminal_renderer
+            .set_uniforms(&renderer, TextUniforms::new([32.0, 16.0], [8.0, 16.0], 0.0));
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("metric changes should force a full cached-frame rebuild");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let updated_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(
+            pixel_at(&updated_pixels, surface.size(), (24, 8)),
+            background,
+            "metric changes should clear stale pixels from the old cursor span"
+        );
+        assert_ne!(
+            pixel_at(&updated_pixels, surface.size(), (12, 8)),
+            background,
+            "metric changes should redraw the cursor at the new cell width"
+        );
+    }
+
+    #[test]
     fn terminal_renderer_applies_scroll_offset_during_presentation() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
@@ -878,6 +972,60 @@ mod tests {
         assert!(
             cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
             "the first incremental update should produce a visible cached frame"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_restores_terminal_damage_when_incremental_update_fails() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                font_rasterizer: FontRasterizerConfig {
+                    font_size_px: 4096.0,
+                    ..Default::default()
+                },
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+        terminal.cursor.visible = false;
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("blank terminal frame should prepare");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+
+        let result = terminal_renderer.update_terminal(&renderer, &mut terminal);
+
+        assert!(matches!(
+            result,
+            Err(Error::GlyphRasterizationFailed { .. })
+        ));
+        assert_eq!(
+            terminal.take_damage(),
+            vec![iris_core::damage::DamageRegion::new(0, 0, 0, 0)],
+            "failed incremental updates should restore terminal damage"
         );
     }
 }

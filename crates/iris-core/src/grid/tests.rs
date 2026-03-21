@@ -228,3 +228,17 @@ fn grid_clears_overwritten_wide_cell_spans() {
     assert_eq!(grid.cell(0, 2).unwrap(), &Cell::default());
     assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 0, 2)]);
 }
+
+#[test]
+fn grid_restore_damage_replays_drained_regions() {
+    let mut grid = Grid::new(GridSize { rows: 2, cols: 3 }).unwrap();
+    grid.write(1, 2, Cell::new('Z')).unwrap();
+
+    let damage = grid.take_damage();
+    assert_eq!(damage, vec![DamageRegion::new(1, 1, 2, 2)]);
+    assert!(grid.take_damage().is_empty());
+
+    grid.restore_damage(&damage);
+
+    assert_eq!(grid.take_damage(), damage);
+}

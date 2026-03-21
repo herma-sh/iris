@@ -562,3 +562,17 @@ fn terminal_insert_and_delete_lines_noop_on_zero_row_grids() {
 
     assert_eq!(terminal.grid.rows(), 0);
 }
+
+#[test]
+fn terminal_restore_damage_replays_drained_regions() {
+    let mut terminal = Terminal::new(1, 2).unwrap();
+    terminal.write_char('A').unwrap();
+
+    let damage = terminal.take_damage();
+    assert_eq!(damage, vec![crate::damage::DamageRegion::new(0, 0, 0, 0)]);
+    assert!(terminal.take_damage().is_empty());
+
+    terminal.restore_damage(&damage);
+
+    assert_eq!(terminal.take_damage(), damage);
+}

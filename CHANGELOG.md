@@ -52,6 +52,7 @@ Target release: `0.2.0`
 - Updated the terminal-facing renderer integration to retain a cached frame texture, apply incremental damage updates for changed text and old/new cursor regions, and present the cached output through a dedicated fullscreen sample pass.
 - Reused normalized damage buffers across retained text prepares to avoid per-frame hot-path allocations, tuned retained damage scratch capacity for the common terminal-update case, and expanded terminal-renderer regression coverage for cursor clearing, theme invalidation, and update-before-prepare behavior.
 - Moved retained-frame scroll offsets into the presentation pass so cached terminal content now renders at stable zero-offset coordinates, while presentation can shift and background-fill the visible viewport without forcing a cache redraw when only the scroll offset changes.
+- Invalidated cached terminal frames when cell metrics change and restored drained terminal damage after failed incremental updates so renderer errors cannot leave stale pixels or dropped dirty regions behind.
 
 ### 2026-03-20
 
