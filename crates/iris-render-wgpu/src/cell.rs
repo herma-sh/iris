@@ -202,7 +202,7 @@ where
     Ok(())
 }
 
-fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
+pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
     if grid.rows() == 0 || grid.cols() == 0 || damage.is_empty() {
         return Vec::new();
     }

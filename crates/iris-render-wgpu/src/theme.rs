@@ -60,6 +60,17 @@ impl ThemeColor {
         ]
     }
 
+    /// Converts the color into a `wgpu` clear or draw color.
+    #[must_use]
+    pub fn to_wgpu_color(self) -> wgpu::Color {
+        wgpu::Color {
+            r: f64::from(self.r) / 255.0,
+            g: f64::from(self.g) / 255.0,
+            b: f64::from(self.b) / 255.0,
+            a: f64::from(self.a) / 255.0,
+        }
+    }
+
     #[must_use]
     fn dimmed(self) -> Self {
         Self {
@@ -353,6 +364,21 @@ mod tests {
         assert_eq!(
             color.to_f32_array(),
             [128.0 / 255.0, 64.0 / 255.0, 32.0 / 255.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn theme_color_converts_to_wgpu_channels() {
+        let color = ThemeColor::rgba(0x80, 0x40, 0x20, 0xff);
+
+        assert_eq!(
+            color.to_wgpu_color(),
+            wgpu::Color {
+                r: 128.0 / 255.0,
+                g: 64.0 / 255.0,
+                b: 32.0 / 255.0,
+                a: 1.0,
+            }
         );
     }
 }

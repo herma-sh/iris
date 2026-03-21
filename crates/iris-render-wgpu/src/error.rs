@@ -18,6 +18,10 @@ pub enum Error {
     #[error("surface creation failed: {reason}")]
     CreateSurface { reason: String },
 
+    /// Acquiring a presentation frame from the surface failed.
+    #[error("failed to acquire a surface texture: {0}")]
+    AcquireSurfaceTexture(#[from] wgpu::SurfaceError),
+
     /// An atlas requires non-zero dimensions.
     #[error("atlas size must be non-zero, got {width}x{height}")]
     InvalidAtlasSize { width: u32, height: u32 },
