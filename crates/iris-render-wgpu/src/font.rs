@@ -4,7 +4,7 @@ use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use iris_core::cell::Cell;
 
 use crate::error::{Error, Result};
-use crate::glyph::RasterizedGlyph;
+use crate::glyph::{GlyphPlacement, RasterizedGlyph};
 
 const MAX_RASTERIZED_GLYPH_DIMENSION: u32 = 512;
 const MAX_FONT_DATA_BYTES: usize = 32 * 1024 * 1024;
@@ -125,7 +125,28 @@ impl FontRasterizer {
             return Ok(Some(blank_glyph()));
         }
 
-        Ok(Some(RasterizedGlyph::new(width, height, bitmap)))
+        let baseline_px = self.loaded_faces[face_index]
+            .font
+            .horizontal_line_metrics(self.font_size_px)
+            .map_or(self.font_size_px * 0.8, |metrics| metrics.ascent)
+            .round() as i32;
+        let glyph_height =
+            i32::try_from(metrics.height).map_err(|_| Error::GlyphRasterizationFailed {
+                reason: format!(
+                    "glyph height {} for {:?} did not fit into i32",
+                    metrics.height, cell.character
+                ),
+            })?;
+        let placement = GlyphPlacement {
+            left_px: metrics.xmin,
+            top_px: baseline_px
+                .saturating_sub(metrics.ymin)
+                .saturating_sub(glyph_height),
+        };
+
+        Ok(Some(RasterizedGlyph::new_with_placement(
+            width, height, bitmap, placement,
+        )))
     }
 
     /// Returns the family names currently loaded into the rasterizer.

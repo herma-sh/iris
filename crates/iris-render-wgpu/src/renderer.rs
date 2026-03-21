@@ -2,7 +2,7 @@ use crate::atlas::{AtlasConfig, GlyphAtlas};
 use crate::cell::{encode_damage_instances, CellInstance, TextBuffers, TextUniforms};
 use crate::cursor::CursorBuffers;
 use crate::error::{Error, Result};
-use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
+use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey, GlyphPlacement};
 use crate::pipeline::{CursorPipeline, FullscreenPipeline, PresentPipeline, TextPipeline};
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
@@ -157,6 +157,18 @@ impl Renderer {
         bitmap: GlyphBitmap<'_>,
     ) -> Result<CachedGlyph> {
         cache.cache_glyph(atlas, &self.queue, key, bitmap)
+    }
+
+    /// Caches a glyph bitmap in the provided atlas with explicit placement offsets.
+    pub fn cache_glyph_with_placement(
+        &self,
+        cache: &mut GlyphCache,
+        atlas: &mut GlyphAtlas,
+        key: GlyphKey,
+        bitmap: GlyphBitmap<'_>,
+        placement: GlyphPlacement,
+    ) -> Result<CachedGlyph> {
+        cache.cache_glyph_with_placement(atlas, &self.queue, key, bitmap, placement)
     }
 
     /// Uploads the latest text uniforms.

@@ -3,6 +3,15 @@ use std::collections::HashMap;
 use crate::atlas::{AtlasRegion, GlyphAtlas};
 use crate::error::{Error, Result};
 
+/// Placement offsets for positioning a glyph bitmap inside a terminal cell.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GlyphPlacement {
+    /// Horizontal glyph offset in pixels from the cell's left edge.
+    pub left_px: i32,
+    /// Vertical glyph offset in pixels from the cell's top edge.
+    pub top_px: i32,
+}
+
 /// Stable cache key for a rasterized glyph variant.
 ///
 /// Callers should derive this from the inputs that affect rasterization, such
@@ -53,6 +62,7 @@ pub struct RasterizedGlyph {
     width: u32,
     height: u32,
     data: Vec<u8>,
+    placement: GlyphPlacement,
 }
 
 impl RasterizedGlyph {
@@ -63,6 +73,23 @@ impl RasterizedGlyph {
             width,
             height,
             data,
+            placement: GlyphPlacement::default(),
+        }
+    }
+
+    /// Creates an owned glyph bitmap with explicit placement offsets.
+    #[must_use]
+    pub fn new_with_placement(
+        width: u32,
+        height: u32,
+        data: Vec<u8>,
+        placement: GlyphPlacement,
+    ) -> Self {
+        Self {
+            width,
+            height,
+            data,
+            placement,
         }
     }
 
@@ -84,6 +111,12 @@ impl RasterizedGlyph {
         &self.data
     }
 
+    /// Returns the glyph placement offsets used when drawing inside a cell.
+    #[must_use]
+    pub const fn placement(&self) -> GlyphPlacement {
+        self.placement
+    }
+
     /// Borrows the owned bitmap as an atlas-upload descriptor.
     #[must_use]
     pub fn as_bitmap(&self) -> GlyphBitmap<'_> {
@@ -95,19 +128,38 @@ impl RasterizedGlyph {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CachedGlyph {
     region: AtlasRegion,
+    placement: GlyphPlacement,
 }
 
 impl CachedGlyph {
     /// Creates a cached glyph entry for the provided atlas region.
     #[must_use]
     pub const fn new(region: AtlasRegion) -> Self {
-        Self { region }
+        Self {
+            region,
+            placement: GlyphPlacement {
+                left_px: 0,
+                top_px: 0,
+            },
+        }
+    }
+
+    /// Creates a cached glyph entry for the provided atlas region and placement.
+    #[must_use]
+    pub const fn with_placement(region: AtlasRegion, placement: GlyphPlacement) -> Self {
+        Self { region, placement }
     }
 
     /// Returns the atlas region occupied by this cached glyph.
     #[must_use]
     pub const fn region(self) -> AtlasRegion {
         self.region
+    }
+
+    /// Returns the cached glyph placement offsets.
+    #[must_use]
+    pub const fn placement(self) -> GlyphPlacement {
+        self.placement
     }
 }
 
@@ -156,6 +208,18 @@ impl GlyphCache {
         key: GlyphKey,
         bitmap: GlyphBitmap<'_>,
     ) -> Result<CachedGlyph> {
+        self.cache_glyph_with_placement(atlas, queue, key, bitmap, GlyphPlacement::default())
+    }
+
+    /// Caches a glyph bitmap with explicit placement offsets.
+    pub fn cache_glyph_with_placement(
+        &mut self,
+        atlas: &mut GlyphAtlas,
+        queue: &wgpu::Queue,
+        key: GlyphKey,
+        bitmap: GlyphBitmap<'_>,
+        placement: GlyphPlacement,
+    ) -> Result<CachedGlyph> {
         if let Some(entry) = self.entries.get(&key).copied() {
             if entry.region.width != bitmap.width || entry.region.height != bitmap.height {
                 return Err(Error::GlyphCacheEntryMismatch {
@@ -188,7 +252,7 @@ impl GlyphCache {
         let region = atlas.allocate(bitmap.width, bitmap.height)?;
         atlas.upload(queue, region, bitmap.data)?;
 
-        let entry = CachedGlyph::new(region);
+        let entry = CachedGlyph::with_placement(region, placement);
         self.entries.insert(key, entry);
 
         Ok(entry)
@@ -197,19 +261,34 @@ impl GlyphCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{GlyphBitmap, GlyphCache, GlyphKey, RasterizedGlyph};
+    use super::{GlyphBitmap, GlyphCache, GlyphKey, GlyphPlacement, RasterizedGlyph};
     use crate::atlas::{AtlasConfig, AtlasSize};
     use crate::error::Error;
     use crate::renderer::{Renderer, RendererConfig};
 
     #[test]
     fn rasterized_glyph_exposes_borrowed_bitmap_view() {
-        let glyph = RasterizedGlyph::new(2, 3, vec![0, 1, 2, 3, 4, 5]);
+        let glyph = RasterizedGlyph::new_with_placement(
+            2,
+            3,
+            vec![0, 1, 2, 3, 4, 5],
+            GlyphPlacement {
+                left_px: 1,
+                top_px: 2,
+            },
+        );
         let bitmap = glyph.as_bitmap();
 
         assert_eq!(glyph.width(), 2);
         assert_eq!(glyph.height(), 3);
         assert_eq!(glyph.data(), &[0, 1, 2, 3, 4, 5]);
+        assert_eq!(
+            glyph.placement(),
+            GlyphPlacement {
+                left_px: 1,
+                top_px: 2
+            }
+        );
         assert_eq!(bitmap.width, 2);
         assert_eq!(bitmap.height, 3);
         assert_eq!(bitmap.data, &[0, 1, 2, 3, 4, 5]);

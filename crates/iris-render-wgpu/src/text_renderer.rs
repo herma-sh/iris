@@ -308,11 +308,12 @@ impl TextRenderer {
                     continue;
                 };
 
-                renderer.cache_glyph(
+                renderer.cache_glyph_with_placement(
                     &mut self.glyph_cache,
                     &mut self.atlas,
                     key,
                     rasterized.as_bitmap(),
+                    rasterized.placement(),
                 )?;
             }
         }
@@ -391,12 +392,27 @@ mod tests {
     use iris_core::grid::{Grid, GridSize};
 
     use super::{glyph_key_for_cell, TextRenderer, TextRendererConfig};
-    use crate::glyph::RasterizedGlyph;
+    use crate::glyph::{GlyphPlacement, RasterizedGlyph};
     use crate::renderer::{Renderer, RendererConfig};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
     use crate::theme::{Theme, ThemeColor};
     use crate::FontRasterizer;
     use crate::FontRasterizerConfig;
+
+    fn pixel_at(
+        pixels: &[u8],
+        surface_size: TextureSurfaceSize,
+        position: (usize, usize),
+    ) -> [u8; 4] {
+        let row_stride = surface_size.width as usize * 4;
+        let offset = position.1 * row_stride + position.0 * 4;
+        [
+            pixels[offset],
+            pixels[offset + 1],
+            pixels[offset + 2],
+            pixels[offset + 3],
+        ]
+    }
 
     #[test]
     fn glyph_key_for_cell_tracks_shape_relevant_state() {
@@ -625,6 +641,65 @@ mod tests {
                 .chunks_exact(background.len())
                 .any(|pixel| pixel != background),
             "styled blank cells should draw their own background color"
+        );
+    }
+
+    #[test]
+    fn text_renderer_applies_glyph_placement_offsets_inside_cells() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                theme: Theme {
+                    background: ThemeColor::rgb(0xff, 0x00, 0x00),
+                    ..Theme::default()
+                },
+                uniforms: crate::cell::TextUniforms::new([16.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('A'))
+            .expect("cell should be written");
+
+        text_renderer
+            .prepare_grid(&renderer, &grid, &[DamageRegion::new(0, 0, 0, 0)], |_| {
+                Ok(Some(RasterizedGlyph::new_with_placement(
+                    4,
+                    4,
+                    vec![255; 16],
+                    GlyphPlacement {
+                        left_px: 6,
+                        top_px: 8,
+                    },
+                )))
+            })
+            .expect("placed glyph should prepare");
+        text_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(text_renderer.theme().background);
+        assert_eq!(
+            pixel_at(&pixels, surface.size(), (2, 2)),
+            background,
+            "pixels outside the glyph placement should preserve cell background"
+        );
+        assert_ne!(
+            pixel_at(&pixels, surface.size(), (7, 10)),
+            background,
+            "pixels inside the glyph placement should draw glyph foreground"
         );
     }
 

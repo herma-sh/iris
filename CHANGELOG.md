@@ -67,6 +67,7 @@ Target release: `0.2.0`
 - Wired the renderer throughput benchmark as an executable crate benchmark target (`cargo bench -p iris-render-wgpu --bench renderer_throughput`) and refreshed the documented local baseline measurements.
 - Refactored renderer benchmark setup to reuse a shared terminal-renderer initialization helper with consistent no-font skip handling and contextual panic messages.
 - Clarified renderer benchmark semantics in code/docs: per-iteration GPU synchronization is intentional so reported values include completed GPU work rather than CPU enqueue-only submission.
+- Added baseline-aware glyph placement in the text shader/instance path by propagating rasterized glyph pixel offsets through the cache and rendering glyph masks at measured in-cell offsets instead of stretching masks across whole cells.
 
 ### 2026-03-20
 

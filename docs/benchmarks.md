@@ -75,7 +75,7 @@ Latest verified run on `2026-03-21`:
 |---------|--------|
 | `full_prepare_160x45` | `~0.4-0.8 ms/frame` |
 | `retained_scroll_update_160x45` | `~1.4k-2.1k updates/s` |
-| `estimated_renderer_memory` | `~13.53 MiB` |
+| `estimated_renderer_memory` | `~13.6 MiB` |
 
 ## Planned Benchmarks
 
