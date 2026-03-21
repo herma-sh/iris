@@ -251,8 +251,12 @@ impl TerminalRenderer {
             return self.prepare_grid_and_cursor(renderer, grid, cursor);
         }
 
-        if let Some(scroll_delta) = full_grid_scroll_delta(scroll_delta, grid) {
-            self.shift_retained_frame_for_scroll(renderer, scroll_delta);
+        if let Some(scroll_delta) = normalized_scroll_delta(scroll_delta, grid) {
+            if is_full_grid_scroll_delta(scroll_delta, grid) {
+                self.shift_retained_frame_for_scroll(renderer, scroll_delta);
+            } else {
+                self.shift_retained_frame_for_partial_scroll(renderer, scroll_delta);
+            }
         }
 
         self.full_redraw_damage.clear();
@@ -470,6 +474,147 @@ impl TerminalRenderer {
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
     }
+
+    fn shift_retained_frame_for_partial_scroll(
+        &mut self,
+        renderer: &Renderer,
+        scroll_delta: ScrollDelta,
+    ) {
+        let Some((region_top_y, region_bottom_y, source_y, destination_y, copy_height)) =
+            partial_scroll_copy_region(
+                self.requested_uniforms,
+                self.frame_surface.size(),
+                scroll_delta,
+            )
+        else {
+            return;
+        };
+
+        let mut encoder =
+            renderer
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("iris-render-wgpu-terminal-renderer-partial-scroll-shift"),
+                });
+        let surface_size = self.frame_surface.size();
+        let full_extent = wgpu::Extent3d {
+            width: surface_size.width,
+            height: surface_size.height,
+            depth_or_array_layers: 1,
+        };
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: self.frame_surface.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: self.scroll_surface.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            full_extent,
+        );
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("iris-render-wgpu-terminal-renderer-partial-scroll-clear-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: self.frame_surface.view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.theme().background.to_wgpu_color()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        if region_top_y > 0 {
+            encoder.copy_texture_to_texture(
+                wgpu::ImageCopyTexture {
+                    texture: self.scroll_surface.texture(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyTexture {
+                    texture: self.frame_surface.texture(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: surface_size.width,
+                    height: region_top_y,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        let below_region_height = surface_size.height.saturating_sub(region_bottom_y);
+        if below_region_height > 0 {
+            encoder.copy_texture_to_texture(
+                wgpu::ImageCopyTexture {
+                    texture: self.scroll_surface.texture(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: region_bottom_y,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyTexture {
+                    texture: self.frame_surface.texture(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: region_bottom_y,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: surface_size.width,
+                    height: below_region_height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        if copy_height > 0 {
+            encoder.copy_texture_to_texture(
+                wgpu::ImageCopyTexture {
+                    texture: self.scroll_surface.texture(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: source_y,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyTexture {
+                    texture: self.frame_surface.texture(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: destination_y,
+                        z: 0,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: surface_size.width,
+                    height: copy_height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        renderer.queue().submit(std::iter::once(encoder.finish()));
+    }
 }
 
 fn create_frame_surface(
@@ -553,14 +698,83 @@ fn frame_vertical_padding_pixels(uniforms: TextUniforms) -> u32 {
     viewport_surface_size_for_uniforms(uniforms).height
 }
 
-fn full_grid_scroll_delta(scroll_delta: Option<ScrollDelta>, grid: &Grid) -> Option<ScrollDelta> {
+fn normalized_scroll_delta(scroll_delta: Option<ScrollDelta>, grid: &Grid) -> Option<ScrollDelta> {
     let scroll_delta = scroll_delta?;
-    let full_grid_bottom = grid.rows().checked_sub(1)?;
-    if scroll_delta.top == 0 && scroll_delta.bottom == full_grid_bottom && scroll_delta.lines != 0 {
-        Some(scroll_delta)
-    } else {
-        None
+    if grid.rows() == 0 || scroll_delta.lines == 0 {
+        return None;
     }
+    if scroll_delta.top > scroll_delta.bottom || scroll_delta.bottom >= grid.rows() {
+        return None;
+    }
+
+    Some(scroll_delta)
+}
+
+fn is_full_grid_scroll_delta(scroll_delta: ScrollDelta, grid: &Grid) -> bool {
+    let Some(full_grid_bottom) = grid.rows().checked_sub(1) else {
+        return false;
+    };
+    scroll_delta.top == 0 && scroll_delta.bottom == full_grid_bottom
+}
+
+fn partial_scroll_copy_region(
+    uniforms: TextUniforms,
+    frame_surface_size: TextureSurfaceSize,
+    scroll_delta: ScrollDelta,
+) -> Option<(u32, u32, u32, u32, u32)> {
+    let viewport_size = viewport_surface_size_for_uniforms(uniforms);
+    if viewport_size.height == 0 || frame_surface_size.width == 0 {
+        return None;
+    }
+
+    let cell_height = normalized_surface_dimension(uniforms.cell_size[1]);
+    if cell_height == 0 {
+        return None;
+    }
+
+    let top_row = u32::try_from(scroll_delta.top).unwrap_or(u32::MAX);
+    let bottom_row_exclusive =
+        u32::try_from(scroll_delta.bottom.saturating_add(1)).unwrap_or(u32::MAX);
+    let region_top_in_viewport = top_row
+        .saturating_mul(cell_height)
+        .min(viewport_size.height);
+    let region_bottom_in_viewport = bottom_row_exclusive
+        .saturating_mul(cell_height)
+        .min(viewport_size.height);
+    if region_top_in_viewport >= region_bottom_in_viewport {
+        return None;
+    }
+
+    let vertical_padding = frame_vertical_padding_pixels(uniforms);
+    let region_top_y = vertical_padding.saturating_add(region_top_in_viewport);
+    let region_bottom_y = vertical_padding.saturating_add(region_bottom_in_viewport);
+    let region_height = region_bottom_y.saturating_sub(region_top_y);
+    let shift_pixels = scroll_delta
+        .lines
+        .unsigned_abs()
+        .saturating_mul(cell_height);
+    if shift_pixels == 0 || shift_pixels > region_height {
+        return None;
+    }
+
+    let copy_height = region_height.saturating_sub(shift_pixels);
+    let (source_y, destination_y) = match scroll_delta.lines {
+        lines if lines > 0 => (region_top_y.saturating_add(shift_pixels), region_top_y),
+        lines if lines < 0 => (region_top_y, region_top_y.saturating_add(shift_pixels)),
+        _ => return None,
+    };
+
+    if region_bottom_y > frame_surface_size.height {
+        return None;
+    }
+
+    Some((
+        region_top_y,
+        region_bottom_y,
+        source_y,
+        destination_y,
+        copy_height,
+    ))
 }
 
 fn scroll_copy_region(
@@ -616,7 +830,9 @@ mod tests {
     use iris_core::parser::Action;
     use iris_core::terminal::Terminal;
 
-    use super::{scroll_copy_region, TerminalRenderer, TerminalRendererConfig};
+    use super::{
+        partial_scroll_copy_region, scroll_copy_region, TerminalRenderer, TerminalRendererConfig,
+    };
     use crate::error::Error;
     use crate::font::FontRasterizerConfig;
     use crate::renderer::{Renderer, RendererConfig};
@@ -1101,6 +1317,23 @@ mod tests {
     }
 
     #[test]
+    fn partial_scroll_copy_region_returns_expected_shift_for_middle_band() {
+        let uniforms = TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0);
+        let frame_size = TextureSurfaceSize::new(16, 144).expect("frame size is valid");
+        let delta = ScrollDelta::new(1, 2, 1);
+
+        let (region_top, region_bottom, source_y, destination_y, copy_height) =
+            partial_scroll_copy_region(uniforms, frame_size, delta)
+                .expect("partial scroll copy region should be generated");
+
+        assert_eq!(region_top, 64);
+        assert_eq!(region_bottom, 96);
+        assert_eq!(source_y, 80);
+        assert_eq!(destination_y, 64);
+        assert_eq!(copy_height, 16);
+    }
+
+    #[test]
     fn terminal_renderer_applies_scroll_offset_during_presentation() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
@@ -1576,6 +1809,100 @@ mod tests {
             pixel_at(&updated_pixels, surface.size(), (8, 40)),
             background,
             "scrolling should clear the exposed bottom row to the theme background"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_applies_partial_scroll_delta_without_damage_repaint() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 48).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(3, 1).expect("terminal should be created");
+        terminal.cursor.visible = false;
+        for (row, color) in [
+            (0, (0xff, 0x00, 0x00)),
+            (1, (0x00, 0xff, 0x00)),
+            (2, (0x00, 0x00, 0xff)),
+        ] {
+            terminal
+                .grid
+                .write(
+                    row,
+                    0,
+                    Cell::with_attrs(
+                        ' ',
+                        CellAttrs {
+                            bg: Color::Rgb {
+                                r: color.0,
+                                g: color.1,
+                                b: color.2,
+                            },
+                            ..CellAttrs::default()
+                        },
+                    ),
+                )
+                .expect("styled row should be written");
+        }
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial frame should prepare");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let red = crate::test_support::bgra_pixel(ThemeColor::rgb(0xff, 0x00, 0x00));
+        let blue = crate::test_support::bgra_pixel(ThemeColor::rgb(0x00, 0x00, 0xff));
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+        terminal
+            .apply_action(Action::SetScrollRegion { top: 2, bottom: 3 })
+            .expect("scroll region should be set");
+        terminal
+            .apply_action(Action::ScrollUp(1))
+            .expect("scroll up should succeed");
+
+        // Force update_terminal to rely on scroll-delta shifting for this pass.
+        let _ = terminal.take_damage();
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("scroll-region delta should shift the retained frame");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let updated_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(pixel_at(&updated_pixels, surface.size(), (8, 8)), red);
+        assert_eq!(pixel_at(&updated_pixels, surface.size(), (8, 24)), blue);
+        assert_eq!(
+            pixel_at(&updated_pixels, surface.size(), (8, 40)),
+            background
         );
     }
 

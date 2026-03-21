@@ -62,6 +62,7 @@ Target release: `0.2.0`
 - Updated Phase 2 documentation and benchmark guidance to reflect completed TOML theme loading, CJK/emoji rasterization coverage, and the new renderer throughput benchmark command/results.
 - Added terminal-renderer font-size updates that rebuild renderer-owned glyph state on size changes, plus regression coverage for successful size updates and invalid-size rejection.
 - Added renderer integration coverage for partial scroll-region updates so non-full-grid scroll operations are now explicitly validated in the terminal renderer path.
+- Extended retained-frame scroll shifting to handle partial scroll regions (not just full-grid deltas), preserving rows outside the active scroll window while shifting the affected band in-place.
 
 ### 2026-03-20
 
