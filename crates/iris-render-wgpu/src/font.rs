@@ -242,8 +242,7 @@ impl FontRasterizer {
             };
 
             if face.font.lookup_glyph_index(character) != 0 {
-                let index = self.loaded_faces.len();
-                self.loaded_faces.push(face);
+                let index = self.push_loaded_face(face);
                 self.fallback_cache.insert(character, Some(index));
                 return Ok(());
             }
@@ -259,10 +258,18 @@ impl FontRasterizer {
         }
 
         if let Some(face) = self.try_load_face(id)? {
-            self.loaded_faces.push(face);
+            self.push_loaded_face(face);
         }
 
         Ok(())
+    }
+
+    fn push_loaded_face(&mut self, face: LoadedFace) -> usize {
+        let baseline_px = baseline_px_for_face(&face.font, self.font_size_px);
+        self.shared_baseline_px = self.shared_baseline_px.max(baseline_px);
+        let index = self.loaded_faces.len();
+        self.loaded_faces.push(face);
+        index
     }
 
     fn try_load_face(&self, id: fontdb::ID) -> Result<Option<LoadedFace>> {
@@ -337,16 +344,16 @@ fn default_baseline_px(font_size_px: f32) -> i32 {
 fn shared_baseline_px_for_loaded_faces(loaded_faces: &[LoadedFace], font_size_px: f32) -> i32 {
     loaded_faces
         .iter()
-        .filter_map(|face| {
-            face.font
-                .horizontal_line_metrics(font_size_px)
-                .map(|metrics| metrics.ascent)
-        })
-        .reduce(f32::max)
-        .map_or_else(
-            || default_baseline_px(font_size_px),
-            |ascent| ascent.round() as i32,
-        )
+        .map(|face| baseline_px_for_face(&face.font, font_size_px))
+        .max()
+        .unwrap_or_else(|| default_baseline_px(font_size_px))
+}
+
+fn baseline_px_for_face(font: &fontdue::Font, font_size_px: f32) -> i32 {
+    font.horizontal_line_metrics(font_size_px).map_or_else(
+        || default_baseline_px(font_size_px),
+        |metrics| metrics.ascent.round() as i32,
+    )
 }
 
 fn validate_glyph_dimension(dimension: u32, axis: &str, character: char) -> Result<()> {
