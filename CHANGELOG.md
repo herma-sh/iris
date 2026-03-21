@@ -61,6 +61,7 @@ Target release: `0.2.0`
 - Added symmetric downward and lower-bound scroll-merge regression coverage in `iris-core`, and avoided redundant present-uniform GPU writes by dirty-tracking terminal presentation state in `iris-render-wgpu`.
 - Updated Phase 2 documentation and benchmark guidance to reflect completed TOML theme loading, CJK/emoji rasterization coverage, and the new renderer throughput benchmark command/results.
 - Added terminal-renderer font-size updates that rebuild renderer-owned glyph state on size changes, plus regression coverage for successful size updates and invalid-size rejection.
+- Added renderer integration coverage for partial scroll-region updates so non-full-grid scroll operations are now explicitly validated in the terminal renderer path.
 
 ### 2026-03-20
 

@@ -611,7 +611,9 @@ fn normalized_surface_dimension(dimension: f32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use iris_core::cell::{Cell, CellAttrs, Color};
     use iris_core::damage::ScrollDelta;
+    use iris_core::parser::Action;
     use iris_core::terminal::Terminal;
 
     use super::{scroll_copy_region, TerminalRenderer, TerminalRendererConfig};
@@ -1438,6 +1440,142 @@ mod tests {
         assert_eq!(
             pixel_at(&settled_pixels, surface.size(), (8, 40)),
             [0xff, 0xff, 0x00, 0xff]
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_renders_partial_scroll_regions_correctly() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 48).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(3, 1).expect("terminal should be created");
+        terminal.cursor.visible = false;
+        terminal
+            .grid
+            .write(
+                0,
+                0,
+                Cell::with_attrs(
+                    ' ',
+                    CellAttrs {
+                        bg: Color::Rgb {
+                            r: 0xff,
+                            g: 0x00,
+                            b: 0x00,
+                        },
+                        ..CellAttrs::default()
+                    },
+                ),
+            )
+            .expect("top row should be written");
+        terminal
+            .grid
+            .write(
+                1,
+                0,
+                Cell::with_attrs(
+                    ' ',
+                    CellAttrs {
+                        bg: Color::Rgb {
+                            r: 0x00,
+                            g: 0xff,
+                            b: 0x00,
+                        },
+                        ..CellAttrs::default()
+                    },
+                ),
+            )
+            .expect("middle row should be written");
+        terminal
+            .grid
+            .write(
+                2,
+                0,
+                Cell::with_attrs(
+                    ' ',
+                    CellAttrs {
+                        bg: Color::Rgb {
+                            r: 0x00,
+                            g: 0x00,
+                            b: 0xff,
+                        },
+                        ..CellAttrs::default()
+                    },
+                ),
+            )
+            .expect("bottom row should be written");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial frame should prepare");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let red = crate::test_support::bgra_pixel(ThemeColor::rgb(0xff, 0x00, 0x00));
+        let green = crate::test_support::bgra_pixel(ThemeColor::rgb(0x00, 0xff, 0x00));
+        let blue = crate::test_support::bgra_pixel(ThemeColor::rgb(0x00, 0x00, 0xff));
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+
+        let initial_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(pixel_at(&initial_pixels, surface.size(), (8, 8)), red);
+        assert_eq!(pixel_at(&initial_pixels, surface.size(), (8, 24)), green);
+        assert_eq!(pixel_at(&initial_pixels, surface.size(), (8, 40)), blue);
+
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+        terminal
+            .apply_action(Action::SetScrollRegion { top: 2, bottom: 3 })
+            .expect("scroll region should be set");
+        terminal
+            .apply_action(Action::ScrollUp(1))
+            .expect("scroll up should succeed");
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("scroll-region update should render");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let updated_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(
+            pixel_at(&updated_pixels, surface.size(), (8, 8)),
+            red,
+            "rows outside the scroll region should remain unchanged"
+        );
+        assert_eq!(
+            pixel_at(&updated_pixels, surface.size(), (8, 24)),
+            blue,
+            "scrolling should move the previous bottom row into the middle row"
+        );
+        assert_eq!(
+            pixel_at(&updated_pixels, surface.size(), (8, 40)),
+            background,
+            "scrolling should clear the exposed bottom row to the theme background"
         );
     }
 
