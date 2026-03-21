@@ -36,6 +36,7 @@ Target release: `0.2.0`
 - Added renderer coverage for themed empty clears, cache reuse across repeated damage updates, and wide-cell glyph population when damage begins on a continuation column.
 - Added a system-font-backed `FontRasterizer` in `iris-render-wgpu` using `fontdb` and `fontdue`, including best-effort primary-family selection, monospace defaults, fallback scanning, and a `TextRenderer` convenience path that prepares grid text directly from system fonts.
 - Added a cursor overlay path in `iris-render-wgpu` with dedicated cursor instances, GPU buffers, WGSL shader, and render pipeline support for block, underline, and bar cursor styles layered over the text pass.
+- Added a higher-level `TerminalRenderer` in `iris-render-wgpu` that owns the stateful text renderer plus system font rasterizer and prepares full visible frames directly from `iris-core` terminal state.
 
 #### Changed
 
@@ -47,6 +48,7 @@ Target release: `0.2.0`
 - Hardened font rasterizer initialization so `NaN` font sizes are rejected with the same `InvalidFontSize` error path as other non-positive inputs.
 - Integrated the new cursor overlay into `TextRenderer` so prepared cursor state now renders alongside the text pass and correctly normalizes continuation-column cursors back to wide-cell lead positions.
 - Hardened cursor-span normalization so defensive right-edge and orphan-continuation states fall back to single-cell overlays, and documented the single-instance cursor draw invariant in the cursor pipeline.
+- Documented and tested the current full-frame redraw behavior in the new terminal-facing renderer integration so cursor-only updates remain visually correct until retained damage-only presentation lands.
 
 ### 2026-03-20
 
