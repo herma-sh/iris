@@ -10,8 +10,13 @@ fontdb = "0.16"
 fontdue = "0.8"
 iris-core = { path = "../iris-core" }
 thiserror = "1.0"
+toml = "0.8"
 tracing = "0.1"
 wgpu = "0.19"
 
 [dev-dependencies]
 pollster = "0.3"
+
+[[bench]]
+name = "renderer_throughput"
+harness = false

@@ -38,6 +38,9 @@ Target release: `0.2.0`
 - Added a cursor overlay path in `iris-render-wgpu` with dedicated cursor instances, GPU buffers, WGSL shader, and render pipeline support for block, underline, and bar cursor styles layered over the text pass.
 - Added a higher-level `TerminalRenderer` in `iris-render-wgpu` that owns the stateful text renderer plus system font rasterizer and prepares full visible frames directly from `iris-core` terminal state.
 - Added a textured presentation pipeline in `iris-render-wgpu` so cached frame textures can be drawn into off-screen or presentation targets through a dedicated fullscreen sample pass.
+- Added TOML-backed renderer theme loading in `iris-render-wgpu` (`Theme::from_toml_str` and `Theme::from_toml_file`) with strict field/type validation and support for top-level or `[colors]` theme tables.
+- Added a Phase 2 renderer benchmark harness at `crates/iris-render-wgpu/benches/renderer_throughput.rs` covering full-frame preparation, retained scroll updates, and retained renderer memory estimates.
+- Added explicit renderer font-rasterization regression coverage for best-effort CJK and emoji glyph discovery when fallback system fonts are available.
 
 #### Changed
 
@@ -56,6 +59,7 @@ Target release: `0.2.0`
 - Added retained smooth-scroll coverage for full-grid scrolls by tracking core scroll deltas, preserving full-viewport overscan bands in the cached terminal frame, and shifting the retained frame before damage redraw so presentation can animate from previous rows into the new visible state without background gaps.
 - Hardened scroll-delta restoration with debug-only overwrite assertions, consolidated signed scroll-line conversion, and expanded coverage for scroll merge/restore edge cases plus retained scroll-copy guard paths.
 - Added symmetric downward and lower-bound scroll-merge regression coverage in `iris-core`, and avoided redundant present-uniform GPU writes by dirty-tracking terminal presentation state in `iris-render-wgpu`.
+- Updated Phase 2 documentation and benchmark guidance to reflect completed TOML theme loading, CJK/emoji rasterization coverage, and the new renderer throughput benchmark command/results.
 
 ### 2026-03-20
 
