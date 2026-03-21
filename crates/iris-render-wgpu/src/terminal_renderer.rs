@@ -6,7 +6,7 @@ use iris_core::terminal::Terminal;
 use crate::cursor::CursorInstance;
 use crate::error::Result;
 use crate::font::{FontRasterizer, FontRasterizerConfig};
-use crate::pipeline::PresentPipeline;
+use crate::pipeline::{PresentPipeline, PresentUniforms};
 use crate::renderer::Renderer;
 use crate::surface::RendererSurface;
 use crate::text_renderer::{TextRenderer, TextRendererConfig};
@@ -30,7 +30,10 @@ pub struct TerminalRenderer {
     font_rasterizer: FontRasterizer,
     frame_surface: TextureSurface,
     present_pipeline: PresentPipeline,
+    present_uniform_buffer: wgpu::Buffer,
+    requested_uniforms: TextUniforms,
     present_bind_group: wgpu::BindGroup,
+    present_uniform_bind_group: wgpu::BindGroup,
     full_redraw_damage: Vec<DamageRegion>,
     previous_cursor: Option<Cursor>,
     frame_initialized: bool,
@@ -43,23 +46,38 @@ impl TerminalRenderer {
         format: wgpu::TextureFormat,
         config: TerminalRendererConfig,
     ) -> Result<Self> {
-        let frame_surface = create_frame_surface(renderer, format, config.text.uniforms);
-        let text_renderer = TextRenderer::new(renderer, frame_surface.format(), config.text)?;
-        let font_rasterizer = FontRasterizer::new(config.font_rasterizer)?;
+        let TerminalRendererConfig {
+            mut text,
+            font_rasterizer,
+        } = config;
+        let requested_uniforms = text.uniforms;
+        let frame_surface = create_frame_surface(renderer, format, requested_uniforms);
+        text.uniforms = frame_uniforms_for_requested(requested_uniforms);
+        let text_renderer = TextRenderer::new(renderer, frame_surface.format(), text)?;
+        let font_rasterizer = FontRasterizer::new(font_rasterizer)?;
         let present_pipeline = renderer.create_present_pipeline(format);
+        let present_uniform_buffer = present_pipeline.create_uniform_buffer(renderer.device());
+        let present_uniform_bind_group =
+            present_pipeline.create_uniform_bind_group(renderer.device(), &present_uniform_buffer);
         let present_bind_group =
             present_pipeline.create_texture_bind_group(renderer.device(), &frame_surface);
 
-        Ok(Self {
+        let terminal_renderer = Self {
             text_renderer,
             font_rasterizer,
             frame_surface,
             present_pipeline,
+            present_uniform_buffer,
+            requested_uniforms,
             present_bind_group,
+            present_uniform_bind_group,
             full_redraw_damage: Vec::with_capacity(4),
             previous_cursor: None,
             frame_initialized: false,
-        })
+        };
+        terminal_renderer.write_present_uniforms(renderer);
+
+        Ok(terminal_renderer)
     }
 
     /// Returns the active theme used for text, cursor, and clear color.
@@ -78,7 +96,7 @@ impl TerminalRenderer {
     /// Returns the current text uniforms.
     #[must_use]
     pub const fn uniforms(&self) -> TextUniforms {
-        self.text_renderer.uniforms()
+        self.requested_uniforms
     }
 
     /// Returns the cached frame-surface size.
@@ -89,8 +107,11 @@ impl TerminalRenderer {
 
     /// Updates the viewport and cell metrics written to the uniform buffer.
     pub fn set_uniforms(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
-        self.text_renderer.set_uniforms(renderer, uniforms);
+        self.requested_uniforms = uniforms;
+        self.text_renderer
+            .set_uniforms(renderer, frame_uniforms_for_requested(uniforms));
         self.resize_frame_surface(renderer, uniforms);
+        self.write_present_uniforms(renderer);
     }
 
     /// Returns the configured system font size in pixels.
@@ -183,12 +204,11 @@ impl TerminalRenderer {
 
     /// Renders the cached frame into an off-screen texture surface.
     pub fn render_to_texture_surface(&self, renderer: &Renderer, surface: &TextureSurface) {
-        let bind_group = self
-            .present_pipeline
-            .create_texture_bind_group(renderer.device(), &self.frame_surface);
+        self.write_present_uniforms(renderer);
         renderer.draw_present_pipeline_to_texture_surface(
             &self.present_pipeline,
-            &bind_group,
+            &self.present_uniform_bind_group,
+            &self.present_bind_group,
             surface,
         );
     }
@@ -209,8 +229,13 @@ impl TerminalRenderer {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("iris-render-wgpu-terminal-renderer-surface-encoder"),
                 });
-        self.present_pipeline
-            .render(&mut encoder, &view, &self.present_bind_group);
+        self.write_present_uniforms(renderer);
+        self.present_pipeline.render(
+            &mut encoder,
+            &view,
+            &self.present_uniform_bind_group,
+            &self.present_bind_group,
+        );
         renderer.queue().submit(std::iter::once(encoder.finish()));
         frame.present();
         Ok(())
@@ -258,8 +283,22 @@ impl TerminalRenderer {
         self.present_bind_group = self
             .present_pipeline
             .create_texture_bind_group(renderer.device(), &self.frame_surface);
+        self.write_present_uniforms(renderer);
         self.frame_initialized = false;
         self.previous_cursor = None;
+    }
+
+    fn write_present_uniforms(&self, renderer: &Renderer) {
+        renderer.queue().write_buffer(
+            &self.present_uniform_buffer,
+            0,
+            present_uniforms_for_requested(
+                self.requested_uniforms,
+                self.theme(),
+                self.frame_surface.size(),
+            )
+            .as_bytes(),
+        );
     }
 }
 
@@ -284,6 +323,25 @@ fn frame_surface_size_for_uniforms(uniforms: TextUniforms) -> TextureSurfaceSize
         width: normalized_surface_dimension(uniforms.resolution[0]),
         height: normalized_surface_dimension(uniforms.resolution[1]),
     }
+}
+
+fn frame_uniforms_for_requested(uniforms: TextUniforms) -> TextUniforms {
+    TextUniforms::new(uniforms.resolution, uniforms.cell_size, 0.0)
+}
+
+fn present_uniforms_for_requested(
+    uniforms: TextUniforms,
+    theme: &Theme,
+    frame_surface_size: TextureSurfaceSize,
+) -> PresentUniforms {
+    PresentUniforms::new(
+        [
+            frame_surface_size.width as f32,
+            frame_surface_size.height as f32,
+        ],
+        uniforms.scroll_offset,
+        theme.background.to_f32_array(),
+    )
 }
 
 fn normalized_surface_dimension(dimension: f32) -> u32 {
@@ -367,6 +425,25 @@ mod tests {
             pixels[offset + 2],
             pixels[offset + 3],
         ]
+    }
+
+    fn band_matches_background(
+        pixels: &[u8],
+        surface_size: TextureSurfaceSize,
+        row_range: std::ops::Range<usize>,
+        background: [u8; 4],
+    ) -> bool {
+        let row_stride = surface_size.width as usize * background.len();
+        for row in row_range {
+            for col in 0..surface_size.width as usize {
+                let offset = row * row_stride + col * background.len();
+                if pixels[offset..offset + background.len()] != background {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     #[test]
@@ -605,6 +682,74 @@ mod tests {
         assert_eq!(
             terminal_renderer.frame_surface_size(),
             TextureSurfaceSize::new(800, 600).expect("surface dimensions are valid")
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_applies_scroll_offset_during_presentation() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0xff, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 8.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+        terminal.cursor.visible = false;
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("terminal frame should prepare");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        let cached_pixels =
+            crate::test_support::read_texture_surface(&renderer, &terminal_renderer.frame_surface);
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+        assert!(
+            cell_region_has_non_background(
+                &cached_pixels,
+                terminal_renderer.frame_surface.size(),
+                (0, 0),
+                (16, 16),
+                background,
+            ),
+            "the cached frame should still contain the unshifted glyph content"
+        );
+        assert!(
+            band_matches_background(&pixels, surface.size(), 0..8, background),
+            "positive presentation scroll offset should reveal background at the top edge"
+        );
+        assert!(
+            cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
+            "the shifted presentation should still contain visible glyph pixels"
         );
     }
 
