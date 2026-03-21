@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use iris_core::cell::{CellAttrs, CellFlags, Color};
 use thiserror::Error;
@@ -57,8 +57,22 @@ pub enum ThemeLoadError {
     },
 
     /// Reading a theme file failed.
-    #[error("failed to read theme file: {reason}")]
-    ReadFile { reason: String },
+    #[error("failed to read theme file {path}: {reason}")]
+    ReadFile {
+        /// Path that failed to load.
+        path: PathBuf,
+        /// I/O failure reason.
+        reason: String,
+    },
+
+    /// A theme table contained an unsupported field.
+    #[error("unknown theme field {field} in {section} section")]
+    UnknownField {
+        /// Logical section name where the unknown field was found.
+        section: String,
+        /// Unknown field key.
+        field: String,
+    },
 }
 
 /// RGBA color used by the renderer theme.
@@ -159,14 +173,27 @@ impl Theme {
             })?;
 
         let colors_table = if let Some(colors) = root_table.get("colors") {
-            colors
-                .as_table()
-                .ok_or_else(|| ThemeLoadError::InvalidFieldType {
-                    field: "colors".to_string(),
-                    expected: "table",
-                    actual: toml_value_kind(colors),
-                })?
+            validate_known_fields(root_table, "root", &["colors"])?;
+            let colors_table =
+                colors
+                    .as_table()
+                    .ok_or_else(|| ThemeLoadError::InvalidFieldType {
+                        field: "colors".to_string(),
+                        expected: "table",
+                        actual: toml_value_kind(colors),
+                    })?;
+            validate_known_fields(
+                colors_table,
+                "colors",
+                &["foreground", "background", "cursor", "ansi"],
+            )?;
+            colors_table
         } else {
+            validate_known_fields(
+                root_table,
+                "root",
+                &["foreground", "background", "cursor", "ansi"],
+            )?;
             root_table
         };
 
@@ -189,7 +216,9 @@ impl Theme {
 
     /// Loads a theme from a TOML file on disk.
     pub fn from_toml_file(path: impl AsRef<Path>) -> std::result::Result<Self, ThemeLoadError> {
+        let path = path.as_ref();
         let input = std::fs::read_to_string(path).map_err(|error| ThemeLoadError::ReadFile {
+            path: path.to_path_buf(),
             reason: error.to_string(),
         })?;
         Self::from_toml_str(&input)
@@ -303,6 +332,24 @@ fn parse_optional_color(
         .and_then(|value| parse_hex_color(key, value))?;
 
     Ok(Some(color))
+}
+
+fn validate_known_fields(
+    table: &toml::value::Table,
+    section: &str,
+    allowed_keys: &[&str],
+) -> std::result::Result<(), ThemeLoadError> {
+    if let Some(field) = table
+        .keys()
+        .find(|key| !allowed_keys.contains(&key.as_str()))
+    {
+        return Err(ThemeLoadError::UnknownField {
+            section: section.to_string(),
+            field: field.clone(),
+        });
+    }
+
+    Ok(())
 }
 
 fn parse_optional_ansi(
@@ -685,17 +732,14 @@ foreground = "#12zz90"
 
     #[test]
     fn theme_toml_rejects_non_ascii_hex_without_panicking() {
-        let result = Theme::from_toml_str(
-            r##"
-[colors]
-foreground = "#ééé"
-"##,
-        );
+        let invalid = format!("#{}{}{}", '\u{00E9}', '\u{00E9}', '\u{00E9}');
+        let toml = format!("[colors]\nforeground = \"{invalid}\"\n");
+        let result = Theme::from_toml_str(&toml);
 
         assert!(matches!(
             result,
             Err(ThemeLoadError::InvalidColor { field, value })
-            if field == "foreground" && value == "#ééé"
+            if field == "foreground" && value == invalid
         ));
     }
 
@@ -800,7 +844,13 @@ foreground = "#ffffff"
 
         let result = Theme::from_toml_file(&path);
 
-        assert!(matches!(result, Err(ThemeLoadError::ReadFile { .. })));
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::ReadFile {
+                path: error_path,
+                ..
+            }) if error_path == path
+        ));
     }
 
     #[test]
@@ -814,6 +864,56 @@ colors = "#ffffff"
         assert!(matches!(
             result,
             Err(ThemeLoadError::InvalidFieldType { field, expected: "table", .. }) if field == "colors"
+        ));
+    }
+
+    #[test]
+    fn theme_toml_rejects_unknown_root_fields() {
+        let result = Theme::from_toml_str(
+            r##"
+foreground = "#ffffff"
+bogus = "#000000"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::UnknownField { section, field })
+            if section == "root" && field == "bogus"
+        ));
+    }
+
+    #[test]
+    fn theme_toml_rejects_unknown_fields_inside_colors_section() {
+        let result = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "#ffffff"
+foregroun = "#000000"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::UnknownField { section, field })
+            if section == "colors" && field == "foregroun"
+        ));
+    }
+
+    #[test]
+    fn theme_toml_rejects_mixed_root_and_colors_layout() {
+        let result = Theme::from_toml_str(
+            r##"
+foreground = "#ffffff"
+[colors]
+background = "#000000"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::UnknownField { section, field })
+            if section == "root" && field == "foreground"
         ));
     }
 }
