@@ -5,10 +5,11 @@ use iris_core::terminal::Terminal;
 
 use crate::error::Result;
 use crate::font::{FontRasterizer, FontRasterizerConfig};
+use crate::pipeline::PresentPipeline;
 use crate::renderer::Renderer;
 use crate::surface::RendererSurface;
 use crate::text_renderer::{TextRenderer, TextRendererConfig};
-use crate::texture::TextureSurface;
+use crate::texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
 use crate::theme::Theme;
 use crate::TextUniforms;
 
@@ -22,14 +23,13 @@ pub struct TerminalRendererConfig {
 }
 
 /// Renderer-owned terminal draw state that prepares text and cursor output from
-/// `iris-core` terminal state.
-///
-/// The current bootstrap path redraws the full visible grid on each prepare.
-/// That keeps presentation correct while the retained damage-only present path
-/// is still pending.
+/// `iris-core` terminal state into a cached frame surface.
 pub struct TerminalRenderer {
     text_renderer: TextRenderer,
     font_rasterizer: FontRasterizer,
+    frame_surface: TextureSurface,
+    present_pipeline: PresentPipeline,
+    present_bind_group: wgpu::BindGroup,
     full_redraw_damage: Vec<DamageRegion>,
 }
 
@@ -40,12 +40,19 @@ impl TerminalRenderer {
         format: wgpu::TextureFormat,
         config: TerminalRendererConfig,
     ) -> Result<Self> {
-        let text_renderer = TextRenderer::new(renderer, format, config.text)?;
+        let frame_surface = create_frame_surface(renderer, format, config.text.uniforms);
+        let text_renderer = TextRenderer::new(renderer, frame_surface.format(), config.text)?;
         let font_rasterizer = FontRasterizer::new(config.font_rasterizer)?;
+        let present_pipeline = renderer.create_present_pipeline(format);
+        let present_bind_group =
+            present_pipeline.create_texture_bind_group(renderer.device(), &frame_surface);
 
         Ok(Self {
             text_renderer,
             font_rasterizer,
+            frame_surface,
+            present_pipeline,
+            present_bind_group,
             full_redraw_damage: Vec::with_capacity(1),
         })
     }
@@ -67,9 +74,16 @@ impl TerminalRenderer {
         self.text_renderer.uniforms()
     }
 
+    /// Returns the cached frame-surface size.
+    #[must_use]
+    pub const fn frame_surface_size(&self) -> TextureSurfaceSize {
+        self.frame_surface.size()
+    }
+
     /// Updates the viewport and cell metrics written to the uniform buffer.
     pub fn set_uniforms(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
         self.text_renderer.set_uniforms(renderer, uniforms);
+        self.resize_frame_surface(renderer, uniforms);
     }
 
     /// Returns the configured system font size in pixels.
@@ -109,22 +123,45 @@ impl TerminalRenderer {
             &self.full_redraw_damage,
             &mut self.font_rasterizer,
         )?;
-        self.text_renderer.prepare_cursor(renderer, grid, cursor)
-    }
-
-    /// Renders the prepared frame into an off-screen texture surface.
-    pub fn render_to_texture_surface(&self, renderer: &Renderer, surface: &TextureSurface) {
+        self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
         self.text_renderer
-            .render_to_texture_surface(renderer, surface);
+            .render_to_texture_surface(renderer, &self.frame_surface);
+        Ok(())
     }
 
-    /// Renders the prepared frame into the next presentation frame.
+    /// Renders the cached frame into an off-screen texture surface.
+    pub fn render_to_texture_surface(&self, renderer: &Renderer, surface: &TextureSurface) {
+        let bind_group = self
+            .present_pipeline
+            .create_texture_bind_group(renderer.device(), &self.frame_surface);
+        renderer.draw_present_pipeline_to_texture_surface(
+            &self.present_pipeline,
+            &bind_group,
+            surface,
+        );
+    }
+
+    /// Renders the cached frame into the next presentation frame.
     pub fn render_to_surface(
         &self,
         renderer: &Renderer,
         surface: &RendererSurface<'_>,
     ) -> Result<()> {
-        self.text_renderer.render_to_surface(renderer, surface)
+        let frame = surface.current_texture()?;
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder =
+            renderer
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("iris-render-wgpu-terminal-renderer-surface-encoder"),
+                });
+        self.present_pipeline
+            .render(&mut encoder, &view, &self.present_bind_group);
+        renderer.queue().submit(std::iter::once(encoder.finish()));
+        frame.present();
+        Ok(())
     }
 
     fn rebuild_full_redraw_damage(&mut self, grid: &Grid) {
@@ -139,6 +176,50 @@ impl TerminalRenderer {
             0,
             grid.cols().saturating_sub(1),
         ));
+    }
+
+    fn resize_frame_surface(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
+        let next_size = frame_surface_size_for_uniforms(uniforms);
+        if next_size == self.frame_surface.size() {
+            return;
+        }
+
+        self.frame_surface =
+            create_frame_surface(renderer, self.present_pipeline.format(), uniforms);
+        self.present_bind_group = self
+            .present_pipeline
+            .create_texture_bind_group(renderer.device(), &self.frame_surface);
+    }
+}
+
+fn create_frame_surface(
+    renderer: &Renderer,
+    format: wgpu::TextureFormat,
+    uniforms: TextUniforms,
+) -> TextureSurface {
+    renderer
+        .create_texture_surface(TextureSurfaceConfig {
+            size: frame_surface_size_for_uniforms(uniforms),
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+        })
+        .expect("internal frame-surface config should remain valid")
+}
+
+fn frame_surface_size_for_uniforms(uniforms: TextUniforms) -> TextureSurfaceSize {
+    TextureSurfaceSize {
+        width: normalized_surface_dimension(uniforms.resolution[0]),
+        height: normalized_surface_dimension(uniforms.resolution[1]),
+    }
+}
+
+fn normalized_surface_dimension(dimension: f32) -> u32 {
+    if !dimension.is_finite() || dimension <= 0.0 {
+        1
+    } else {
+        dimension.round().max(1.0) as u32
     }
 }
 
@@ -294,5 +375,9 @@ mod tests {
         assert_eq!(terminal_renderer.theme(), &theme);
         assert_eq!(terminal_renderer.uniforms(), uniforms);
         assert_eq!(terminal_renderer.font_size_px(), 14.0);
+        assert_eq!(
+            terminal_renderer.frame_surface_size(),
+            TextureSurfaceSize::new(800, 600).expect("surface dimensions are valid")
+        );
     }
 }

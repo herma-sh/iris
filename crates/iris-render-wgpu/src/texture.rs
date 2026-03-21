@@ -50,7 +50,9 @@ impl Default for TextureSurfaceConfig {
                 height: 1,
             },
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
         }
     }
 }
@@ -165,5 +167,6 @@ mod tests {
             .usage
             .contains(wgpu::TextureUsages::RENDER_ATTACHMENT));
         assert!(config.usage.contains(wgpu::TextureUsages::COPY_SRC));
+        assert!(config.usage.contains(wgpu::TextureUsages::TEXTURE_BINDING));
     }
 }

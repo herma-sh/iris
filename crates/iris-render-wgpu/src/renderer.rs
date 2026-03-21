@@ -3,7 +3,7 @@ use crate::cell::{encode_damage_instances, CellInstance, TextBuffers, TextUnifor
 use crate::cursor::CursorBuffers;
 use crate::error::{Error, Result};
 use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
-use crate::pipeline::{CursorPipeline, FullscreenPipeline, TextPipeline};
+use crate::pipeline::{CursorPipeline, FullscreenPipeline, PresentPipeline, TextPipeline};
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
 use crate::theme::Theme;
@@ -221,6 +221,12 @@ impl Renderer {
         CursorPipeline::new(&self.device, format)
     }
 
+    /// Creates the fullscreen textured presentation pipeline used for cached frames.
+    #[must_use]
+    pub fn create_present_pipeline(&self, format: wgpu::TextureFormat) -> PresentPipeline {
+        PresentPipeline::new(&self.device, format)
+    }
+
     /// Creates the uniform bind group used by the cursor pipeline.
     #[must_use]
     pub fn create_cursor_uniform_bind_group(
@@ -321,6 +327,22 @@ impl Renderer {
             });
         }
 
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    /// Draws a cached frame texture into an off-screen render target.
+    pub fn draw_present_pipeline_to_texture_surface(
+        &self,
+        pipeline: &PresentPipeline,
+        texture_bind_group: &wgpu::BindGroup,
+        surface: &TextureSurface,
+    ) {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("iris-render-wgpu-present-texture-encoder"),
+            });
+        pipeline.render(&mut encoder, surface.view(), texture_bind_group);
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 }
@@ -582,6 +604,39 @@ mod tests {
                 .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
                 .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
             "renderer text draw helper should write pixels beyond the cleared black target"
+        );
+    }
+
+    #[test]
+    fn renderer_creates_and_draws_the_present_pipeline() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let source = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 32).expect("surface dimensions are valid"),
+            ))
+            .expect("source texture surface should be created");
+        let destination = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 32).expect("surface dimensions are valid"),
+            ))
+            .expect("destination texture surface should be created");
+        renderer.clear_texture_surface(&source, wgpu::Color::RED);
+        let pipeline = renderer.create_present_pipeline(destination.format());
+        let bind_group = pipeline.create_texture_bind_group(renderer.device(), &source);
+
+        renderer.draw_present_pipeline_to_texture_surface(&pipeline, &bind_group, &destination);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &destination);
+        assert!(
+            pixels
+                .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
+                .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
+            "present pipeline helper should write pixels into the destination target"
         );
     }
 
