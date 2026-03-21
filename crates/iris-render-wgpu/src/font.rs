@@ -36,6 +36,7 @@ pub struct FontRasterizer {
     loaded_faces: Vec<LoadedFace>,
     fallback_cache: HashMap<char, Option<usize>>,
     font_size_px: f32,
+    shared_baseline_px: i32,
 }
 
 struct LoadedFace {
@@ -60,6 +61,7 @@ impl FontRasterizer {
             loaded_faces: Vec::new(),
             fallback_cache: HashMap::new(),
             font_size_px: config.font_size_px,
+            shared_baseline_px: default_baseline_px(config.font_size_px),
         };
 
         if let Some(primary_family) = config.primary_family.as_deref() {
@@ -79,6 +81,8 @@ impl FontRasterizer {
         if rasterizer.loaded_faces.is_empty() {
             return Err(Error::NoUsableSystemFont);
         }
+        rasterizer.shared_baseline_px =
+            shared_baseline_px_for_loaded_faces(&rasterizer.loaded_faces, rasterizer.font_size_px);
 
         Ok(rasterizer)
     }
@@ -125,11 +129,6 @@ impl FontRasterizer {
             return Ok(Some(blank_glyph()));
         }
 
-        let baseline_px = self.loaded_faces[face_index]
-            .font
-            .horizontal_line_metrics(self.font_size_px)
-            .map_or(self.font_size_px * 0.8, |metrics| metrics.ascent)
-            .round() as i32;
         let glyph_height =
             i32::try_from(metrics.height).map_err(|_| Error::GlyphRasterizationFailed {
                 reason: format!(
@@ -139,7 +138,8 @@ impl FontRasterizer {
             })?;
         let placement = GlyphPlacement {
             left_px: metrics.xmin,
-            top_px: baseline_px
+            top_px: self
+                .shared_baseline_px
                 .saturating_sub(metrics.ymin)
                 .saturating_sub(glyph_height),
         };
@@ -320,6 +320,7 @@ impl FontRasterizer {
             loaded_faces: Vec::new(),
             fallback_cache: HashMap::new(),
             font_size_px,
+            shared_baseline_px: default_baseline_px(font_size_px),
         }
     }
 }
@@ -327,6 +328,25 @@ impl FontRasterizer {
 #[must_use]
 fn blank_glyph() -> RasterizedGlyph {
     RasterizedGlyph::new(1, 1, vec![0])
+}
+
+fn default_baseline_px(font_size_px: f32) -> i32 {
+    (font_size_px * 0.8).round() as i32
+}
+
+fn shared_baseline_px_for_loaded_faces(loaded_faces: &[LoadedFace], font_size_px: f32) -> i32 {
+    loaded_faces
+        .iter()
+        .filter_map(|face| {
+            face.font
+                .horizontal_line_metrics(font_size_px)
+                .map(|metrics| metrics.ascent)
+        })
+        .reduce(f32::max)
+        .map_or_else(
+            || default_baseline_px(font_size_px),
+            |ascent| ascent.round() as i32,
+        )
 }
 
 fn validate_glyph_dimension(dimension: u32, axis: &str, character: char) -> Result<()> {

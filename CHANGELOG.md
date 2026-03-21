@@ -69,6 +69,7 @@ Target release: `0.2.0`
 - Clarified renderer benchmark semantics in code/docs: per-iteration GPU synchronization is intentional so reported values include completed GPU work rather than CPU enqueue-only submission.
 - Added baseline-aware glyph placement in the text shader/instance path by propagating rasterized glyph pixel offsets through the cache and rendering glyph masks at measured in-cell offsets instead of stretching masks across whole cells.
 - Hardened glyph-cache reinsertion validation so cache-key reuse now rejects placement-offset conflicts (in addition to size mismatches), including mixed API use between default-placement and explicit-placement insertion paths.
+- Switched font rasterization placement to a shared renderer baseline per rasterizer instance so fallback-face glyph placement no longer recomputes per-face baselines that can drift vertical alignment.
 
 ### 2026-03-20
 
