@@ -47,7 +47,7 @@ struct LoadedFace {
 impl FontRasterizer {
     /// Creates a rasterizer backed by best-effort system font loading.
     pub fn new(config: FontRasterizerConfig) -> Result<Self> {
-        if config.font_size_px <= 0.0 {
+        if config.font_size_px.is_nan() || config.font_size_px <= 0.0 {
             return Err(Error::InvalidFontSize {
                 size: config.font_size_px,
             });
@@ -339,6 +339,16 @@ mod tests {
         });
 
         assert!(matches!(result, Err(Error::InvalidFontSize { size: 0.0 })));
+    }
+
+    #[test]
+    fn font_rasterizer_rejects_nan_sizes() {
+        let result = FontRasterizer::new(FontRasterizerConfig {
+            font_size_px: f32::NAN,
+            ..FontRasterizerConfig::default()
+        });
+
+        assert!(matches!(result, Err(Error::InvalidFontSize { size }) if size.is_nan()));
     }
 
     #[test]

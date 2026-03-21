@@ -43,6 +43,7 @@ Target release: `0.2.0`
 - Corrected text-instance eligibility so blank cells with non-default attributes are rendered through a transparent glyph path instead of being skipped, preserving styled background cells during damage-driven draws.
 - Hardened system font parsing with explicit font-data size bounds, rasterized glyph dimension caps before atlas allocation, and cached fallback-face lookups so repeated glyph misses do not rescan the full system font database.
 - Reset prepared text-instance state at the start of each `TextRenderer::prepare_grid` call so failed prepares cannot leave stale instance counts active for later draws, and expanded renderer regression coverage for atlas exhaustion, empty damage, missing-font mapping, and continuation-origin rendering.
+- Hardened font rasterizer initialization so `NaN` font sizes are rejected with the same `InvalidFontSize` error path as other non-positive inputs.
 
 ### 2026-03-20
 
