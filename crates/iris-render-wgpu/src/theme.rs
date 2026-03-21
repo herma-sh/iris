@@ -351,35 +351,36 @@ fn parse_hex_color(field: &str, value: &str) -> std::result::Result<ThemeColor, 
         })?;
 
     match normalized.len() {
-        6 => {
-            let r = parse_hex_byte(field, value, &normalized[0..2])?;
-            let g = parse_hex_byte(field, value, &normalized[2..4])?;
-            let b = parse_hex_byte(field, value, &normalized[4..6])?;
-            Ok(ThemeColor::rgb(r, g, b))
-        }
-        8 => {
-            let r = parse_hex_byte(field, value, &normalized[0..2])?;
-            let g = parse_hex_byte(field, value, &normalized[2..4])?;
-            let b = parse_hex_byte(field, value, &normalized[4..6])?;
-            let a = parse_hex_byte(field, value, &normalized[6..8])?;
-            Ok(ThemeColor::rgba(r, g, b, a))
-        }
+        6 => u32::from_str_radix(normalized, 16)
+            .map(|rgb| {
+                ThemeColor::rgb(
+                    ((rgb >> 16) & 0xff) as u8,
+                    ((rgb >> 8) & 0xff) as u8,
+                    (rgb & 0xff) as u8,
+                )
+            })
+            .map_err(|_| ThemeLoadError::InvalidColor {
+                field: field.to_string(),
+                value: value.to_string(),
+            }),
+        8 => u32::from_str_radix(normalized, 16)
+            .map(|rgba| {
+                ThemeColor::rgba(
+                    ((rgba >> 24) & 0xff) as u8,
+                    ((rgba >> 16) & 0xff) as u8,
+                    ((rgba >> 8) & 0xff) as u8,
+                    (rgba & 0xff) as u8,
+                )
+            })
+            .map_err(|_| ThemeLoadError::InvalidColor {
+                field: field.to_string(),
+                value: value.to_string(),
+            }),
         _ => Err(ThemeLoadError::InvalidColor {
             field: field.to_string(),
             value: value.to_string(),
         }),
     }
-}
-
-fn parse_hex_byte(
-    field: &str,
-    raw_value: &str,
-    component: &str,
-) -> std::result::Result<u8, ThemeLoadError> {
-    u8::from_str_radix(component, 16).map_err(|_| ThemeLoadError::InvalidColor {
-        field: field.to_string(),
-        value: raw_value.to_string(),
-    })
 }
 
 const fn toml_value_kind(value: &Value) -> &'static str {
@@ -679,6 +680,22 @@ foreground = "#12zz90"
         assert!(matches!(
             result,
             Err(ThemeLoadError::InvalidColor { field, .. }) if field == "foreground"
+        ));
+    }
+
+    #[test]
+    fn theme_toml_rejects_non_ascii_hex_without_panicking() {
+        let result = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "#ééé"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::InvalidColor { field, value })
+            if field == "foreground" && value == "#ééé"
         ));
     }
 
