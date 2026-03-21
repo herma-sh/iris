@@ -65,6 +65,7 @@ The repository now ships a renderer benchmark harness focused on retained-frame 
   - full-frame prepare + present to an off-screen texture
   - retained full-grid scroll update + present
   - renderer-memory estimate for retained surfaces, atlas, and instance buffers
+  - explicit GPU synchronization per iteration (`Device::poll(Maintain::Wait)`) so metrics include completed GPU work, not enqueue-only submission
 - Fixture:
   - `160x45` terminal grid at `9x18` cell metrics
 

@@ -188,6 +188,8 @@ fn create_terminal_renderer(
 }
 
 fn wait_for_gpu(renderer: &Renderer) {
+    // Include GPU completion in each sample so results represent completed-frame
+    // throughput/latency rather than CPU-side submission-only throughput.
     renderer.device().poll(wgpu::Maintain::Wait);
 }
 
