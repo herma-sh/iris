@@ -208,7 +208,7 @@ impl TerminalRenderer {
             return self.prepare_grid_and_cursor(renderer, grid, cursor);
         }
 
-        if let Some(scroll_delta) = simple_full_grid_scroll_delta(scroll_delta, grid) {
+        if let Some(scroll_delta) = full_grid_scroll_delta(scroll_delta, grid) {
             self.shift_retained_frame_for_scroll(renderer, scroll_delta);
         }
 
@@ -502,19 +502,13 @@ fn viewport_surface_size_for_uniforms(uniforms: TextUniforms) -> TextureSurfaceS
 }
 
 fn frame_vertical_padding_pixels(uniforms: TextUniforms) -> u32 {
-    normalized_surface_dimension(uniforms.cell_size[1])
+    viewport_surface_size_for_uniforms(uniforms).height
 }
 
-fn simple_full_grid_scroll_delta(
-    scroll_delta: Option<ScrollDelta>,
-    grid: &Grid,
-) -> Option<ScrollDelta> {
+fn full_grid_scroll_delta(scroll_delta: Option<ScrollDelta>, grid: &Grid) -> Option<ScrollDelta> {
     let scroll_delta = scroll_delta?;
     let full_grid_bottom = grid.rows().checked_sub(1)?;
-    if scroll_delta.top == 0
-        && scroll_delta.bottom == full_grid_bottom
-        && scroll_delta.lines.unsigned_abs() == 1
-    {
+    if scroll_delta.top == 0 && scroll_delta.bottom == full_grid_bottom && scroll_delta.lines != 0 {
         Some(scroll_delta)
     } else {
         None
@@ -532,11 +526,23 @@ fn scroll_copy_region(
     }
 
     let vertical_padding = frame_vertical_padding_pixels(uniforms);
+    let shift_pixels = scroll_delta
+        .lines
+        .unsigned_abs()
+        .saturating_mul(normalized_surface_dimension(uniforms.cell_size[1]));
+    if shift_pixels == 0 || shift_pixels > viewport_size.height {
+        return None;
+    }
+
     match scroll_delta.lines {
-        1 => Some((vertical_padding, 0, viewport_size.height)),
-        -1 => Some((
+        lines if lines > 0 => Some((
             vertical_padding,
-            vertical_padding.saturating_mul(2),
+            vertical_padding.saturating_sub(shift_pixels),
+            viewport_size.height,
+        )),
+        lines if lines < 0 => Some((
+            vertical_padding,
+            vertical_padding.saturating_add(shift_pixels),
             viewport_size.height,
         )),
         _ => None,
@@ -882,7 +888,7 @@ mod tests {
         assert_eq!(terminal_renderer.font_size_px(), 14.0);
         assert_eq!(
             terminal_renderer.frame_surface_size(),
-            TextureSurfaceSize::new(800, 640).expect("surface dimensions are valid")
+            TextureSurfaceSize::new(800, 1800).expect("surface dimensions are valid")
         );
     }
 
@@ -1167,6 +1173,136 @@ mod tests {
             pixel_at(&settled_pixels, surface.size(), (8, 24)),
             [0xff, 0x00, 0x00, 0xff],
             "settling the scroll offset should reveal the newly exposed bottom row"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_retains_full_viewport_overscan_for_multi_line_scrolls() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 48).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(3, 1).expect("terminal should be created");
+        terminal.cursor.visible = false;
+        for (row, color) in [
+            (0, (0xff, 0x00, 0x00)),
+            (1, (0x00, 0xff, 0x00)),
+            (2, (0x00, 0x00, 0xff)),
+        ] {
+            terminal
+                .grid
+                .write(
+                    row,
+                    0,
+                    iris_core::cell::Cell::with_attrs(
+                        ' ',
+                        iris_core::cell::CellAttrs {
+                            bg: iris_core::cell::Color::Rgb {
+                                r: color.0,
+                                g: color.1,
+                                b: color.2,
+                            },
+                            ..Default::default()
+                        },
+                    ),
+                )
+                .expect("styled cell should be written");
+        }
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        terminal
+            .apply_action(iris_core::parser::Action::ScrollUp(2))
+            .expect("scroll up should succeed");
+        for (row, color) in [(1, (0xff, 0xff, 0x00)), (2, (0x00, 0xff, 0xff))] {
+            terminal
+                .grid
+                .write(
+                    row,
+                    0,
+                    iris_core::cell::Cell::with_attrs(
+                        ' ',
+                        iris_core::cell::CellAttrs {
+                            bg: iris_core::cell::Color::Rgb {
+                                r: color.0,
+                                g: color.1,
+                                b: color.2,
+                            },
+                            ..Default::default()
+                        },
+                    ),
+                )
+                .expect("new styled cell should be written");
+        }
+
+        terminal_renderer.set_uniforms(
+            &renderer,
+            TextUniforms::new([16.0, 48.0], [16.0, 16.0], 32.0),
+        );
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("multi-line scroll update should preserve overscan rows");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let transition_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(
+            pixel_at(&transition_pixels, surface.size(), (8, 8)),
+            [0x00, 0x00, 0xff, 0xff]
+        );
+        assert_eq!(
+            pixel_at(&transition_pixels, surface.size(), (8, 24)),
+            [0x00, 0xff, 0x00, 0xff]
+        );
+        assert_eq!(
+            pixel_at(&transition_pixels, surface.size(), (8, 40)),
+            [0xff, 0x00, 0x00, 0xff]
+        );
+
+        terminal_renderer.set_uniforms(
+            &renderer,
+            TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0),
+        );
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let settled_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(
+            pixel_at(&settled_pixels, surface.size(), (8, 8)),
+            [0xff, 0x00, 0x00, 0xff]
+        );
+        assert_eq!(
+            pixel_at(&settled_pixels, surface.size(), (8, 24)),
+            [0x00, 0xff, 0xff, 0xff]
+        );
+        assert_eq!(
+            pixel_at(&settled_pixels, surface.size(), (8, 40)),
+            [0xff, 0xff, 0x00, 0xff]
         );
     }
 

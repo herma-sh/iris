@@ -53,7 +53,7 @@ Target release: `0.2.0`
 - Reused normalized damage buffers across retained text prepares to avoid per-frame hot-path allocations, tuned retained damage scratch capacity for the common terminal-update case, and expanded terminal-renderer regression coverage for cursor clearing, theme invalidation, and update-before-prepare behavior.
 - Moved retained-frame scroll offsets into the presentation pass so cached terminal content now renders at stable zero-offset coordinates, while presentation can shift and background-fill the visible viewport without forcing a cache redraw when only the scroll offset changes.
 - Invalidated cached terminal frames when cell metrics change and restored drained terminal damage after failed incremental updates so renderer errors cannot leave stale pixels or dropped dirty regions behind.
-- Added retained smooth-scroll coverage for single-line full-grid scrolls by tracking core scroll deltas, preserving overscan rows in the cached terminal frame, and shifting the retained frame before damage redraw so presentation can animate from the previous rows into the new visible state without background gaps.
+- Added retained smooth-scroll coverage for full-grid scrolls by tracking core scroll deltas, preserving full-viewport overscan bands in the cached terminal frame, and shifting the retained frame before damage redraw so presentation can animate from previous rows into the new visible state without background gaps.
 
 ### 2026-03-20
 
