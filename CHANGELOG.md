@@ -55,6 +55,7 @@ Target release: `0.2.0`
 - Invalidated cached terminal frames when cell metrics change and restored drained terminal damage after failed incremental updates so renderer errors cannot leave stale pixels or dropped dirty regions behind.
 - Added retained smooth-scroll coverage for full-grid scrolls by tracking core scroll deltas, preserving full-viewport overscan bands in the cached terminal frame, and shifting the retained frame before damage redraw so presentation can animate from previous rows into the new visible state without background gaps.
 - Hardened scroll-delta restoration with debug-only overwrite assertions, consolidated signed scroll-line conversion, and expanded coverage for scroll merge/restore edge cases plus retained scroll-copy guard paths.
+- Added symmetric downward and lower-bound scroll-merge regression coverage in `iris-core`, and avoided redundant present-uniform GPU writes by dirty-tracking terminal presentation state in `iris-render-wgpu`.
 
 ### 2026-03-20
 

@@ -1,3 +1,5 @@
+use std::cell::Cell as FlagCell;
+
 use iris_core::cursor::Cursor;
 use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::grid::Grid;
@@ -33,6 +35,7 @@ pub struct TerminalRenderer {
     present_pipeline: PresentPipeline,
     present_uniform_buffer: wgpu::Buffer,
     requested_uniforms: TextUniforms,
+    present_uniforms_dirty: FlagCell<bool>,
     present_bind_group: wgpu::BindGroup,
     present_uniform_bind_group: wgpu::BindGroup,
     full_redraw_damage: Vec<DamageRegion>,
@@ -72,6 +75,7 @@ impl TerminalRenderer {
             present_pipeline,
             present_uniform_buffer,
             requested_uniforms,
+            present_uniforms_dirty: FlagCell::new(true),
             present_bind_group,
             present_uniform_bind_group,
             full_redraw_damage: Vec::with_capacity(4),
@@ -92,6 +96,7 @@ impl TerminalRenderer {
     /// Replaces the active renderer theme.
     pub fn set_theme(&mut self, theme: Theme) {
         self.text_renderer.set_theme(theme);
+        self.present_uniforms_dirty.set(true);
         self.invalidate_cached_frame();
     }
 
@@ -112,9 +117,9 @@ impl TerminalRenderer {
         let frame_uniforms = frame_uniforms_for_requested(uniforms);
         let frame_uniforms_changed = self.text_renderer.uniforms() != frame_uniforms;
         self.requested_uniforms = uniforms;
+        self.present_uniforms_dirty.set(true);
         self.text_renderer.set_uniforms(renderer, frame_uniforms);
         self.resize_frame_surface(renderer, uniforms);
-        self.write_present_uniforms(renderer);
         if frame_uniforms_changed {
             self.invalidate_cached_frame();
         }
@@ -319,11 +324,15 @@ impl TerminalRenderer {
         self.present_bind_group = self
             .present_pipeline
             .create_texture_bind_group(renderer.device(), &self.frame_surface);
-        self.write_present_uniforms(renderer);
+        self.present_uniforms_dirty.set(true);
         self.invalidate_cached_frame();
     }
 
     fn write_present_uniforms(&self, renderer: &Renderer) {
+        if !self.present_uniforms_dirty.get() {
+            return;
+        }
+
         renderer.queue().write_buffer(
             &self.present_uniform_buffer,
             0,
@@ -334,6 +343,7 @@ impl TerminalRenderer {
             )
             .as_bytes(),
         );
+        self.present_uniforms_dirty.set(false);
     }
 
     fn invalidate_cached_frame(&mut self) {
@@ -1410,6 +1420,75 @@ mod tests {
                 updated_background,
             ),
             "theme changes should invalidate the cached frame and redraw blank cells"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_marks_present_uniforms_dirty_only_when_inputs_change() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+
+        assert!(
+            !terminal_renderer.present_uniforms_dirty.get(),
+            "constructor should flush the initial present uniforms"
+        );
+
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+        assert!(
+            !terminal_renderer.present_uniforms_dirty.get(),
+            "rendering without input changes should not dirty present uniforms"
+        );
+
+        terminal_renderer.set_theme(Theme {
+            background: ThemeColor::rgb(0x10, 0x20, 0x30),
+            ..Theme::default()
+        });
+        assert!(
+            terminal_renderer.present_uniforms_dirty.get(),
+            "theme changes should mark present uniforms dirty"
+        );
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+        assert!(
+            !terminal_renderer.present_uniforms_dirty.get(),
+            "rendering should flush dirty present uniforms"
+        );
+
+        terminal_renderer.set_uniforms(
+            &renderer,
+            TextUniforms::new([48.0, 16.0], [16.0, 16.0], 0.0),
+        );
+        assert!(
+            terminal_renderer.present_uniforms_dirty.get(),
+            "uniform changes should mark present uniforms dirty"
+        );
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+        assert!(
+            !terminal_renderer.present_uniforms_dirty.get(),
+            "rendering should clear the dirty flag after the GPU write"
         );
     }
 
