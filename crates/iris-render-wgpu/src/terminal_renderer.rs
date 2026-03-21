@@ -29,7 +29,9 @@ pub struct TerminalRendererConfig {
 /// `iris-core` terminal state into a cached frame surface.
 pub struct TerminalRenderer {
     text_renderer: TextRenderer,
+    text_config: TextRendererConfig,
     font_rasterizer: FontRasterizer,
+    font_rasterizer_config: FontRasterizerConfig,
     frame_surface: TextureSurface,
     scroll_surface: TextureSurface,
     present_pipeline: PresentPipeline,
@@ -51,15 +53,18 @@ impl TerminalRenderer {
         config: TerminalRendererConfig,
     ) -> Result<Self> {
         let TerminalRendererConfig {
-            mut text,
+            text,
             font_rasterizer,
         } = config;
         let requested_uniforms = text.uniforms;
         let frame_surface = create_frame_surface(renderer, format, requested_uniforms);
         let scroll_surface = create_scroll_surface(renderer, format, requested_uniforms);
-        text.uniforms = frame_uniforms_for_requested(requested_uniforms);
-        let text_renderer = TextRenderer::new(renderer, frame_surface.format(), text)?;
-        let font_rasterizer = FontRasterizer::new(font_rasterizer)?;
+        let mut text_config = text;
+        text_config.uniforms = frame_uniforms_for_requested(requested_uniforms);
+        let text_renderer =
+            TextRenderer::new(renderer, frame_surface.format(), text_config.clone())?;
+        let font_rasterizer_config = font_rasterizer;
+        let font_rasterizer = FontRasterizer::new(font_rasterizer_config.clone())?;
         let present_pipeline = renderer.create_present_pipeline(format);
         let present_uniform_buffer = present_pipeline.create_uniform_buffer(renderer.device());
         let present_uniform_bind_group =
@@ -69,7 +74,9 @@ impl TerminalRenderer {
 
         let terminal_renderer = Self {
             text_renderer,
+            text_config,
             font_rasterizer,
+            font_rasterizer_config,
             frame_surface,
             scroll_surface,
             present_pipeline,
@@ -95,7 +102,8 @@ impl TerminalRenderer {
 
     /// Replaces the active renderer theme.
     pub fn set_theme(&mut self, theme: Theme) {
-        self.text_renderer.set_theme(theme);
+        self.text_renderer.set_theme(theme.clone());
+        self.text_config.theme = theme;
         self.present_uniforms_dirty.set(true);
         self.invalidate_cached_frame();
     }
@@ -119,6 +127,7 @@ impl TerminalRenderer {
         self.requested_uniforms = uniforms;
         self.present_uniforms_dirty.set(true);
         self.text_renderer.set_uniforms(renderer, frame_uniforms);
+        self.text_config.uniforms = frame_uniforms;
         self.resize_frame_surface(renderer, uniforms);
         if frame_uniforms_changed {
             self.invalidate_cached_frame();
@@ -129,6 +138,35 @@ impl TerminalRenderer {
     #[must_use]
     pub const fn font_size_px(&self) -> f32 {
         self.font_rasterizer.font_size_px()
+    }
+
+    /// Updates the system font size used for glyph rasterization.
+    ///
+    /// Changing the rasterizer size rebuilds renderer-owned glyph resources so
+    /// cached atlas entries cannot be reused across different font scales.
+    pub fn set_font_size_px(&mut self, renderer: &Renderer, font_size_px: f32) -> Result<()> {
+        if self.font_rasterizer_config.font_size_px.to_bits() == font_size_px.to_bits() {
+            return Ok(());
+        }
+
+        let mut font_rasterizer_config = self.font_rasterizer_config.clone();
+        font_rasterizer_config.font_size_px = font_size_px;
+        let font_rasterizer = FontRasterizer::new(font_rasterizer_config.clone())?;
+
+        let mut text_config = self.text_config.clone();
+        text_config.theme = self.theme().clone();
+        text_config.uniforms = frame_uniforms_for_requested(self.requested_uniforms);
+        let text_renderer =
+            TextRenderer::new(renderer, self.frame_surface.format(), text_config.clone())?;
+
+        self.text_renderer = text_renderer;
+        self.text_config = text_config;
+        self.font_rasterizer = font_rasterizer;
+        self.font_rasterizer_config = font_rasterizer_config;
+        self.present_uniforms_dirty.set(true);
+        self.invalidate_cached_frame();
+
+        Ok(())
     }
 
     /// Returns the number of prepared text instances.
@@ -901,6 +939,67 @@ mod tests {
             terminal_renderer.frame_surface_size(),
             TextureSurfaceSize::new(800, 1800).expect("surface dimensions are valid")
         );
+    }
+
+    #[test]
+    fn terminal_renderer_updates_font_size_and_rebuilds_cached_resources() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            TerminalRendererConfig::default(),
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 1).expect("terminal should be created");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+        terminal_renderer
+            .set_font_size_px(&renderer, 18.0)
+            .expect("font size update should succeed");
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("font size change should trigger a full cached-frame rebuild");
+
+        assert_eq!(terminal_renderer.font_size_px(), 18.0);
+    }
+
+    #[test]
+    fn terminal_renderer_rejects_invalid_font_size_updates() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            TerminalRendererConfig::default(),
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+
+        let result = terminal_renderer.set_font_size_px(&renderer, 0.0);
+
+        assert!(matches!(result, Err(Error::InvalidFontSize { size: 0.0 })));
+        assert_eq!(terminal_renderer.font_size_px(), 14.0);
     }
 
     #[test]
