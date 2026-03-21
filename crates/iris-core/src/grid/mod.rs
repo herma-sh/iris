@@ -93,6 +93,32 @@ impl Grid {
         self.damage.take(self.cols())
     }
 
+    /// Restores previously drained visible damage regions back into the tracker.
+    pub fn restore_damage(&mut self, damage: &[DamageRegion]) {
+        if self.rows() == 0 || self.cols() == 0 {
+            return;
+        }
+
+        let last_row = self.rows().saturating_sub(1);
+        let last_col = self.cols().saturating_sub(1);
+
+        for region in damage {
+            if region.start_row > region.end_row
+                || region.start_col > region.end_col
+                || region.start_row > last_row
+                || region.start_col > last_col
+            {
+                continue;
+            }
+
+            let end_row = region.end_row.min(last_row);
+            let end_col = region.end_col.min(last_col);
+            for row in region.start_row..=end_row {
+                self.damage.mark_range(row, region.start_col, end_col);
+            }
+        }
+    }
+
     /// Marks the entire visible grid as damaged without modifying cell data.
     pub fn mark_all_damage(&mut self) {
         self.damage.mark_all();

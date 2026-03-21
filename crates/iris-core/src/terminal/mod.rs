@@ -292,6 +292,11 @@ impl Terminal {
         self.grid.take_damage()
     }
 
+    /// Restores previously drained visible damage regions to the terminal grid.
+    pub fn restore_damage(&mut self, damage: &[DamageRegion]) {
+        self.grid.restore_damage(damage);
+    }
+
     fn reset_state(&mut self) -> Result<()> {
         if self.modes.alternate_screen {
             self.exit_alternate_screen();
