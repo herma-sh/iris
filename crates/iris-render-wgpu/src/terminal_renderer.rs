@@ -563,9 +563,10 @@ fn normalized_surface_dimension(dimension: f32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use iris_core::damage::ScrollDelta;
     use iris_core::terminal::Terminal;
 
-    use super::{TerminalRenderer, TerminalRendererConfig};
+    use super::{scroll_copy_region, TerminalRenderer, TerminalRendererConfig};
     use crate::error::Error;
     use crate::font::FontRasterizerConfig;
     use crate::renderer::{Renderer, RendererConfig};
@@ -961,6 +962,31 @@ mod tests {
             background,
             "metric changes should redraw the cursor at the new cell width"
         );
+    }
+
+    #[test]
+    fn scroll_copy_region_returns_none_for_excessive_shift() {
+        let uniforms = TextUniforms::new([32.0, 32.0], [16.0, 16.0], 0.0);
+        let frame_size = TextureSurfaceSize::new(32, 96).expect("frame size is valid");
+        let delta = ScrollDelta::new(0, 1, 100);
+
+        assert!(scroll_copy_region(uniforms, frame_size, delta).is_none());
+    }
+
+    #[test]
+    fn scroll_copy_region_returns_none_for_zero_width_frame() {
+        let uniforms = TextUniforms::new([32.0, 32.0], [16.0, 16.0], 0.0);
+        let delta = ScrollDelta::new(0, 1, 1);
+
+        assert!(scroll_copy_region(
+            uniforms,
+            TextureSurfaceSize {
+                width: 0,
+                height: 96,
+            },
+            delta,
+        )
+        .is_none());
     }
 
     #[test]

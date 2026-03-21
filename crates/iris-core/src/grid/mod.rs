@@ -128,6 +128,10 @@ impl Grid {
 
     /// Restores a previously drained scroll delta.
     pub fn restore_scroll_delta(&mut self, scroll_delta: Option<ScrollDelta>) {
+        debug_assert!(
+            self.pending_scroll.is_none() || scroll_delta.is_none(),
+            "restore_scroll_delta called with an occupied pending scroll slot"
+        );
         if self.pending_scroll.is_none() {
             self.pending_scroll = scroll_delta;
         }

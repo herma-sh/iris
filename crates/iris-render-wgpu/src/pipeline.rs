@@ -61,6 +61,11 @@ impl PresentUniforms {
     }
 }
 
+#[cfg(test)]
+const _: () = {
+    assert!(std::mem::size_of::<PresentUniforms>() == 48);
+};
+
 impl FullscreenPipeline {
     /// Creates a fullscreen triangle pipeline for the requested render-target format.
     #[must_use]

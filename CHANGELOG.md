@@ -54,6 +54,7 @@ Target release: `0.2.0`
 - Moved retained-frame scroll offsets into the presentation pass so cached terminal content now renders at stable zero-offset coordinates, while presentation can shift and background-fill the visible viewport without forcing a cache redraw when only the scroll offset changes.
 - Invalidated cached terminal frames when cell metrics change and restored drained terminal damage after failed incremental updates so renderer errors cannot leave stale pixels or dropped dirty regions behind.
 - Added retained smooth-scroll coverage for full-grid scrolls by tracking core scroll deltas, preserving full-viewport overscan bands in the cached terminal frame, and shifting the retained frame before damage redraw so presentation can animate from previous rows into the new visible state without background gaps.
+- Hardened scroll-delta restoration with debug-only overwrite assertions, consolidated signed scroll-line conversion, and expanded coverage for scroll merge/restore edge cases plus retained scroll-copy guard paths.
 
 ### 2026-03-20
 
