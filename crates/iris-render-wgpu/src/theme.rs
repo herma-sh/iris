@@ -343,7 +343,12 @@ fn parse_optional_ansi(
 
 fn parse_hex_color(field: &str, value: &str) -> std::result::Result<ThemeColor, ThemeLoadError> {
     let color = value.trim();
-    let normalized = color.strip_prefix('#').unwrap_or(color);
+    let normalized = color
+        .strip_prefix('#')
+        .ok_or_else(|| ThemeLoadError::InvalidColor {
+            field: field.to_string(),
+            value: value.to_string(),
+        })?;
 
     match normalized.len() {
         6 => {
@@ -617,7 +622,7 @@ ansi = [
         let theme = Theme::from_toml_str(
             r##"
 foreground = "#112233"
-background = "445566"
+background = "#445566"
 "##,
         )
         .expect("top-level fields should load");
@@ -657,6 +662,22 @@ foreground = "#12zz90"
     }
 
     #[test]
+    fn theme_toml_rejects_missing_hash_prefix() {
+        let result = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "123456"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::InvalidColor { field, value })
+            if field == "foreground" && value == "123456"
+        ));
+    }
+
+    #[test]
     fn theme_toml_rejects_invalid_ansi_palette_length() {
         let result = Theme::from_toml_str(
             r##"
@@ -691,6 +712,31 @@ cursor = "#abcdef"
         let _ = std::fs::remove_file(path);
 
         assert_eq!(loaded.cursor, ThemeColor::rgb(0xab, 0xcd, 0xef));
+    }
+
+    #[test]
+    fn theme_toml_rejects_invalid_toml_documents() {
+        let result = Theme::from_toml_str(
+            r##"
+[colors
+foreground = "#ffffff"
+"##,
+        );
+
+        assert!(matches!(result, Err(ThemeLoadError::ParseToml { .. })));
+    }
+
+    #[test]
+    fn theme_load_from_toml_file_returns_error_for_missing_file() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("missing-iris-theme-{unique}.toml"));
+
+        let result = Theme::from_toml_file(&path);
+
+        assert!(matches!(result, Err(ThemeLoadError::ReadFile { .. })));
     }
 
     #[test]

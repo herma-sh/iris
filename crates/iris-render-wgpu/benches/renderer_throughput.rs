@@ -59,7 +59,7 @@ fn main() {
         wgpu::TextureFormat::Bgra8UnormSrgb,
         config.clone(),
     )
-    .expect("terminal renderer should initialize");
+    .expect("terminal renderer should initialize for full-frame benchmark");
     let full_target = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
             TextureSurfaceSize::new(
@@ -85,7 +85,7 @@ fn main() {
         wgpu::TextureFormat::Bgra8UnormSrgb,
         config.clone(),
     )
-    .expect("terminal renderer should initialize");
+    .expect("terminal renderer should initialize for retained-scroll benchmark");
     let scroll_target = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
             TextureSurfaceSize::new(
