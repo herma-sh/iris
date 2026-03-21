@@ -76,6 +76,7 @@ fn main() {
             .prepare_terminal(&renderer, &full_terminal)
             .expect("full terminal prepare should succeed");
         full_terminal_renderer.render_to_texture_surface(&renderer, &full_target);
+        wait_for_gpu(&renderer);
         black_box(&full_terminal_renderer);
     });
     let full_frame_ms = per_iteration_ms(&full_prepare);
@@ -114,6 +115,7 @@ fn main() {
             .update_terminal(&renderer, &mut scroll_terminal)
             .expect("retained scroll update should succeed");
         scroll_terminal_renderer.render_to_texture_surface(&renderer, &scroll_target);
+        wait_for_gpu(&renderer);
         black_box(&scroll_terminal_renderer);
     });
     let scroll_fps = iterations_per_second(&scroll_update);
@@ -167,6 +169,10 @@ where
         iterations: iterations.max(1),
         elapsed: start.elapsed(),
     }
+}
+
+fn wait_for_gpu(renderer: &Renderer) {
+    renderer.device().poll(wgpu::Maintain::Wait);
 }
 
 fn seeded_terminal(rows: usize, cols: usize) -> Terminal {
