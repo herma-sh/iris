@@ -16,3 +16,7 @@ wgpu = "0.19"
 
 [dev-dependencies]
 pollster = "0.3"
+
+[[bench]]
+name = "renderer_throughput"
+harness = false
