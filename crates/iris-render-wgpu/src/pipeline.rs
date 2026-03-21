@@ -1,3 +1,5 @@
+use bytemuck::{Pod, Zeroable};
+
 use crate::atlas::GlyphAtlas;
 use crate::cell::{CellInstance, TextBuffers};
 use crate::cursor::{CursorBuffers, CursorInstance};
@@ -15,10 +17,54 @@ pub struct FullscreenPipeline {
 #[derive(Debug)]
 pub struct PresentPipeline {
     pipeline: wgpu::RenderPipeline,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     format: wgpu::TextureFormat,
 }
+
+/// Uniforms used when sampling a cached terminal frame into a target surface.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Pod, Zeroable)]
+pub struct PresentUniforms {
+    /// Source frame dimensions in pixels.
+    pub frame_size: [f32; 2],
+    /// Pixel origin of the visible viewport inside the cached frame.
+    pub viewport_origin: [f32; 2],
+    /// Vertical presentation offset in pixels.
+    pub scroll_offset: [f32; 4],
+    /// Background color used when the presentation offset reveals uncovered rows.
+    pub background_color: [f32; 4],
+}
+
+impl PresentUniforms {
+    /// Creates presentation uniforms for the cached frame and viewport offset.
+    #[must_use]
+    pub const fn new(
+        frame_size: [f32; 2],
+        viewport_origin: [f32; 2],
+        scroll_offset: f32,
+        background_color: [f32; 4],
+    ) -> Self {
+        Self {
+            frame_size,
+            viewport_origin,
+            scroll_offset: [scroll_offset, 0.0, 0.0, 0.0],
+            background_color,
+        }
+    }
+
+    /// Returns the uniform payload as raw bytes for buffer uploads.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+
+#[cfg(test)]
+const _: () = {
+    assert!(std::mem::size_of::<PresentUniforms>() == 48);
+};
 
 impl FullscreenPipeline {
     /// Creates a fullscreen triangle pipeline for the requested render-target format.
@@ -98,6 +144,20 @@ impl PresentPipeline {
             label: Some("iris-render-wgpu-present-shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/present.wgsl").into()),
         });
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("iris-render-wgpu-present-uniform-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("iris-render-wgpu-present-layout"),
@@ -133,7 +193,7 @@ impl PresentPipeline {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("iris-render-wgpu-present-pipeline-layout"),
-            bind_group_layouts: &[&texture_bind_group_layout],
+            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -164,6 +224,7 @@ impl PresentPipeline {
 
         Self {
             pipeline,
+            uniform_bind_group_layout,
             texture_bind_group_layout,
             sampler,
             format,
@@ -174,6 +235,34 @@ impl PresentPipeline {
     #[must_use]
     pub const fn format(&self) -> wgpu::TextureFormat {
         self.format
+    }
+
+    /// Creates the uniform buffer used by the present pipeline.
+    #[must_use]
+    pub fn create_uniform_buffer(&self, device: &wgpu::Device) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("iris-render-wgpu-present-uniforms"),
+            size: std::mem::size_of::<PresentUniforms>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
+    /// Creates the uniform bind group used by the present pipeline.
+    #[must_use]
+    pub fn create_uniform_bind_group(
+        &self,
+        device: &wgpu::Device,
+        uniform_buffer: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("iris-render-wgpu-present-uniform-bind-group"),
+            layout: &self.uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        })
     }
 
     /// Creates the bind group used to sample a cached frame texture.
@@ -203,6 +292,7 @@ impl PresentPipeline {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
+        uniform_bind_group: &wgpu::BindGroup,
         texture_bind_group: &wgpu::BindGroup,
     ) {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -220,7 +310,8 @@ impl PresentPipeline {
             occlusion_query_set: None,
         });
         render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, texture_bind_group, &[]);
+        render_pass.set_bind_group(0, uniform_bind_group, &[]);
+        render_pass.set_bind_group(1, texture_bind_group, &[]);
         render_pass.draw(0..3, 0..1);
     }
 }
@@ -490,7 +581,9 @@ impl CursorPipeline {
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorPipeline, FullscreenPipeline, PresentPipeline, TextPipeline};
+    use super::{
+        CursorPipeline, FullscreenPipeline, PresentPipeline, PresentUniforms, TextPipeline,
+    };
     use crate::atlas::{AtlasConfig, AtlasSize};
     use crate::cell::{CellColors, CellInstance, TextBuffers, TextUniforms};
     use crate::cursor::{CursorBuffers, CursorInstance};
@@ -551,6 +644,14 @@ mod tests {
             .expect("destination texture surface should be created");
         renderer.clear_texture_surface(&source, wgpu::Color::RED);
         let pipeline = PresentPipeline::new(renderer.device(), destination.format());
+        let uniform_buffer = pipeline.create_uniform_buffer(renderer.device());
+        renderer.queue().write_buffer(
+            &uniform_buffer,
+            0,
+            PresentUniforms::new([32.0, 32.0], [0.0, 0.0], 0.0, [0.0, 0.0, 0.0, 1.0]).as_bytes(),
+        );
+        let uniform_bind_group =
+            pipeline.create_uniform_bind_group(renderer.device(), &uniform_buffer);
         let bind_group = pipeline.create_texture_bind_group(renderer.device(), &source);
         let mut encoder =
             renderer
@@ -559,7 +660,12 @@ mod tests {
                     label: Some("iris-render-wgpu-present-pipeline-test-encoder"),
                 });
 
-        pipeline.render(&mut encoder, destination.view(), &bind_group);
+        pipeline.render(
+            &mut encoder,
+            destination.view(),
+            &uniform_bind_group,
+            &bind_group,
+        );
         renderer.queue().submit(std::iter::once(encoder.finish()));
 
         assert_eq!(pipeline.format(), wgpu::TextureFormat::Bgra8UnormSrgb);

@@ -334,6 +334,7 @@ impl Renderer {
     pub fn draw_present_pipeline_to_texture_surface(
         &self,
         pipeline: &PresentPipeline,
+        uniform_bind_group: &wgpu::BindGroup,
         texture_bind_group: &wgpu::BindGroup,
         surface: &TextureSurface,
     ) {
@@ -342,7 +343,12 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("iris-render-wgpu-present-texture-encoder"),
             });
-        pipeline.render(&mut encoder, surface.view(), texture_bind_group);
+        pipeline.render(
+            &mut encoder,
+            surface.view(),
+            uniform_bind_group,
+            texture_bind_group,
+        );
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 }
@@ -354,6 +360,7 @@ mod tests {
     use crate::cell::{CellColors, CellInstance, TextUniforms};
     use crate::error::Error;
     use crate::glyph::{GlyphBitmap, GlyphKey};
+    use crate::pipeline::PresentUniforms;
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
     use crate::theme::Theme;
     use iris_core::damage::DamageRegion;
@@ -627,9 +634,22 @@ mod tests {
             .expect("destination texture surface should be created");
         renderer.clear_texture_surface(&source, wgpu::Color::RED);
         let pipeline = renderer.create_present_pipeline(destination.format());
+        let uniform_buffer = pipeline.create_uniform_buffer(renderer.device());
+        let uniform_bind_group =
+            pipeline.create_uniform_bind_group(renderer.device(), &uniform_buffer);
+        renderer.queue().write_buffer(
+            &uniform_buffer,
+            0,
+            PresentUniforms::new([32.0, 32.0], [0.0, 0.0], 0.0, [0.0, 0.0, 0.0, 1.0]).as_bytes(),
+        );
         let bind_group = pipeline.create_texture_bind_group(renderer.device(), &source);
 
-        renderer.draw_present_pipeline_to_texture_surface(&pipeline, &bind_group, &destination);
+        renderer.draw_present_pipeline_to_texture_surface(
+            &pipeline,
+            &uniform_bind_group,
+            &bind_group,
+            &destination,
+        );
 
         let pixels = crate::test_support::read_texture_surface(&renderer, &destination);
         assert!(

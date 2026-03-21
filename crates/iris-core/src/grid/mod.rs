@@ -1,7 +1,7 @@
 use std::ops::Index;
 
 use crate::cell::Cell;
-use crate::damage::{DamageRegion, DamageTracker};
+use crate::damage::{DamageRegion, DamageTracker, ScrollDelta};
 use crate::error::{Error, Result};
 
 mod indexing;
@@ -32,6 +32,7 @@ pub struct Grid {
     size: GridSize,
     cells: Vec<Cell>,
     damage: DamageTracker,
+    pending_scroll: Option<ScrollDelta>,
 }
 
 impl Grid {
@@ -48,6 +49,7 @@ impl Grid {
             size,
             cells: vec![Cell::default(); cell_count],
             damage: DamageTracker::new(size.rows),
+            pending_scroll: None,
         })
     }
 
@@ -93,9 +95,68 @@ impl Grid {
         self.damage.take(self.cols())
     }
 
+    /// Returns and clears the latest pending scroll delta.
+    pub fn take_scroll_delta(&mut self) -> Option<ScrollDelta> {
+        self.pending_scroll.take()
+    }
+
+    /// Restores previously drained visible damage regions back into the tracker.
+    pub fn restore_damage(&mut self, damage: &[DamageRegion]) {
+        if self.rows() == 0 || self.cols() == 0 {
+            return;
+        }
+
+        let last_row = self.rows().saturating_sub(1);
+        let last_col = self.cols().saturating_sub(1);
+
+        for region in damage {
+            if region.start_row > region.end_row
+                || region.start_col > region.end_col
+                || region.start_row > last_row
+                || region.start_col > last_col
+            {
+                continue;
+            }
+
+            let end_row = region.end_row.min(last_row);
+            let end_col = region.end_col.min(last_col);
+            for row in region.start_row..=end_row {
+                self.damage.mark_range(row, region.start_col, end_col);
+            }
+        }
+    }
+
+    /// Restores a previously drained scroll delta.
+    pub fn restore_scroll_delta(&mut self, scroll_delta: Option<ScrollDelta>) {
+        debug_assert!(
+            self.pending_scroll.is_none() || scroll_delta.is_none(),
+            "restore_scroll_delta called with an occupied pending scroll slot"
+        );
+        if self.pending_scroll.is_none() {
+            self.pending_scroll = scroll_delta;
+        }
+    }
+
     /// Marks the entire visible grid as damaged without modifying cell data.
     pub fn mark_all_damage(&mut self) {
         self.damage.mark_all();
+    }
+
+    pub(crate) fn record_scroll(&mut self, scroll_delta: ScrollDelta) {
+        self.pending_scroll = Some(match self.pending_scroll {
+            Some(existing)
+                if existing.top == scroll_delta.top
+                    && existing.bottom == scroll_delta.bottom
+                    && existing.lines.signum() == scroll_delta.lines.signum() =>
+            {
+                ScrollDelta::new(
+                    existing.top,
+                    existing.bottom,
+                    existing.lines.saturating_add(scroll_delta.lines),
+                )
+            }
+            _ => scroll_delta,
+        });
     }
 }
 

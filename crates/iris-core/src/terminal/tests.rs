@@ -562,3 +562,35 @@ fn terminal_insert_and_delete_lines_noop_on_zero_row_grids() {
 
     assert_eq!(terminal.grid.rows(), 0);
 }
+
+#[test]
+fn terminal_restore_damage_replays_drained_regions() {
+    let mut terminal = Terminal::new(1, 2).unwrap();
+    terminal.write_char('A').unwrap();
+
+    let damage = terminal.take_damage();
+    assert_eq!(damage, vec![crate::damage::DamageRegion::new(0, 0, 0, 0)]);
+    assert!(terminal.take_damage().is_empty());
+
+    terminal.restore_damage(&damage);
+
+    assert_eq!(terminal.take_damage(), damage);
+}
+
+#[test]
+fn terminal_restore_scroll_delta_replays_drained_scrolls() {
+    let mut terminal = Terminal::new(2, 2).unwrap();
+    terminal.move_cursor(1, 0);
+    terminal.execute_control(0x0a).unwrap();
+
+    let scroll_delta = terminal.take_scroll_delta();
+    assert_eq!(scroll_delta, Some(crate::damage::ScrollDelta::new(0, 1, 1)));
+    assert_eq!(terminal.take_scroll_delta(), None);
+
+    terminal.restore_scroll_delta(scroll_delta);
+
+    assert_eq!(
+        terminal.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 1, 1))
+    );
+}

@@ -2,7 +2,7 @@ use self::movement::default_tab_stops;
 use self::screen::normalize_scroll_region;
 use crate::cell::{Cell, CellAttrs};
 use crate::cursor::{Cursor, SavedCursor};
-use crate::damage::DamageRegion;
+use crate::damage::{DamageRegion, ScrollDelta};
 use crate::error::{validate_printable_ascii, Result};
 use crate::grid::{Grid, GridSize};
 use crate::modes::TerminalModes;
@@ -290,6 +290,21 @@ impl Terminal {
     /// Returns and clears the current damage list.
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
         self.grid.take_damage()
+    }
+
+    /// Returns and clears the latest pending visible-grid scroll delta.
+    pub fn take_scroll_delta(&mut self) -> Option<ScrollDelta> {
+        self.grid.take_scroll_delta()
+    }
+
+    /// Restores previously drained visible damage regions to the terminal grid.
+    pub fn restore_damage(&mut self, damage: &[DamageRegion]) {
+        self.grid.restore_damage(damage);
+    }
+
+    /// Restores a previously drained visible-grid scroll delta.
+    pub fn restore_scroll_delta(&mut self, scroll_delta: Option<ScrollDelta>) {
+        self.grid.restore_scroll_delta(scroll_delta);
     }
 
     fn reset_state(&mut self) -> Result<()> {

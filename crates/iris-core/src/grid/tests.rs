@@ -228,3 +228,164 @@ fn grid_clears_overwritten_wide_cell_spans() {
     assert_eq!(grid.cell(0, 2).unwrap(), &Cell::default());
     assert_eq!(grid.take_damage(), vec![DamageRegion::new(0, 0, 0, 2)]);
 }
+
+#[test]
+fn grid_restore_damage_replays_drained_regions() {
+    let mut grid = Grid::new(GridSize { rows: 2, cols: 3 }).unwrap();
+    grid.write(1, 2, Cell::new('Z')).unwrap();
+
+    let damage = grid.take_damage();
+    assert_eq!(damage, vec![DamageRegion::new(1, 1, 2, 2)]);
+    assert!(grid.take_damage().is_empty());
+
+    grid.restore_damage(&damage);
+
+    assert_eq!(grid.take_damage(), damage);
+}
+
+#[test]
+fn grid_scroll_up_tracks_scroll_delta() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+
+    grid.scroll_up(1);
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 2, 1))
+    );
+    assert_eq!(grid.take_scroll_delta(), None);
+}
+
+#[test]
+fn grid_restore_scroll_delta_replays_drained_scrolls() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+
+    grid.scroll_down(1);
+
+    let scroll_delta = grid.take_scroll_delta();
+    assert_eq!(
+        scroll_delta,
+        Some(crate::damage::ScrollDelta::new(0, 2, -1))
+    );
+    assert_eq!(grid.take_scroll_delta(), None);
+
+    grid.restore_scroll_delta(scroll_delta);
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 2, -1))
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "restore_scroll_delta called with an occupied pending scroll slot")]
+fn grid_restore_scroll_delta_rejects_overwriting_existing() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+    grid.scroll_up(1);
+    let prior = grid.take_scroll_delta();
+
+    grid.scroll_up(2);
+    grid.restore_scroll_delta(prior);
+}
+
+#[test]
+fn grid_consecutive_same_region_scrolls_merge() {
+    let mut grid = Grid::new(GridSize { rows: 5, cols: 2 }).unwrap();
+
+    grid.scroll_up(1);
+    grid.scroll_up(2);
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 4, 3))
+    );
+}
+
+#[test]
+fn grid_opposite_direction_scrolls_replace_not_merge() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+
+    grid.scroll_up(1);
+    grid.scroll_down(1);
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 2, -1))
+    );
+}
+
+#[test]
+fn grid_scroll_up_range_records_partial_scroll_delta() {
+    let mut grid = Grid::new(GridSize { rows: 5, cols: 2 }).unwrap();
+
+    grid.scroll_up_range(1, 3, 1).unwrap();
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(1, 3, 1))
+    );
+}
+
+#[test]
+fn grid_scroll_down_range_records_partial_scroll_delta() {
+    let mut grid = Grid::new(GridSize { rows: 5, cols: 2 }).unwrap();
+
+    grid.scroll_down_range(1, 3, 1).unwrap();
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(1, 3, -1))
+    );
+}
+
+#[test]
+fn grid_restore_damage_and_scroll_delta_together() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+    grid.write(1, 1, Cell::new('X')).unwrap();
+    grid.record_scroll(crate::damage::ScrollDelta::new(0, 2, 1));
+
+    let damage = grid.take_damage();
+    let scroll_delta = grid.take_scroll_delta();
+
+    grid.restore_damage(&damage);
+    grid.restore_scroll_delta(scroll_delta);
+
+    assert_eq!(grid.take_damage(), damage);
+    assert_eq!(grid.take_scroll_delta(), scroll_delta);
+}
+
+#[test]
+fn grid_scroll_on_zero_size_grid_produces_no_delta() {
+    let mut grid = Grid::new(GridSize { rows: 0, cols: 4 }).unwrap();
+
+    grid.scroll_up(1);
+
+    assert_eq!(grid.take_scroll_delta(), None);
+}
+
+#[test]
+fn grid_consecutive_scroll_merging_saturates_at_max() {
+    let mut grid = Grid::new(GridSize { rows: 2, cols: 2 }).unwrap();
+
+    grid.record_scroll(crate::damage::ScrollDelta::new(0, 1, i32::MAX - 1));
+    grid.record_scroll(crate::damage::ScrollDelta::new(0, 1, 5));
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 1, i32::MAX))
+    );
+}
+
+#[test]
+fn grid_consecutive_scroll_merging_saturates_at_min() {
+    let mut grid = Grid::new(GridSize { rows: 2, cols: 2 }).unwrap();
+
+    grid.record_scroll(crate::damage::ScrollDelta::new(0, 1, i32::MIN + 1));
+    grid.record_scroll(crate::damage::ScrollDelta::new(0, 1, -5));
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 1, i32::MIN))
+    );
+}

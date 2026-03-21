@@ -15,7 +15,7 @@ pub mod utils;
 
 pub use cell::{Cell, CellAttrs, CellFlags, CellWidth, Color};
 pub use cursor::{Cursor, CursorPosition, CursorStyle, SavedCursor};
-pub use damage::{DamageRegion, DamageTracker};
+pub use damage::{DamageRegion, DamageTracker, ScrollDelta};
 pub use error::{Error, Result};
 pub use grid::{Grid, GridSize};
 pub use modes::{Mode, TerminalModes};
