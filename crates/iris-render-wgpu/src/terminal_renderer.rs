@@ -209,6 +209,7 @@ impl TerminalRenderer {
         ) {
             Ok(()) => Ok(()),
             Err(error) => {
+                self.invalidate_cached_frame();
                 terminal.restore_scroll_delta(scroll_delta);
                 terminal.restore_damage(&damage);
                 Err(error)
@@ -2154,6 +2155,74 @@ mod tests {
             terminal.take_damage(),
             vec![iris_core::damage::DamageRegion::new(0, 0, 0, 0)],
             "failed incremental updates should restore terminal damage"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_invalidates_cached_frame_when_scroll_shift_update_fails() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 48).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                font_rasterizer: FontRasterizerConfig {
+                    font_size_px: 4096.0,
+                    ..Default::default()
+                },
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(3, 1).expect("terminal should be created");
+        terminal.cursor.visible = false;
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("blank terminal frame should prepare");
+
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+        terminal
+            .apply_action(Action::SetScrollRegion { top: 2, bottom: 3 })
+            .expect("scroll region should be set");
+        terminal
+            .apply_action(Action::ScrollUp(1))
+            .expect("scroll up should succeed");
+        terminal.move_cursor(1, 0);
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+
+        let result = terminal_renderer.update_terminal(&renderer, &mut terminal);
+
+        assert!(matches!(
+            result,
+            Err(Error::GlyphRasterizationFailed { .. })
+        ));
+        assert!(
+            !terminal_renderer.frame_initialized,
+            "incremental failures after scroll shifts should invalidate the cached frame"
+        );
+        assert_eq!(
+            terminal.take_scroll_delta(),
+            Some(ScrollDelta::new(1, 2, 1)),
+            "failed incremental updates should restore consumed scroll deltas"
         );
     }
 }
