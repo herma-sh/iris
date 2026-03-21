@@ -56,7 +56,7 @@ impl TerminalRenderer {
             frame_surface,
             present_pipeline,
             present_bind_group,
-            full_redraw_damage: Vec::with_capacity(1),
+            full_redraw_damage: Vec::with_capacity(4),
             previous_cursor: None,
             frame_initialized: false,
         })
@@ -288,6 +288,10 @@ fn frame_surface_size_for_uniforms(uniforms: TextUniforms) -> TextureSurfaceSize
 
 fn normalized_surface_dimension(dimension: f32) -> u32 {
     if !dimension.is_finite() || dimension <= 0.0 {
+        tracing::warn!(
+            ?dimension,
+            "invalid terminal frame dimension normalized to a 1px fallback"
+        );
         1
     } else {
         dimension.round().max(1.0) as u32
@@ -303,6 +307,67 @@ mod tests {
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
     use crate::theme::{Theme, ThemeColor};
     use crate::TextUniforms;
+
+    fn cell_region_has_non_background(
+        pixels: &[u8],
+        surface_size: TextureSurfaceSize,
+        cell_origin: (usize, usize),
+        cell_size: (usize, usize),
+        background: [u8; 4],
+    ) -> bool {
+        let row_stride = surface_size.width as usize * background.len();
+        let start_x = cell_origin.0 * cell_size.0;
+        let start_y = cell_origin.1 * cell_size.1;
+
+        for row in start_y..start_y + cell_size.1 {
+            for col in start_x..start_x + cell_size.0 {
+                let offset = row * row_stride + col * background.len();
+                if pixels[offset..offset + background.len()] != background {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn cell_region_matches_background(
+        pixels: &[u8],
+        surface_size: TextureSurfaceSize,
+        cell_origin: (usize, usize),
+        cell_size: (usize, usize),
+        background: [u8; 4],
+    ) -> bool {
+        let row_stride = surface_size.width as usize * background.len();
+        let start_x = cell_origin.0 * cell_size.0;
+        let start_y = cell_origin.1 * cell_size.1;
+
+        for row in start_y..start_y + cell_size.1 {
+            for col in start_x..start_x + cell_size.0 {
+                let offset = row * row_stride + col * background.len();
+                if pixels[offset..offset + background.len()] != background {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    fn pixel_at(
+        pixels: &[u8],
+        surface_size: TextureSurfaceSize,
+        position: (usize, usize),
+    ) -> [u8; 4] {
+        let row_stride = surface_size.width as usize * 4;
+        let offset = position.1 * row_stride + position.0 * 4;
+        [
+            pixels[offset],
+            pixels[offset + 1],
+            pixels[offset + 2],
+            pixels[offset + 3],
+        ]
+    }
 
     #[test]
     fn terminal_renderer_prepares_and_renders_terminal_state() {
@@ -377,6 +442,11 @@ mod tests {
             surface.format(),
             TerminalRendererConfig {
                 text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0xff, 0x00, 0x00),
+                        cursor: ThemeColor::rgb(0xff, 0xff, 0xff),
+                        ..Theme::default()
+                    },
                     uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
                     ..Default::default()
                 },
@@ -395,7 +465,20 @@ mod tests {
         terminal_renderer
             .prepare_terminal(&renderer, &terminal)
             .expect("initial terminal frame should prepare");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
         assert_eq!(terminal_renderer.instance_count(), 1);
+        let initial_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert!(
+            cell_region_has_non_background(
+                &initial_pixels,
+                surface.size(),
+                (1, 0),
+                (16, 16),
+                background,
+            ),
+            "the old cursor cell should be visible before the cursor moves"
+        );
 
         terminal.cursor.move_to(0, 0);
 
@@ -404,15 +487,28 @@ mod tests {
             .expect("cursor-only update should refresh the cached frame");
         terminal_renderer.render_to_texture_surface(&renderer, &surface);
 
+        let cached_pixels =
+            crate::test_support::read_texture_surface(&renderer, &terminal_renderer.frame_surface);
         let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
-        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
         assert_eq!(terminal_renderer.instance_count(), 2);
         assert_eq!(terminal_renderer.cursor_instance_count(), 1);
+        assert_eq!(
+            pixel_at(
+                &cached_pixels,
+                terminal_renderer.frame_surface.size(),
+                (24, 8)
+            ),
+            background,
+            "cursor-only updates should clear the old cursor cell in the cached frame"
+        );
+        assert_eq!(
+            pixel_at(&pixels, surface.size(), (24, 8)),
+            background,
+            "cursor-only updates should clear the old cursor cell back to the background"
+        );
         assert!(
-            pixels
-                .chunks_exact(background.len())
-                .any(|pixel| pixel != background),
-            "cursor-only updates should preserve visible text in the cached frame"
+            cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
+            "cursor-only updates should preserve visible text and the new cursor position"
         );
     }
 
@@ -509,6 +605,134 @@ mod tests {
         assert_eq!(
             terminal_renderer.frame_surface_size(),
             TextureSurfaceSize::new(800, 600).expect("surface dimensions are valid")
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_invalidates_cached_frame_on_theme_change() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+        terminal.cursor.visible = false;
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+        let initial_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let initial_background =
+            crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert!(
+            cell_region_matches_background(
+                &initial_pixels,
+                surface.size(),
+                (1, 0),
+                (16, 16),
+                initial_background,
+            ),
+            "the blank trailing cell should use the initial theme background"
+        );
+
+        terminal_renderer.set_theme(Theme {
+            background: ThemeColor::rgb(0xff, 0x00, 0x00),
+            ..Theme::default()
+        });
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("theme invalidation should force a redraw on the next update");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let updated_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let updated_background =
+            crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert_ne!(initial_background, updated_background);
+        assert!(
+            cell_region_matches_background(
+                &updated_pixels,
+                surface.size(),
+                (1, 0),
+                (16, 16),
+                updated_background,
+            ),
+            "theme changes should invalidate the cached frame and redraw blank cells"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_handles_update_before_prepare() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("update should fall back to a full redraw before any prepare call");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert_eq!(terminal_renderer.instance_count(), 1);
+        assert!(
+            cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
+            "the first incremental update should produce a visible cached frame"
         );
     }
 }

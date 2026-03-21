@@ -4,8 +4,8 @@ use iris_core::grid::Grid;
 
 use crate::atlas::{AtlasConfig, AtlasSize};
 use crate::cell::{
-    cell_needs_rendering_with_blank_default_cells, encode_damage_instances_with_options,
-    normalized_damage_regions, CellInstance, TextBuffers, TextUniforms,
+    cell_needs_rendering_with_blank_default_cells, encode_normalized_damage_instances_with_options,
+    normalized_damage_regions_into, CellInstance, TextBuffers, TextUniforms,
 };
 use crate::cursor::{CursorBuffers, CursorInstance};
 use crate::error::Result;
@@ -60,6 +60,7 @@ pub struct TextRenderer {
     theme: Theme,
     uniforms: TextUniforms,
     instances: Vec<CellInstance>,
+    normalized_damage: Vec<DamageRegion>,
 }
 
 impl TextRenderer {
@@ -92,6 +93,7 @@ impl TextRenderer {
             theme: config.theme,
             uniforms: config.uniforms,
             instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
+            normalized_damage: Vec::with_capacity(config.initial_instance_capacity.max(1)),
         })
     }
 
@@ -273,7 +275,6 @@ impl TextRenderer {
         &mut self,
         renderer: &Renderer,
         grid: &Grid,
-        damage: &[DamageRegion],
         rasterize_glyph: &mut F,
         include_default_blank_cells: bool,
     ) -> Result<()>
@@ -282,7 +283,7 @@ impl TextRenderer {
     {
         let mut skipped_missing_rasterization = 0usize;
 
-        for region in normalized_damage_regions(grid, damage) {
+        for region in &self.normalized_damage {
             let Some(row_cells) = grid.row(region.start_row) else {
                 continue;
             };
@@ -338,21 +339,20 @@ impl TextRenderer {
         F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
     {
         self.instances.clear();
+        normalized_damage_regions_into(grid, damage, &mut self.normalized_damage);
         self.buffers.clear_instances();
-        self.populate_missing_glyphs(
-            renderer,
-            grid,
-            damage,
-            rasterize_glyph,
-            include_default_blank_cells,
-        )?;
-        encode_damage_instances_with_options(
+        self.populate_missing_glyphs(renderer, grid, rasterize_glyph, include_default_blank_cells)?;
+        let atlas_size = self.atlas.size();
+        let theme = &self.theme;
+        let normalized_damage = &self.normalized_damage;
+        let glyph_cache = &self.glyph_cache;
+        encode_normalized_damage_instances_with_options(
             &mut self.instances,
             grid,
-            damage,
-            self.atlas.size(),
-            &self.theme,
-            |cell| self.glyph_cache.get(glyph_key_for_cell(cell)).copied(),
+            normalized_damage,
+            atlas_size,
+            theme,
+            |cell| glyph_cache.get(glyph_key_for_cell(cell)).copied(),
             include_default_blank_cells,
         )?;
         renderer.write_text_instances(&mut self.buffers, &self.instances)

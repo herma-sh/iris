@@ -50,6 +50,7 @@ Target release: `0.2.0`
 - Integrated the new cursor overlay into `TextRenderer` so prepared cursor state now renders alongside the text pass and correctly normalizes continuation-column cursors back to wide-cell lead positions.
 - Hardened cursor-span normalization so defensive right-edge and orphan-continuation states fall back to single-cell overlays, and documented the single-instance cursor draw invariant in the cursor pipeline.
 - Updated the terminal-facing renderer integration to retain a cached frame texture, apply incremental damage updates for changed text and old/new cursor regions, and present the cached output through a dedicated fullscreen sample pass.
+- Reused normalized damage buffers across retained text prepares to avoid per-frame hot-path allocations, tuned retained damage scratch capacity for the common terminal-update case, and expanded terminal-renderer regression coverage for cursor clearing, theme invalidation, and update-before-prepare behavior.
 
 ### 2026-03-20
 

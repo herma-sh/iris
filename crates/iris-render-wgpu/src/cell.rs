@@ -105,17 +105,15 @@ impl CellInstance {
         let region = glyph.region();
         let atlas_width = atlas_size.width as f32;
         let atlas_height = atlas_size.height as f32;
+        let atlas_min_x = (region.x as f32 + 0.5) / atlas_width;
+        let atlas_min_y = (region.y as f32 + 0.5) / atlas_height;
+        let atlas_max_x = (region.x as f32 + region.width as f32 - 0.5) / atlas_width;
+        let atlas_max_y = (region.y as f32 + region.height as f32 - 0.5) / atlas_height;
 
         Ok(Self {
             grid_position: [column as f32, row as f32],
-            atlas_min: [
-                region.x as f32 / atlas_width,
-                region.y as f32 / atlas_height,
-            ],
-            atlas_max: [
-                (region.x + region.width) as f32 / atlas_width,
-                (region.y + region.height) as f32 / atlas_height,
-            ],
+            atlas_min: [atlas_min_x, atlas_min_y],
+            atlas_max: [atlas_max_x, atlas_max_y],
             fg_color: colors.fg,
             bg_color: colors.bg,
             cell_span: cell.width.columns() as f32,
@@ -166,6 +164,31 @@ pub(crate) fn encode_damage_instances_with_options<F>(
     damage: &[DamageRegion],
     atlas_size: AtlasSize,
     theme: &Theme,
+    resolve_glyph: F,
+    include_default_blank_cells: bool,
+) -> Result<()>
+where
+    F: FnMut(Cell) -> Option<CachedGlyph>,
+{
+    let mut normalized_damage = Vec::new();
+    normalized_damage_regions_into(grid, damage, &mut normalized_damage);
+    encode_normalized_damage_instances_with_options(
+        instances,
+        grid,
+        &normalized_damage,
+        atlas_size,
+        theme,
+        resolve_glyph,
+        include_default_blank_cells,
+    )
+}
+
+pub(crate) fn encode_normalized_damage_instances_with_options<F>(
+    instances: &mut Vec<CellInstance>,
+    grid: &Grid,
+    normalized_damage: &[DamageRegion],
+    atlas_size: AtlasSize,
+    theme: &Theme,
     mut resolve_glyph: F,
     include_default_blank_cells: bool,
 ) -> Result<()>
@@ -175,7 +198,7 @@ where
     instances.clear();
     let mut skipped_missing_glyphs = 0usize;
 
-    for region in normalized_damage_regions(grid, damage) {
+    for region in normalized_damage {
         let Some(row_cells) = grid.row(region.start_row) else {
             continue;
         };
@@ -218,7 +241,7 @@ where
         tracing::debug!(
             skipped_missing_glyphs,
             encoded_instances = instances.len(),
-            damage_regions = damage.len(),
+            damage_regions = normalized_damage.len(),
             "skipped text instance encoding for cells without cached glyphs"
         );
     }
@@ -235,12 +258,16 @@ pub(crate) fn cell_needs_rendering_with_blank_default_cells(
         && (include_default_blank_cells || !cell.is_empty() || cell.attrs != CellAttrs::default())
 }
 
-pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
+pub(crate) fn normalized_damage_regions_into(
+    grid: &Grid,
+    damage: &[DamageRegion],
+    output: &mut Vec<DamageRegion>,
+) {
+    output.clear();
     if grid.rows() == 0 || grid.cols() == 0 || damage.is_empty() {
-        return Vec::new();
+        return;
     }
 
-    let mut normalized = Vec::new();
     for region in damage {
         if region.start_row >= grid.rows() || region.start_col >= grid.cols() {
             continue;
@@ -267,26 +294,36 @@ pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) ->
                 start_col -= 1;
             }
 
-            normalized.push(DamageRegion::new(row_index, row_index, start_col, end_col));
+            output.push(DamageRegion::new(row_index, row_index, start_col, end_col));
         }
     }
 
-    normalized.sort_unstable_by_key(|region| (region.start_row, region.start_col, region.end_col));
+    output.sort_unstable_by_key(|region| (region.start_row, region.start_col, region.end_col));
 
-    let mut merged: Vec<DamageRegion> = Vec::with_capacity(normalized.len());
-    for region in normalized {
-        match merged.last_mut() {
-            Some(previous)
-                if previous.start_row == region.start_row
-                    && region.start_col <= previous.end_col.saturating_add(1) =>
+    let mut merged_len = 0usize;
+    for read_index in 0..output.len() {
+        let region = output[read_index];
+        if merged_len > 0 {
+            let previous = &mut output[merged_len - 1];
+            if previous.start_row == region.start_row
+                && region.start_col <= previous.end_col.saturating_add(1)
             {
                 previous.end_col = previous.end_col.max(region.end_col);
+                continue;
             }
-            _ => merged.push(region),
         }
-    }
 
-    merged
+        output[merged_len] = region;
+        merged_len += 1;
+    }
+    output.truncate(merged_len);
+}
+
+#[cfg(test)]
+pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
+    let mut normalized = Vec::new();
+    normalized_damage_regions_into(grid, damage, &mut normalized);
+    normalized
 }
 
 /// Returns the raw bytes for a contiguous cell-instance slice.
@@ -468,8 +505,8 @@ mod tests {
         .expect("cell should encode into an instance");
 
         assert_eq!(instance.grid_position, [3.0, 5.0]);
-        assert_eq!(instance.atlas_min, [0.25, 0.25]);
-        assert_eq!(instance.atlas_max, [0.375, 0.625]);
+        assert_eq!(instance.atlas_min, [0.2578125, 0.265625]);
+        assert_eq!(instance.atlas_max, [0.3671875, 0.609375]);
         assert_eq!(instance.cell_span, 1.0);
         assert_eq!(
             instance.style_flags,
