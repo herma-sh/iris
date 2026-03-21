@@ -35,6 +35,7 @@ Target release: `0.2.0`
 - Added owned `RasterizedGlyph` payloads plus renderer-side glyph-miss orchestration so damaged cells can request rasterization through an injected callback, populate the atlas/cache once, and then upload reusable text instances for drawing.
 - Added renderer coverage for themed empty clears, cache reuse across repeated damage updates, and wide-cell glyph population when damage begins on a continuation column.
 - Added a system-font-backed `FontRasterizer` in `iris-render-wgpu` using `fontdb` and `fontdue`, including best-effort primary-family selection, monospace defaults, fallback scanning, and a `TextRenderer` convenience path that prepares grid text directly from system fonts.
+- Added a cursor overlay path in `iris-render-wgpu` with dedicated cursor instances, GPU buffers, WGSL shader, and render pipeline support for block, underline, and bar cursor styles layered over the text pass.
 
 #### Changed
 
@@ -44,6 +45,7 @@ Target release: `0.2.0`
 - Hardened system font parsing with explicit font-data size bounds, rasterized glyph dimension caps before atlas allocation, and cached fallback-face lookups so repeated glyph misses do not rescan the full system font database.
 - Reset prepared text-instance state at the start of each `TextRenderer::prepare_grid` call so failed prepares cannot leave stale instance counts active for later draws, and expanded renderer regression coverage for atlas exhaustion, empty damage, missing-font mapping, and continuation-origin rendering.
 - Hardened font rasterizer initialization so `NaN` font sizes are rejected with the same `InvalidFontSize` error path as other non-positive inputs.
+- Integrated the new cursor overlay into `TextRenderer` so prepared cursor state now renders alongside the text pass and correctly normalizes continuation-column cursors back to wide-cell lead positions.
 
 ### 2026-03-20
 

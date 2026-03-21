@@ -6,10 +6,11 @@ use crate::atlas::{AtlasConfig, AtlasSize};
 use crate::cell::{
     cell_needs_rendering, normalized_damage_regions, CellInstance, TextBuffers, TextUniforms,
 };
+use crate::cursor::{CursorBuffers, CursorInstance};
 use crate::error::Result;
 use crate::font::FontRasterizer;
 use crate::glyph::{GlyphCache, GlyphKey, RasterizedGlyph};
-use crate::pipeline::TextPipeline;
+use crate::pipeline::{CursorPipeline, TextPipeline};
 use crate::renderer::Renderer;
 use crate::surface::RendererSurface;
 use crate::texture::TextureSurface;
@@ -52,6 +53,9 @@ pub struct TextRenderer {
     buffers: TextBuffers,
     pipeline: TextPipeline,
     uniform_bind_group: wgpu::BindGroup,
+    cursor_buffers: CursorBuffers,
+    cursor_pipeline: CursorPipeline,
+    cursor_uniform_bind_group: wgpu::BindGroup,
     theme: Theme,
     uniforms: TextUniforms,
     instances: Vec<CellInstance>,
@@ -70,6 +74,10 @@ impl TextRenderer {
         renderer.write_text_uniforms(&buffers, &config.uniforms);
         let pipeline = renderer.create_text_pipeline(format, &atlas);
         let uniform_bind_group = renderer.create_text_uniform_bind_group(&pipeline, &buffers);
+        let cursor_buffers = renderer.create_cursor_buffers();
+        let cursor_pipeline = renderer.create_cursor_pipeline(format);
+        let cursor_uniform_bind_group =
+            renderer.create_cursor_uniform_bind_group(&cursor_pipeline, &buffers);
 
         Ok(Self {
             atlas,
@@ -77,6 +85,9 @@ impl TextRenderer {
             buffers,
             pipeline,
             uniform_bind_group,
+            cursor_buffers,
+            cursor_pipeline,
+            cursor_uniform_bind_group,
             theme: config.theme,
             uniforms: config.uniforms,
             instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
@@ -110,6 +121,12 @@ impl TextRenderer {
     #[must_use]
     pub const fn instance_count(&self) -> usize {
         self.buffers.instance_count()
+    }
+
+    /// Returns the number of prepared cursor instances.
+    #[must_use]
+    pub const fn cursor_instance_count(&self) -> usize {
+        self.cursor_buffers.instance_count()
     }
 
     /// Populates missing glyphs and uploads the latest damaged-cell instances.
@@ -150,6 +167,19 @@ impl TextRenderer {
         })
     }
 
+    /// Updates the cursor overlay from core cursor state.
+    pub fn prepare_cursor(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        cursor: iris_core::cursor::Cursor,
+    ) -> Result<()> {
+        let instance = CursorInstance::from_cursor(cursor, grid, &self.theme)?;
+        self.cursor_buffers
+            .write_instance(renderer.queue(), instance.as_ref());
+        Ok(())
+    }
+
     /// Renders the prepared text instances into an off-screen texture surface.
     pub fn render_to_texture_surface(&self, renderer: &Renderer, surface: &TextureSurface) {
         let mut encoder =
@@ -165,6 +195,12 @@ impl TextRenderer {
             &self.atlas,
             &self.buffers,
             self.theme.background.to_wgpu_color(),
+        );
+        self.cursor_pipeline.render(
+            &mut encoder,
+            surface.view(),
+            &self.cursor_uniform_bind_group,
+            &self.cursor_buffers,
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
     }
@@ -192,6 +228,12 @@ impl TextRenderer {
             &self.atlas,
             &self.buffers,
             self.theme.background.to_wgpu_color(),
+        );
+        self.cursor_pipeline.render(
+            &mut encoder,
+            &view,
+            &self.cursor_uniform_bind_group,
+            &self.cursor_buffers,
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
         frame.present();
@@ -281,6 +323,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use iris_core::cell::Cell;
+    use iris_core::cursor::{Cursor, CursorStyle};
     use iris_core::damage::DamageRegion;
     use iris_core::grid::{Grid, GridSize};
 
@@ -570,6 +613,145 @@ mod tests {
                 .chunks_exact(background.len())
                 .any(|pixel| pixel != background),
             "system font rasterization should produce visible text pixels"
+        );
+    }
+
+    #[test]
+    fn text_renderer_draws_block_cursor_overlay() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                theme: Theme {
+                    background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                    cursor: ThemeColor::rgb(0xff, 0x00, 0x00),
+                    ..Theme::default()
+                },
+                uniforms: crate::cell::TextUniforms::new([16.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+
+        text_renderer
+            .prepare_cursor(&renderer, &grid, Cursor::new())
+            .expect("cursor should prepare");
+        text_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(text_renderer.theme().background);
+        assert_eq!(text_renderer.cursor_instance_count(), 1);
+        assert!(
+            pixels
+                .chunks_exact(background.len())
+                .any(|pixel| pixel != background),
+            "block cursor should draw pixels over the background"
+        );
+    }
+
+    #[test]
+    fn text_renderer_draws_underline_and_bar_cursor_shapes() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            TextRendererConfig {
+                theme: Theme {
+                    background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                    cursor: ThemeColor::rgb(0x00, 0xff, 0x00),
+                    ..Theme::default()
+                },
+                uniforms: crate::cell::TextUniforms::new([16.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+
+        for style in [CursorStyle::Underline, CursorStyle::Bar] {
+            let surface = renderer
+                .create_texture_surface(TextureSurfaceConfig::new(
+                    TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+                ))
+                .expect("texture surface should be created");
+            let mut cursor = Cursor::new();
+            cursor.style = style;
+
+            text_renderer
+                .prepare_cursor(&renderer, &grid, cursor)
+                .expect("cursor should prepare");
+            text_renderer.render_to_texture_surface(&renderer, &surface);
+
+            let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+            let background = crate::test_support::bgra_pixel(text_renderer.theme().background);
+            assert!(
+                pixels
+                    .chunks_exact(background.len())
+                    .any(|pixel| pixel != background),
+                "cursor style should render visible pixels"
+            );
+        }
+    }
+
+    #[test]
+    fn text_renderer_skips_hidden_cursor_overlay() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                theme: Theme {
+                    background: ThemeColor::rgb(0xff, 0x00, 0x00),
+                    ..Theme::default()
+                },
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        let mut cursor = Cursor::new();
+        cursor.visible = false;
+
+        text_renderer
+            .prepare_cursor(&renderer, &grid, cursor)
+            .expect("hidden cursor should prepare");
+        text_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(text_renderer.theme().background);
+        assert_eq!(text_renderer.cursor_instance_count(), 0);
+        assert!(
+            pixels
+                .chunks_exact(background.len())
+                .all(|pixel| pixel == background),
+            "hidden cursor should not draw over the background"
         );
     }
 
