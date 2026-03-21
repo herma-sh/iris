@@ -1,5 +1,6 @@
 use crate::atlas::GlyphAtlas;
 use crate::cell::{CellInstance, TextBuffers};
+use crate::cursor::{CursorBuffers, CursorInstance};
 
 /// Minimal fullscreen pipeline used to bootstrap shader and render-pipeline
 /// wiring before cell, glyph, and atlas rendering land.
@@ -82,6 +83,14 @@ impl FullscreenPipeline {
 /// Text pipeline bootstrap using atlas-backed glyph sampling and per-cell instances.
 #[derive(Debug)]
 pub struct TextPipeline {
+    pipeline: wgpu::RenderPipeline,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+}
+
+/// Cursor overlay pipeline for block, underline, and bar cursor shapes.
+#[derive(Debug)]
+pub struct CursorPipeline {
     pipeline: wgpu::RenderPipeline,
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
@@ -202,11 +211,124 @@ impl TextPipeline {
     }
 }
 
+impl CursorPipeline {
+    /// Creates a cursor overlay pipeline for the requested render-target format.
+    #[must_use]
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("iris-render-wgpu-cursor-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/cursor.wgsl").into()),
+        });
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("iris-render-wgpu-cursor-uniform-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("iris-render-wgpu-cursor-layout"),
+            bind_group_layouts: &[&uniform_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("iris-render-wgpu-cursor-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[CursorInstance::layout()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview: None,
+        });
+
+        Self {
+            pipeline,
+            uniform_bind_group_layout,
+            format,
+        }
+    }
+
+    /// Returns the render-target format this pipeline was built for.
+    #[must_use]
+    pub const fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    /// Creates the uniform bind group used by the cursor pipeline.
+    #[must_use]
+    pub fn create_uniform_bind_group(
+        &self,
+        device: &wgpu::Device,
+        buffers: &TextBuffers,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("iris-render-wgpu-cursor-uniform-bind-group"),
+            layout: &self.uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffers.uniform_buffer().as_entire_binding(),
+            }],
+        })
+    }
+
+    pub(crate) fn render(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        uniform_bind_group: &wgpu::BindGroup,
+        buffers: &CursorBuffers,
+    ) {
+        let instance_count = u32::try_from(buffers.instance_count()).unwrap_or(u32::MAX);
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("iris-render-wgpu-cursor-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, uniform_bind_group, &[]);
+        render_pass.set_vertex_buffer(0, buffers.instance_buffer().slice(..));
+        render_pass.draw(0..6, 0..instance_count);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FullscreenPipeline, TextPipeline};
+    use super::{CursorPipeline, FullscreenPipeline, TextPipeline};
     use crate::atlas::{AtlasConfig, AtlasSize};
     use crate::cell::{CellColors, CellInstance, TextBuffers, TextUniforms};
+    use crate::cursor::{CursorBuffers, CursorInstance};
     use crate::glyph::CachedGlyph;
     use crate::renderer::{Renderer, RendererConfig};
 
@@ -392,6 +514,65 @@ mod tests {
                 .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
                 .all(|pixel| pixel == CLEARED_BGRA8_UNORM_SRGB_PIXEL),
             "zero-instance text draw should leave the target at the pass clear color"
+        );
+    }
+
+    #[test]
+    fn cursor_pipeline_tracks_requested_format_and_draws() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let text_buffers =
+            TextBuffers::new(renderer.device(), 1).expect("text buffers should be created");
+        text_buffers.write_uniforms(
+            renderer.queue(),
+            &TextUniforms::new([64.0, 64.0], [8.0, 16.0], 0.0),
+        );
+        let mut cursor_buffers = CursorBuffers::new(renderer.device());
+        cursor_buffers.write_instance(
+            renderer.queue(),
+            Some(&CursorInstance {
+                grid_position: [1.0, 1.0],
+                offset: [0.0, 0.0],
+                extent: [1.0, 1.0],
+                color: [1.0, 0.0, 0.0, 1.0],
+            }),
+        );
+        let pipeline = CursorPipeline::new(renderer.device(), wgpu::TextureFormat::Bgra8UnormSrgb);
+        let uniform_bind_group =
+            pipeline.create_uniform_bind_group(renderer.device(), &text_buffers);
+        let surface = renderer
+            .create_texture_surface(crate::texture::TextureSurfaceConfig::new(
+                crate::texture::TextureSurfaceSize::new(64, 64)
+                    .expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        renderer.clear_texture_surface(&surface, wgpu::Color::BLACK);
+        let mut encoder =
+            renderer
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("iris-render-wgpu-cursor-pipeline-test-encoder"),
+                });
+
+        pipeline.render(
+            &mut encoder,
+            surface.view(),
+            &uniform_bind_group,
+            &cursor_buffers,
+        );
+        renderer.queue().submit(std::iter::once(encoder.finish()));
+
+        assert_eq!(pipeline.format(), wgpu::TextureFormat::Bgra8UnormSrgb);
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert!(
+            pixels
+                .chunks_exact(CLEARED_BGRA8_UNORM_SRGB_PIXEL.len())
+                .any(|pixel| pixel != CLEARED_BGRA8_UNORM_SRGB_PIXEL),
+            "cursor draw should write pixels beyond the cleared black target"
         );
     }
 }

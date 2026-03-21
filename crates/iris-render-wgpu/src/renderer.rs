@@ -1,8 +1,9 @@
 use crate::atlas::{AtlasConfig, GlyphAtlas};
 use crate::cell::{encode_damage_instances, CellInstance, TextBuffers, TextUniforms};
+use crate::cursor::CursorBuffers;
 use crate::error::{Error, Result};
 use crate::glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
-use crate::pipeline::{FullscreenPipeline, TextPipeline};
+use crate::pipeline::{CursorPipeline, FullscreenPipeline, TextPipeline};
 use crate::surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 use crate::texture::{TextureSurface, TextureSurfaceConfig};
 use crate::theme::Theme;
@@ -141,6 +142,12 @@ impl Renderer {
         TextBuffers::new(&self.device, instance_capacity)
     }
 
+    /// Creates the single-instance cursor buffers used by the cursor overlay pass.
+    #[must_use]
+    pub fn create_cursor_buffers(&self) -> CursorBuffers {
+        CursorBuffers::new(&self.device)
+    }
+
     /// Caches a glyph bitmap in the provided atlas.
     pub fn cache_glyph(
         &self,
@@ -203,6 +210,22 @@ impl Renderer {
     pub fn create_text_uniform_bind_group(
         &self,
         pipeline: &TextPipeline,
+        buffers: &TextBuffers,
+    ) -> wgpu::BindGroup {
+        pipeline.create_uniform_bind_group(&self.device, buffers)
+    }
+
+    /// Creates the cursor overlay pipeline used by the renderer.
+    #[must_use]
+    pub fn create_cursor_pipeline(&self, format: wgpu::TextureFormat) -> CursorPipeline {
+        CursorPipeline::new(&self.device, format)
+    }
+
+    /// Creates the uniform bind group used by the cursor pipeline.
+    #[must_use]
+    pub fn create_cursor_uniform_bind_group(
+        &self,
+        pipeline: &CursorPipeline,
         buffers: &TextBuffers,
     ) -> wgpu::BindGroup {
         pipeline.create_uniform_bind_group(&self.device, buffers)
