@@ -123,6 +123,8 @@ impl TextRenderer {
     where
         F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
     {
+        self.instances.clear();
+        self.buffers.clear_instances();
         self.populate_missing_glyphs(renderer, grid, damage, &mut rasterize_glyph)?;
         renderer.encode_text_instances_for_damage(
             &mut self.instances,
@@ -252,6 +254,15 @@ impl TextRenderer {
     }
 }
 
+/// Creates a glyph cache key for the rendered glyph shape of a cell.
+///
+/// Bit layout:
+/// - bits `0..=31`: Unicode scalar value
+/// - bits `32..=47`: shape-affecting style flags (`BOLD | ITALIC`)
+/// - bits `48..=63`: width tag (`0` continuation, `1` single-width, `2` double-width)
+///
+/// Decorations such as underline and strikethrough are intentionally excluded
+/// because they do not change glyph rasterization.
 fn glyph_key_for_cell(cell: Cell) -> GlyphKey {
     let style_bits = (cell.attrs.flags & GLYPH_STYLE_FLAGS).bits();
     let width_tag = match cell.width {
@@ -440,6 +451,17 @@ mod tests {
 
         assert_eq!(rasterized_count.load(Ordering::Relaxed), 1);
         assert_eq!(text_renderer.instance_count(), 1);
+
+        text_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(text_renderer.theme().background);
+        assert!(
+            pixels
+                .chunks_exact(background.len())
+                .any(|pixel| pixel != background),
+            "continuation damage should render the lead glyph"
+        );
     }
 
     #[test]
@@ -549,6 +571,142 @@ mod tests {
                 .any(|pixel| pixel != background),
             "system font rasterization should produce visible text pixels"
         );
+    }
+
+    #[test]
+    fn text_renderer_handles_empty_damage_gracefully() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut text_renderer =
+            TextRenderer::new(&renderer, surface.format(), TextRendererConfig::default())
+                .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('A'))
+            .expect("cell should be written");
+
+        text_renderer
+            .prepare_grid(&renderer, &grid, &[], |_| Ok(None))
+            .expect("empty damage should be accepted");
+
+        assert_eq!(text_renderer.instance_count(), 0);
+    }
+
+    #[test]
+    fn text_renderer_clears_tracked_instances_when_prepare_fails() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                uniforms: crate::cell::TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('A'))
+            .expect("cell should be written");
+
+        text_renderer
+            .prepare_grid(&renderer, &grid, &[DamageRegion::new(0, 0, 0, 0)], |_| {
+                Ok(Some(RasterizedGlyph::new(4, 8, vec![255; 32])))
+            })
+            .expect("initial prepare should succeed");
+        assert_eq!(text_renderer.instance_count(), 1);
+
+        let mut next_grid =
+            Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        next_grid
+            .write(0, 0, Cell::new('B'))
+            .expect("replacement cell should be written");
+
+        let result = text_renderer.prepare_grid(
+            &renderer,
+            &next_grid,
+            &[DamageRegion::new(0, 0, 0, 0)],
+            |_| {
+                Err(crate::error::Error::GlyphRasterizationFailed {
+                    reason: "forced failure".to_string(),
+                })
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::error::Error::GlyphRasterizationFailed { .. })
+        ));
+        assert_eq!(text_renderer.instance_count(), 0);
+    }
+
+    #[test]
+    fn text_renderer_returns_error_when_atlas_exhausts_space() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                atlas: crate::atlas::AtlasConfig::new(
+                    crate::atlas::AtlasSize::new(4, 4).expect("atlas size is valid"),
+                ),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('A'))
+            .expect("first cell should be written");
+        grid.write(0, 1, Cell::new('B'))
+            .expect("second cell should be written");
+
+        let result = text_renderer.prepare_grid(
+            &renderer,
+            &grid,
+            &[DamageRegion::new(0, 0, 0, 1)],
+            |cell| {
+                Ok(Some(match cell.character {
+                    'A' => RasterizedGlyph::new(4, 4, vec![255; 16]),
+                    _ => RasterizedGlyph::new(1, 1, vec![255; 1]),
+                }))
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(crate::error::Error::AtlasFull {
+                width: 1,
+                height: 1
+            })
+        ));
+        assert_eq!(text_renderer.instance_count(), 0);
     }
 
     fn test_glyph_for(cell: Cell) -> RasterizedGlyph {

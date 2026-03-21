@@ -1,8 +1,13 @@
+use std::collections::HashMap;
+
 use fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use iris_core::cell::Cell;
 
 use crate::error::{Error, Result};
 use crate::glyph::RasterizedGlyph;
+
+const MAX_RASTERIZED_GLYPH_DIMENSION: u32 = 512;
+const MAX_FONT_DATA_BYTES: usize = 32 * 1024 * 1024;
 
 /// Configuration for system-font-backed glyph rasterization.
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +34,7 @@ impl Default for FontRasterizerConfig {
 pub struct FontRasterizer {
     database: Database,
     loaded_faces: Vec<LoadedFace>,
+    fallback_cache: HashMap<char, Option<usize>>,
     font_size_px: f32,
 }
 
@@ -52,6 +58,7 @@ impl FontRasterizer {
         let mut rasterizer = Self {
             database,
             loaded_faces: Vec::new(),
+            fallback_cache: HashMap::new(),
             font_size_px: config.font_size_px,
         };
 
@@ -111,6 +118,8 @@ impl FontRasterizer {
                     metrics.height, cell.character
                 ),
             })?;
+        validate_glyph_dimension(width, "width", cell.character)?;
+        validate_glyph_dimension(height, "height", cell.character)?;
 
         if width == 0 || height == 0 || bitmap.is_empty() {
             return Ok(Some(blank_glyph()));
@@ -129,22 +138,39 @@ impl FontRasterizer {
     }
 
     fn face_index_for_character(&mut self, character: char) -> Result<usize> {
+        if let Some(cached_face_index) = self.fallback_cache.get(&character).copied() {
+            return cached_face_index.ok_or_else(|| Error::GlyphRasterizationFailed {
+                reason: format!("no system font contained {:?}", character),
+            });
+        }
+
         if let Some(index) = self
             .loaded_faces
             .iter()
             .position(|face| face.font.lookup_glyph_index(character) != 0)
         {
+            self.fallback_cache.insert(character, Some(index));
             return Ok(index);
         }
 
         self.load_fallback_face_for_character(character)?;
 
-        self.loaded_faces
+        match self
+            .loaded_faces
             .iter()
             .position(|face| face.font.lookup_glyph_index(character) != 0)
-            .ok_or_else(|| Error::GlyphRasterizationFailed {
-                reason: format!("no system font contained {:?}", character),
-            })
+        {
+            Some(index) => {
+                self.fallback_cache.insert(character, Some(index));
+                Ok(index)
+            }
+            None => {
+                self.fallback_cache.insert(character, None);
+                Err(Error::GlyphRasterizationFailed {
+                    reason: format!("no system font contained {:?}", character),
+                })
+            }
+        }
     }
 
     fn load_named_family(&mut self, family_name: &str) -> Result<()> {
@@ -195,11 +221,14 @@ impl FontRasterizer {
             };
 
             if face.font.lookup_glyph_index(character) != 0 {
+                let index = self.loaded_faces.len();
                 self.loaded_faces.push(face);
+                self.fallback_cache.insert(character, Some(index));
                 return Ok(());
             }
         }
 
+        self.fallback_cache.insert(character, None);
         Ok(())
     }
 
@@ -226,6 +255,13 @@ impl FontRasterizer {
             );
 
         let Some(font_result) = self.database.with_face_data(id, |data, face_index| {
+            if data.len() > MAX_FONT_DATA_BYTES {
+                return Err(Error::FontDataTooLarge {
+                    family: family_name.clone(),
+                    size: data.len(),
+                });
+            }
+
             fontdue::Font::from_bytes(
                 data,
                 fontdue::FontSettings {
@@ -233,16 +269,17 @@ impl FontRasterizer {
                     ..fontdue::FontSettings::default()
                 },
             )
+            .map_err(|error| Error::FontLoadFailed {
+                family: family_name.clone(),
+                reason: error.to_string(),
+            })
         }) else {
             return Err(Error::FontDataUnavailable {
                 family: family_name,
             });
         };
 
-        let font = font_result.map_err(|error| Error::FontLoadFailed {
-            family: family_name.clone(),
-            reason: error.to_string(),
-        })?;
+        let font = font_result?;
 
         Ok(Some(LoadedFace {
             id,
@@ -254,6 +291,16 @@ impl FontRasterizer {
     fn is_face_loaded(&self, id: fontdb::ID) -> bool {
         self.loaded_faces.iter().any(|face| face.id == id)
     }
+
+    #[cfg(test)]
+    fn new_empty_for_tests(font_size_px: f32) -> Self {
+        Self {
+            database: Database::new(),
+            loaded_faces: Vec::new(),
+            fallback_cache: HashMap::new(),
+            font_size_px,
+        }
+    }
 }
 
 #[must_use]
@@ -261,11 +308,27 @@ fn blank_glyph() -> RasterizedGlyph {
     RasterizedGlyph::new(1, 1, vec![0])
 }
 
+fn validate_glyph_dimension(dimension: u32, axis: &str, character: char) -> Result<()> {
+    if dimension > MAX_RASTERIZED_GLYPH_DIMENSION {
+        return Err(Error::GlyphRasterizationFailed {
+            reason: format!(
+                "glyph {} {} for {:?} exceeded the maximum {}",
+                axis, dimension, character, MAX_RASTERIZED_GLYPH_DIMENSION
+            ),
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use iris_core::cell::Cell;
 
-    use super::{blank_glyph, FontRasterizer, FontRasterizerConfig};
+    use super::{
+        blank_glyph, validate_glyph_dimension, FontRasterizer, FontRasterizerConfig,
+        MAX_RASTERIZED_GLYPH_DIMENSION,
+    };
     use crate::error::Error;
 
     #[test]
@@ -285,6 +348,16 @@ mod tests {
         assert_eq!(glyph.width(), 1);
         assert_eq!(glyph.height(), 1);
         assert_eq!(glyph.data(), &[0]);
+    }
+
+    #[test]
+    fn glyph_dimension_validation_rejects_pathological_sizes() {
+        let result = validate_glyph_dimension(MAX_RASTERIZED_GLYPH_DIMENSION + 1, "width", 'A');
+
+        assert!(matches!(
+            result,
+            Err(Error::GlyphRasterizationFailed { .. })
+        ));
     }
 
     #[test]
@@ -348,5 +421,17 @@ mod tests {
             assert!(glyph.width() > 0);
             assert!(glyph.height() > 0);
         }
+    }
+
+    #[test]
+    fn font_rasterizer_returns_error_when_no_font_can_map_a_character() {
+        let mut rasterizer = FontRasterizer::new_empty_for_tests(14.0);
+
+        let result = rasterizer.rasterize_cell(Cell::new('A'));
+
+        assert!(matches!(
+            result,
+            Err(Error::GlyphRasterizationFailed { .. })
+        ));
     }
 }

@@ -34,6 +34,10 @@ pub enum Error {
     #[error("font data was unavailable for {family}")]
     FontDataUnavailable { family: String },
 
+    /// Font data must stay within a bounded parse size.
+    #[error("font data for {family} exceeded the maximum supported size: {size} bytes")]
+    FontDataTooLarge { family: String, size: usize },
+
     /// A selected font face could not be parsed.
     #[error("failed to load font {family}: {reason}")]
     FontLoadFailed { family: String, reason: String },

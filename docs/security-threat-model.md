@@ -844,6 +844,22 @@ cargo audit --deny warnings
 cargo outdated --exit-code 1
 ```
 
+### Threat: System Font Parsing
+
+Renderer-side font discovery and rasterization increases attack surface because
+font parsers consume bytes from system font directories.
+
+**Attack Vectors:**
+- malicious or corrupted font files installed on the host
+- oversized font files intended to waste parse time or memory
+- parser vulnerabilities in font-loading dependencies
+
+**Mitigations:**
+- treat system fonts as untrusted input at parse boundaries
+- bound accepted font data sizes before parsing
+- bound rasterized glyph dimensions before atlas allocation
+- keep `cargo audit` in the regular verification loop for font-related dependencies
+
 ### Threat: License Compliance
 
 Incompatible licenses can create legal issues.

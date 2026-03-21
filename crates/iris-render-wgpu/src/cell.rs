@@ -326,6 +326,11 @@ impl TextBuffers {
         self.instance_count
     }
 
+    /// Clears the tracked instance count without rewriting the GPU buffer.
+    pub fn clear_instances(&mut self) {
+        self.instance_count = 0;
+    }
+
     /// Uploads the latest text uniforms.
     pub fn write_uniforms(&self, queue: &wgpu::Queue, uniforms: &TextUniforms) {
         queue.write_buffer(&self.uniform_buffer, 0, uniforms.as_bytes());
@@ -632,6 +637,41 @@ mod tests {
             renderer.queue(),
             &TextUniforms::new([800.0, 600.0], [9.0, 18.0], 32.0),
         );
+    }
+
+    #[test]
+    fn text_buffers_can_clear_tracked_instances() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut buffers =
+            TextBuffers::new(renderer.device(), 2).expect("text buffers should be created");
+        let instance = CellInstance::from_cell(
+            Cell::new('a'),
+            0,
+            0,
+            CachedGlyph::new(AtlasRegion {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            }),
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("cell should encode into an instance");
+
+        buffers
+            .write_instances(renderer.device(), renderer.queue(), &[instance])
+            .expect("instance upload should succeed");
+        assert_eq!(buffers.instance_count(), 1);
+
+        buffers.clear_instances();
+
+        assert_eq!(buffers.instance_count(), 0);
     }
 
     #[test]
