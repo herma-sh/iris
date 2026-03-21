@@ -1,8 +1,9 @@
 //! GPU-backed renderer bootstrap for Iris.
 //!
-//! This crate currently establishes `wgpu` device initialization and
-//! testable off-screen render targets. Text rasterization, grid batching, and
-//! on-screen rendering land in follow-up changes.
+//! This crate currently provides `wgpu` device initialization, testable
+//! off-screen render targets, atlas-backed text rendering, cursor overlays, and
+//! a higher-level terminal renderer that prepares frames from `iris-core`
+//! terminal state.
 
 pub mod atlas;
 pub mod cell;
@@ -13,6 +14,7 @@ pub mod glyph;
 pub mod pipeline;
 pub mod renderer;
 pub mod surface;
+pub mod terminal_renderer;
 pub mod text_renderer;
 pub mod texture;
 pub mod theme;
@@ -23,9 +25,10 @@ pub use cursor::{CursorBuffers, CursorInstance};
 pub use error::{Error, Result};
 pub use font::{FontRasterizer, FontRasterizerConfig};
 pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey, RasterizedGlyph};
-pub use pipeline::{CursorPipeline, FullscreenPipeline, TextPipeline};
+pub use pipeline::{CursorPipeline, FullscreenPipeline, PresentPipeline, TextPipeline};
 pub use renderer::{Renderer, RendererConfig};
 pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
+pub use terminal_renderer::{TerminalRenderer, TerminalRendererConfig};
 pub use text_renderer::{TextRenderer, TextRendererConfig};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
 pub use theme::{Theme, ThemeColor};

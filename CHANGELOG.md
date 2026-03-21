@@ -36,6 +36,8 @@ Target release: `0.2.0`
 - Added renderer coverage for themed empty clears, cache reuse across repeated damage updates, and wide-cell glyph population when damage begins on a continuation column.
 - Added a system-font-backed `FontRasterizer` in `iris-render-wgpu` using `fontdb` and `fontdue`, including best-effort primary-family selection, monospace defaults, fallback scanning, and a `TextRenderer` convenience path that prepares grid text directly from system fonts.
 - Added a cursor overlay path in `iris-render-wgpu` with dedicated cursor instances, GPU buffers, WGSL shader, and render pipeline support for block, underline, and bar cursor styles layered over the text pass.
+- Added a higher-level `TerminalRenderer` in `iris-render-wgpu` that owns the stateful text renderer plus system font rasterizer and prepares full visible frames directly from `iris-core` terminal state.
+- Added a textured presentation pipeline in `iris-render-wgpu` so cached frame textures can be drawn into off-screen or presentation targets through a dedicated fullscreen sample pass.
 
 #### Changed
 
@@ -47,6 +49,8 @@ Target release: `0.2.0`
 - Hardened font rasterizer initialization so `NaN` font sizes are rejected with the same `InvalidFontSize` error path as other non-positive inputs.
 - Integrated the new cursor overlay into `TextRenderer` so prepared cursor state now renders alongside the text pass and correctly normalizes continuation-column cursors back to wide-cell lead positions.
 - Hardened cursor-span normalization so defensive right-edge and orphan-continuation states fall back to single-cell overlays, and documented the single-instance cursor draw invariant in the cursor pipeline.
+- Updated the terminal-facing renderer integration to retain a cached frame texture, apply incremental damage updates for changed text and old/new cursor regions, and present the cached output through a dedicated fullscreen sample pass.
+- Reused normalized damage buffers across retained text prepares to avoid per-frame hot-path allocations, tuned retained damage scratch capacity for the common terminal-update case, and expanded terminal-renderer regression coverage for cursor clearing, theme invalidation, and update-before-prepare behavior.
 
 ### 2026-03-20
 

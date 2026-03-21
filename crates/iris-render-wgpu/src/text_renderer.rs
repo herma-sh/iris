@@ -4,7 +4,8 @@ use iris_core::grid::Grid;
 
 use crate::atlas::{AtlasConfig, AtlasSize};
 use crate::cell::{
-    cell_needs_rendering, normalized_damage_regions, CellInstance, TextBuffers, TextUniforms,
+    cell_needs_rendering_with_blank_default_cells, encode_normalized_damage_instances_with_options,
+    normalized_damage_regions_into, CellInstance, TextBuffers, TextUniforms,
 };
 use crate::cursor::{CursorBuffers, CursorInstance};
 use crate::error::Result;
@@ -59,6 +60,7 @@ pub struct TextRenderer {
     theme: Theme,
     uniforms: TextUniforms,
     instances: Vec<CellInstance>,
+    normalized_damage: Vec<DamageRegion>,
 }
 
 impl TextRenderer {
@@ -91,6 +93,7 @@ impl TextRenderer {
             theme: config.theme,
             uniforms: config.uniforms,
             instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
+            normalized_damage: Vec::with_capacity(config.initial_instance_capacity.max(1)),
         })
     }
 
@@ -140,18 +143,7 @@ impl TextRenderer {
     where
         F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
     {
-        self.instances.clear();
-        self.buffers.clear_instances();
-        self.populate_missing_glyphs(renderer, grid, damage, &mut rasterize_glyph)?;
-        renderer.encode_text_instances_for_damage(
-            &mut self.instances,
-            grid,
-            damage,
-            &self.atlas,
-            &self.theme,
-            |cell| self.glyph_cache.get(glyph_key_for_cell(cell)).copied(),
-        )?;
-        renderer.write_text_instances(&mut self.buffers, &self.instances)
+        self.prepare_grid_internal(renderer, grid, damage, &mut rasterize_glyph, false)
     }
 
     /// Populates and prepares damaged grid cells using the built-in system font rasterizer.
@@ -165,6 +157,24 @@ impl TextRenderer {
         self.prepare_grid(renderer, grid, damage, |cell| {
             font_rasterizer.rasterize_cell(cell)
         })
+    }
+
+    /// Populates and prepares damaged grid cells for retained updates, keeping
+    /// default blank cells so stale content can be cleared back to the theme background.
+    pub fn prepare_grid_update_with_font_rasterizer(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        font_rasterizer: &mut FontRasterizer,
+    ) -> Result<()> {
+        self.prepare_grid_internal(
+            renderer,
+            grid,
+            damage,
+            &mut |cell| font_rasterizer.rasterize_cell(cell),
+            true,
+        )
     }
 
     /// Updates the cursor overlay from core cursor state.
@@ -182,19 +192,40 @@ impl TextRenderer {
 
     /// Renders the prepared text instances into an off-screen texture surface.
     pub fn render_to_texture_surface(&self, renderer: &Renderer, surface: &TextureSurface) {
+        self.render_to_texture_surface_internal(
+            renderer,
+            surface,
+            wgpu::LoadOp::Clear(self.theme.background.to_wgpu_color()),
+        );
+    }
+
+    pub(crate) fn render_to_texture_surface_with_load(
+        &self,
+        renderer: &Renderer,
+        surface: &TextureSurface,
+    ) {
+        self.render_to_texture_surface_internal(renderer, surface, wgpu::LoadOp::Load);
+    }
+
+    fn render_to_texture_surface_internal(
+        &self,
+        renderer: &Renderer,
+        surface: &TextureSurface,
+        load_op: wgpu::LoadOp<wgpu::Color>,
+    ) {
         let mut encoder =
             renderer
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("iris-render-wgpu-text-renderer-texture-encoder"),
                 });
-        self.pipeline.render(
+        self.pipeline.render_with_load_op(
             &mut encoder,
             surface.view(),
             &self.uniform_bind_group,
             &self.atlas,
             &self.buffers,
-            self.theme.background.to_wgpu_color(),
+            load_op,
         );
         self.cursor_pipeline.render(
             &mut encoder,
@@ -244,15 +275,15 @@ impl TextRenderer {
         &mut self,
         renderer: &Renderer,
         grid: &Grid,
-        damage: &[DamageRegion],
         rasterize_glyph: &mut F,
+        include_default_blank_cells: bool,
     ) -> Result<()>
     where
         F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
     {
         let mut skipped_missing_rasterization = 0usize;
 
-        for region in normalized_damage_regions(grid, damage) {
+        for region in &self.normalized_damage {
             let Some(row_cells) = grid.row(region.start_row) else {
                 continue;
             };
@@ -262,7 +293,8 @@ impl TextRenderer {
                 .skip(region.start_col)
                 .take(region.end_col - region.start_col + 1)
             {
-                if !cell_needs_rendering(cell) {
+                if !cell_needs_rendering_with_blank_default_cells(cell, include_default_blank_cells)
+                {
                     continue;
                 }
 
@@ -293,6 +325,37 @@ impl TextRenderer {
         }
 
         Ok(())
+    }
+
+    fn prepare_grid_internal<F>(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        rasterize_glyph: &mut F,
+        include_default_blank_cells: bool,
+    ) -> Result<()>
+    where
+        F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
+    {
+        self.instances.clear();
+        normalized_damage_regions_into(grid, damage, &mut self.normalized_damage);
+        self.buffers.clear_instances();
+        self.populate_missing_glyphs(renderer, grid, rasterize_glyph, include_default_blank_cells)?;
+        let atlas_size = self.atlas.size();
+        let theme = &self.theme;
+        let normalized_damage = &self.normalized_damage;
+        let glyph_cache = &self.glyph_cache;
+        encode_normalized_damage_instances_with_options(
+            &mut self.instances,
+            grid,
+            normalized_damage,
+            atlas_size,
+            theme,
+            |cell| glyph_cache.get(glyph_key_for_cell(cell)).copied(),
+            include_default_blank_cells,
+        )?;
+        renderer.write_text_instances(&mut self.buffers, &self.instances)
     }
 }
 
