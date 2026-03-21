@@ -24,6 +24,29 @@ impl DamageRegion {
     }
 }
 
+/// A visible grid scroll operation that can be consumed by renderers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ScrollDelta {
+    /// First affected row, inclusive.
+    pub top: usize,
+    /// Last affected row, inclusive.
+    pub bottom: usize,
+    /// Signed row delta applied to the region.
+    ///
+    /// Positive values mean content moved upward and new rows were exposed at
+    /// the bottom edge. Negative values mean content moved downward and new
+    /// rows were exposed at the top edge.
+    pub lines: i32,
+}
+
+impl ScrollDelta {
+    /// Creates a scroll delta from an affected row range and signed line count.
+    #[must_use]
+    pub const fn new(top: usize, bottom: usize, lines: i32) -> Self {
+        Self { top, bottom, lines }
+    }
+}
+
 /// Tracks which visible rows and columns changed since the last render pass.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DamageTracker {

@@ -640,7 +640,7 @@ mod tests {
         renderer.queue().write_buffer(
             &uniform_buffer,
             0,
-            PresentUniforms::new([32.0, 32.0], 0.0, [0.0, 0.0, 0.0, 1.0]).as_bytes(),
+            PresentUniforms::new([32.0, 32.0], [0.0, 0.0], 0.0, [0.0, 0.0, 0.0, 1.0]).as_bytes(),
         );
         let bind_group = pipeline.create_texture_bind_group(renderer.device(), &source);
 

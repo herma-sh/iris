@@ -1,5 +1,5 @@
 use iris_core::cursor::Cursor;
-use iris_core::damage::DamageRegion;
+use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::grid::Grid;
 use iris_core::terminal::Terminal;
 
@@ -29,6 +29,7 @@ pub struct TerminalRenderer {
     text_renderer: TextRenderer,
     font_rasterizer: FontRasterizer,
     frame_surface: TextureSurface,
+    scroll_surface: TextureSurface,
     present_pipeline: PresentPipeline,
     present_uniform_buffer: wgpu::Buffer,
     requested_uniforms: TextUniforms,
@@ -52,6 +53,7 @@ impl TerminalRenderer {
         } = config;
         let requested_uniforms = text.uniforms;
         let frame_surface = create_frame_surface(renderer, format, requested_uniforms);
+        let scroll_surface = create_scroll_surface(renderer, format, requested_uniforms);
         text.uniforms = frame_uniforms_for_requested(requested_uniforms);
         let text_renderer = TextRenderer::new(renderer, frame_surface.format(), text)?;
         let font_rasterizer = FontRasterizer::new(font_rasterizer)?;
@@ -66,6 +68,7 @@ impl TerminalRenderer {
             text_renderer,
             font_rasterizer,
             frame_surface,
+            scroll_surface,
             present_pipeline,
             present_uniform_buffer,
             requested_uniforms,
@@ -146,15 +149,24 @@ impl TerminalRenderer {
         if !self.frame_initialized {
             let result = self.prepare_grid_and_cursor(renderer, &terminal.grid, terminal.cursor);
             if result.is_ok() {
+                let _ = terminal.take_scroll_delta();
                 let _ = terminal.take_damage();
             }
             return result;
         }
 
+        let scroll_delta = terminal.take_scroll_delta();
         let damage = terminal.take_damage();
-        match self.update_grid_and_cursor(renderer, &terminal.grid, &damage, terminal.cursor) {
+        match self.update_grid_and_cursor(
+            renderer,
+            &terminal.grid,
+            &damage,
+            scroll_delta,
+            terminal.cursor,
+        ) {
             Ok(()) => Ok(()),
             Err(error) => {
+                terminal.restore_scroll_delta(scroll_delta);
                 terminal.restore_damage(&damage);
                 Err(error)
             }
@@ -189,10 +201,15 @@ impl TerminalRenderer {
         renderer: &Renderer,
         grid: &Grid,
         damage: &[DamageRegion],
+        scroll_delta: Option<ScrollDelta>,
         cursor: Cursor,
     ) -> Result<()> {
         if !self.frame_initialized {
             return self.prepare_grid_and_cursor(renderer, grid, cursor);
+        }
+
+        if let Some(scroll_delta) = simple_full_grid_scroll_delta(scroll_delta, grid) {
+            self.shift_retained_frame_for_scroll(renderer, scroll_delta);
         }
 
         self.full_redraw_damage.clear();
@@ -297,6 +314,8 @@ impl TerminalRenderer {
 
         self.frame_surface =
             create_frame_surface(renderer, self.present_pipeline.format(), uniforms);
+        self.scroll_surface =
+            create_scroll_surface(renderer, self.present_pipeline.format(), uniforms);
         self.present_bind_group = self
             .present_pipeline
             .create_texture_bind_group(renderer.device(), &self.frame_surface);
@@ -321,6 +340,88 @@ impl TerminalRenderer {
         self.frame_initialized = false;
         self.previous_cursor = None;
     }
+
+    fn shift_retained_frame_for_scroll(&mut self, renderer: &Renderer, scroll_delta: ScrollDelta) {
+        let Some((source_y, destination_y, copy_height)) = scroll_copy_region(
+            self.requested_uniforms,
+            self.frame_surface.size(),
+            scroll_delta,
+        ) else {
+            return;
+        };
+
+        let mut encoder =
+            renderer
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("iris-render-wgpu-terminal-renderer-scroll-shift"),
+                });
+        let surface_size = self.frame_surface.size();
+        let full_extent = wgpu::Extent3d {
+            width: surface_size.width,
+            height: surface_size.height,
+            depth_or_array_layers: 1,
+        };
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: self.frame_surface.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: self.scroll_surface.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            full_extent,
+        );
+        {
+            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("iris-render-wgpu-terminal-renderer-scroll-clear-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: self.frame_surface.view(),
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(self.theme().background.to_wgpu_color()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        encoder.copy_texture_to_texture(
+            wgpu::ImageCopyTexture {
+                texture: self.scroll_surface.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: source_y,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyTexture {
+                texture: self.frame_surface.texture(),
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: destination_y,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: surface_size.width,
+                height: copy_height,
+                depth_or_array_layers: 1,
+            },
+        );
+        renderer.queue().submit(std::iter::once(encoder.finish()));
+    }
 }
 
 fn create_frame_surface(
@@ -334,20 +435,47 @@ fn create_frame_surface(
             format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::TEXTURE_BINDING,
         })
         .expect("internal frame-surface config should remain valid")
 }
 
+fn create_scroll_surface(
+    renderer: &Renderer,
+    format: wgpu::TextureFormat,
+    uniforms: TextUniforms,
+) -> TextureSurface {
+    renderer
+        .create_texture_surface(TextureSurfaceConfig {
+            size: frame_surface_size_for_uniforms(uniforms),
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
+        })
+        .expect("internal scroll-surface config should remain valid")
+}
+
 fn frame_surface_size_for_uniforms(uniforms: TextUniforms) -> TextureSurfaceSize {
+    let viewport_size = viewport_surface_size_for_uniforms(uniforms);
+    let vertical_padding = frame_vertical_padding_pixels(uniforms);
     TextureSurfaceSize {
-        width: normalized_surface_dimension(uniforms.resolution[0]),
-        height: normalized_surface_dimension(uniforms.resolution[1]),
+        width: viewport_size.width,
+        height: viewport_size
+            .height
+            .saturating_add(vertical_padding.saturating_mul(2)),
     }
 }
 
 fn frame_uniforms_for_requested(uniforms: TextUniforms) -> TextUniforms {
-    TextUniforms::new(uniforms.resolution, uniforms.cell_size, 0.0)
+    let frame_size = frame_surface_size_for_uniforms(uniforms);
+    let vertical_padding = frame_vertical_padding_pixels(uniforms) as f32;
+    TextUniforms::new(
+        [frame_size.width as f32, frame_size.height as f32],
+        uniforms.cell_size,
+        vertical_padding,
+    )
 }
 
 fn present_uniforms_for_requested(
@@ -360,9 +488,59 @@ fn present_uniforms_for_requested(
             frame_surface_size.width as f32,
             frame_surface_size.height as f32,
         ],
+        [0.0, frame_vertical_padding_pixels(uniforms) as f32],
         uniforms.scroll_offset,
         theme.background.to_f32_array(),
     )
+}
+
+fn viewport_surface_size_for_uniforms(uniforms: TextUniforms) -> TextureSurfaceSize {
+    TextureSurfaceSize {
+        width: normalized_surface_dimension(uniforms.resolution[0]),
+        height: normalized_surface_dimension(uniforms.resolution[1]),
+    }
+}
+
+fn frame_vertical_padding_pixels(uniforms: TextUniforms) -> u32 {
+    normalized_surface_dimension(uniforms.cell_size[1])
+}
+
+fn simple_full_grid_scroll_delta(
+    scroll_delta: Option<ScrollDelta>,
+    grid: &Grid,
+) -> Option<ScrollDelta> {
+    let scroll_delta = scroll_delta?;
+    let full_grid_bottom = grid.rows().checked_sub(1)?;
+    if scroll_delta.top == 0
+        && scroll_delta.bottom == full_grid_bottom
+        && scroll_delta.lines.unsigned_abs() == 1
+    {
+        Some(scroll_delta)
+    } else {
+        None
+    }
+}
+
+fn scroll_copy_region(
+    uniforms: TextUniforms,
+    frame_surface_size: TextureSurfaceSize,
+    scroll_delta: ScrollDelta,
+) -> Option<(u32, u32, u32)> {
+    let viewport_size = viewport_surface_size_for_uniforms(uniforms);
+    if viewport_size.height == 0 || frame_surface_size.width == 0 {
+        return None;
+    }
+
+    let vertical_padding = frame_vertical_padding_pixels(uniforms);
+    match scroll_delta.lines {
+        1 => Some((vertical_padding, 0, viewport_size.height)),
+        -1 => Some((
+            vertical_padding,
+            vertical_padding.saturating_mul(2),
+            viewport_size.height,
+        )),
+        _ => None,
+    }
 }
 
 fn normalized_surface_dimension(dimension: f32) -> u32 {
@@ -596,7 +774,7 @@ mod tests {
             pixel_at(
                 &cached_pixels,
                 terminal_renderer.frame_surface.size(),
-                (24, 8)
+                (24, 24)
             ),
             background,
             "cursor-only updates should clear the old cursor cell in the cached frame"
@@ -704,7 +882,7 @@ mod tests {
         assert_eq!(terminal_renderer.font_size_px(), 14.0);
         assert_eq!(
             terminal_renderer.frame_surface_size(),
-            TextureSurfaceSize::new(800, 600).expect("surface dimensions are valid")
+            TextureSurfaceSize::new(800, 640).expect("surface dimensions are valid")
         );
     }
 
@@ -831,11 +1009,21 @@ mod tests {
             cell_region_has_non_background(
                 &cached_pixels,
                 terminal_renderer.frame_surface.size(),
-                (0, 0),
+                (0, 1),
                 (16, 16),
                 background,
             ),
             "the cached frame should still contain the unshifted glyph content"
+        );
+        assert!(
+            cell_region_matches_background(
+                &cached_pixels,
+                terminal_renderer.frame_surface.size(),
+                (0, 0),
+                (16, 16),
+                background,
+            ),
+            "the cached frame should reserve a blank top overscan row"
         );
         assert!(
             band_matches_background(&pixels, surface.size(), 0..8, background),
@@ -844,6 +1032,141 @@ mod tests {
         assert!(
             cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
             "the shifted presentation should still contain visible glyph pixels"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_retains_offscreen_rows_for_smooth_scroll_presentation() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 32).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([16.0, 32.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(2, 1).expect("terminal should be created");
+        terminal.cursor.visible = false;
+        terminal
+            .grid
+            .write(
+                0,
+                0,
+                iris_core::cell::Cell::with_attrs(
+                    ' ',
+                    iris_core::cell::CellAttrs {
+                        bg: iris_core::cell::Color::Rgb {
+                            r: 0xff,
+                            g: 0x00,
+                            b: 0x00,
+                        },
+                        ..Default::default()
+                    },
+                ),
+            )
+            .expect("top styled cell should be written");
+        terminal
+            .grid
+            .write(
+                1,
+                0,
+                iris_core::cell::Cell::with_attrs(
+                    ' ',
+                    iris_core::cell::CellAttrs {
+                        bg: iris_core::cell::Color::Rgb {
+                            r: 0x00,
+                            g: 0xff,
+                            b: 0x00,
+                        },
+                        ..Default::default()
+                    },
+                ),
+            )
+            .expect("bottom styled cell should be written");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        terminal
+            .apply_action(iris_core::parser::Action::ScrollUp(1))
+            .expect("scroll up should succeed");
+        terminal
+            .grid
+            .write(
+                1,
+                0,
+                iris_core::cell::Cell::with_attrs(
+                    ' ',
+                    iris_core::cell::CellAttrs {
+                        bg: iris_core::cell::Color::Rgb {
+                            r: 0x00,
+                            g: 0x00,
+                            b: 0xff,
+                        },
+                        ..Default::default()
+                    },
+                ),
+            )
+            .expect("new bottom styled cell should be written");
+        terminal_renderer.set_uniforms(
+            &renderer,
+            TextUniforms::new([16.0, 32.0], [16.0, 16.0], 16.0),
+        );
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("scroll update should preserve overscan rows");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let smooth_scroll_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(
+            pixel_at(&smooth_scroll_pixels, surface.size(), (8, 8)),
+            [0x00, 0x00, 0xff, 0xff],
+            "positive scroll offset should keep the old top row in the overscan band"
+        );
+        assert_eq!(
+            pixel_at(&smooth_scroll_pixels, surface.size(), (8, 24)),
+            [0x00, 0xff, 0x00, 0xff],
+            "positive scroll offset should keep the old bottom row visible during the transition"
+        );
+
+        terminal_renderer.set_uniforms(
+            &renderer,
+            TextUniforms::new([16.0, 32.0], [16.0, 16.0], 0.0),
+        );
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let settled_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert_eq!(
+            pixel_at(&settled_pixels, surface.size(), (8, 8)),
+            [0x00, 0xff, 0x00, 0xff],
+            "settling the scroll offset should reveal the new top row"
+        );
+        assert_eq!(
+            pixel_at(&settled_pixels, surface.size(), (8, 24)),
+            [0xff, 0x00, 0x00, 0xff],
+            "settling the scroll offset should reveal the newly exposed bottom row"
         );
     }
 

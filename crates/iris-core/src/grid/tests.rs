@@ -242,3 +242,37 @@ fn grid_restore_damage_replays_drained_regions() {
 
     assert_eq!(grid.take_damage(), damage);
 }
+
+#[test]
+fn grid_scroll_up_tracks_scroll_delta() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+
+    grid.scroll_up(1);
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 2, 1))
+    );
+    assert_eq!(grid.take_scroll_delta(), None);
+}
+
+#[test]
+fn grid_restore_scroll_delta_replays_drained_scrolls() {
+    let mut grid = Grid::new(GridSize { rows: 3, cols: 2 }).unwrap();
+
+    grid.scroll_down(1);
+
+    let scroll_delta = grid.take_scroll_delta();
+    assert_eq!(
+        scroll_delta,
+        Some(crate::damage::ScrollDelta::new(0, 2, -1))
+    );
+    assert_eq!(grid.take_scroll_delta(), None);
+
+    grid.restore_scroll_delta(scroll_delta);
+
+    assert_eq!(
+        grid.take_scroll_delta(),
+        Some(crate::damage::ScrollDelta::new(0, 2, -1))
+    );
+}

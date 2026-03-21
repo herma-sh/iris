@@ -1,5 +1,6 @@
 use super::Grid;
 use crate::cell::Cell;
+use crate::damage::ScrollDelta;
 use crate::error::Result;
 
 impl Grid {
@@ -21,6 +22,11 @@ impl Grid {
         let clear_start = (rows - shift).saturating_mul(cols);
         self.cells[clear_start..].fill(Cell::default());
         self.damage.mark_all();
+        self.record_scroll(ScrollDelta::new(
+            0,
+            rows.saturating_sub(1),
+            i32::try_from(shift).unwrap_or(i32::MAX),
+        ));
     }
 
     /// Scrolls the grid downward by the requested number of rows.
@@ -42,6 +48,11 @@ impl Grid {
         let clear_end = shift.saturating_mul(cols);
         self.cells[..clear_end].fill(Cell::default());
         self.damage.mark_all();
+        self.record_scroll(ScrollDelta::new(
+            0,
+            rows.saturating_sub(1),
+            -i32::try_from(shift).unwrap_or(i32::MAX),
+        ));
     }
 
     /// Scrolls an inclusive row range upward by the requested number of rows.
@@ -73,6 +84,11 @@ impl Grid {
         for row in top..=bottom {
             self.damage.mark_row(row, cols);
         }
+        self.record_scroll(ScrollDelta::new(
+            top,
+            bottom,
+            i32::try_from(shift).unwrap_or(i32::MAX),
+        ));
 
         Ok(())
     }
@@ -107,6 +123,11 @@ impl Grid {
         for row in top..=bottom {
             self.damage.mark_row(row, cols);
         }
+        self.record_scroll(ScrollDelta::new(
+            top,
+            bottom,
+            -i32::try_from(shift).unwrap_or(i32::MAX),
+        ));
 
         Ok(())
     }

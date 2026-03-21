@@ -29,10 +29,10 @@ pub struct PresentPipeline {
 pub struct PresentUniforms {
     /// Source frame dimensions in pixels.
     pub frame_size: [f32; 2],
+    /// Pixel origin of the visible viewport inside the cached frame.
+    pub viewport_origin: [f32; 2],
     /// Vertical presentation offset in pixels.
-    pub scroll_offset: f32,
-    /// Explicit padding for stable WGSL layout.
-    pub _padding: u32,
+    pub scroll_offset: [f32; 4],
     /// Background color used when the presentation offset reveals uncovered rows.
     pub background_color: [f32; 4],
 }
@@ -40,11 +40,16 @@ pub struct PresentUniforms {
 impl PresentUniforms {
     /// Creates presentation uniforms for the cached frame and viewport offset.
     #[must_use]
-    pub const fn new(frame_size: [f32; 2], scroll_offset: f32, background_color: [f32; 4]) -> Self {
+    pub const fn new(
+        frame_size: [f32; 2],
+        viewport_origin: [f32; 2],
+        scroll_offset: f32,
+        background_color: [f32; 4],
+    ) -> Self {
         Self {
             frame_size,
-            scroll_offset,
-            _padding: 0,
+            viewport_origin,
+            scroll_offset: [scroll_offset, 0.0, 0.0, 0.0],
             background_color,
         }
     }
@@ -638,7 +643,7 @@ mod tests {
         renderer.queue().write_buffer(
             &uniform_buffer,
             0,
-            PresentUniforms::new([32.0, 32.0], 0.0, [0.0, 0.0, 0.0, 1.0]).as_bytes(),
+            PresentUniforms::new([32.0, 32.0], [0.0, 0.0], 0.0, [0.0, 0.0, 0.0, 1.0]).as_bytes(),
         );
         let uniform_bind_group =
             pipeline.create_uniform_bind_group(renderer.device(), &uniform_buffer);
