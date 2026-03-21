@@ -56,21 +56,10 @@ fn main() {
     config.font_rasterizer.font_size_px = 14.0;
 
     let full_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
-    let mut full_terminal_renderer = match TerminalRenderer::new(
-        &renderer,
-        wgpu::TextureFormat::Bgra8UnormSrgb,
-        config.clone(),
-    ) {
-        Ok(terminal_renderer) => terminal_renderer,
-        Err(Error::NoUsableSystemFont) => {
-            println!("renderer_throughput");
-            println!("===================");
-            println!("skipped: no usable system font was available");
-            return;
-        }
-        Err(error) => {
-            panic!("terminal renderer should initialize for full-frame benchmark: {error}")
-        }
+    let Some(mut full_terminal_renderer) =
+        create_terminal_renderer(&renderer, "full-frame benchmark", config.clone())
+    else {
+        return;
     };
     let full_target = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
@@ -93,21 +82,10 @@ fn main() {
     let full_frame_ms = per_iteration_ms(&full_prepare);
 
     let mut scroll_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
-    let mut scroll_terminal_renderer = match TerminalRenderer::new(
-        &renderer,
-        wgpu::TextureFormat::Bgra8UnormSrgb,
-        config.clone(),
-    ) {
-        Ok(terminal_renderer) => terminal_renderer,
-        Err(Error::NoUsableSystemFont) => {
-            println!("renderer_throughput");
-            println!("===================");
-            println!("skipped: no usable system font was available");
-            return;
-        }
-        Err(error) => {
-            panic!("terminal renderer should initialize for retained-scroll benchmark: {error}")
-        }
+    let Some(mut scroll_terminal_renderer) =
+        create_terminal_renderer(&renderer, "retained-scroll benchmark", config.clone())
+    else {
+        return;
     };
     let scroll_target = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
@@ -189,6 +167,23 @@ where
     BenchResult {
         iterations: iterations.max(1),
         elapsed: start.elapsed(),
+    }
+}
+
+fn create_terminal_renderer(
+    renderer: &Renderer,
+    context: &str,
+    config: TerminalRendererConfig,
+) -> Option<TerminalRenderer> {
+    match TerminalRenderer::new(renderer, wgpu::TextureFormat::Bgra8UnormSrgb, config) {
+        Ok(terminal_renderer) => Some(terminal_renderer),
+        Err(Error::NoUsableSystemFont) => {
+            println!("renderer_throughput");
+            println!("===================");
+            println!("skipped: no usable system font was available");
+            None
+        }
+        Err(error) => panic!("terminal renderer should initialize for {context}: {error}"),
     }
 }
 
