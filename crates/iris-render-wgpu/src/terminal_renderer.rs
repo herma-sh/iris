@@ -966,6 +966,8 @@ mod tests {
         terminal_renderer
             .prepare_terminal(&renderer, &terminal)
             .expect("initial terminal frame should prepare");
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
         terminal_renderer
             .set_font_size_px(&renderer, 18.0)
             .expect("font size update should succeed");
