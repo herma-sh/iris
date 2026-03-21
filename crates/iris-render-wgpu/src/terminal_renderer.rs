@@ -3,6 +3,7 @@ use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 use iris_core::terminal::Terminal;
 
+use crate::cursor::CursorInstance;
 use crate::error::Result;
 use crate::font::{FontRasterizer, FontRasterizerConfig};
 use crate::pipeline::PresentPipeline;
@@ -31,6 +32,8 @@ pub struct TerminalRenderer {
     present_pipeline: PresentPipeline,
     present_bind_group: wgpu::BindGroup,
     full_redraw_damage: Vec<DamageRegion>,
+    previous_cursor: Option<Cursor>,
+    frame_initialized: bool,
 }
 
 impl TerminalRenderer {
@@ -54,6 +57,8 @@ impl TerminalRenderer {
             present_pipeline,
             present_bind_group,
             full_redraw_damage: Vec::with_capacity(1),
+            previous_cursor: None,
+            frame_initialized: false,
         })
     }
 
@@ -66,6 +71,8 @@ impl TerminalRenderer {
     /// Replaces the active renderer theme.
     pub fn set_theme(&mut self, theme: Theme) {
         self.text_renderer.set_theme(theme);
+        self.frame_initialized = false;
+        self.previous_cursor = None;
     }
 
     /// Returns the current text uniforms.
@@ -109,6 +116,13 @@ impl TerminalRenderer {
         self.prepare_grid_and_cursor(renderer, &terminal.grid, terminal.cursor)
     }
 
+    /// Applies an incremental terminal update into the cached frame using the
+    /// terminal's accumulated damage plus cursor old/new regions.
+    pub fn update_terminal(&mut self, renderer: &Renderer, terminal: &mut Terminal) -> Result<()> {
+        let damage = terminal.take_damage();
+        self.update_grid_and_cursor(renderer, &terminal.grid, &damage, terminal.cursor)
+    }
+
     /// Prepares a full visible frame from explicit grid and cursor state.
     pub fn prepare_grid_and_cursor(
         &mut self,
@@ -126,6 +140,44 @@ impl TerminalRenderer {
         self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
         self.text_renderer
             .render_to_texture_surface(renderer, &self.frame_surface);
+        self.previous_cursor = Some(cursor);
+        self.frame_initialized = true;
+        Ok(())
+    }
+
+    /// Applies an incremental grid and cursor update into the cached frame.
+    pub fn update_grid_and_cursor(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        cursor: Cursor,
+    ) -> Result<()> {
+        if !self.frame_initialized {
+            return self.prepare_grid_and_cursor(renderer, grid, cursor);
+        }
+
+        self.full_redraw_damage.clear();
+        self.full_redraw_damage.extend_from_slice(damage);
+        self.push_cursor_damage(grid, self.previous_cursor);
+        self.push_cursor_damage(grid, Some(cursor));
+
+        if self.full_redraw_damage.is_empty() {
+            self.previous_cursor = Some(cursor);
+            return Ok(());
+        }
+
+        self.text_renderer
+            .prepare_grid_update_with_font_rasterizer(
+                renderer,
+                grid,
+                &self.full_redraw_damage,
+                &mut self.font_rasterizer,
+            )?;
+        self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
+        self.text_renderer
+            .render_to_texture_surface_with_load(renderer, &self.frame_surface);
+        self.previous_cursor = Some(cursor);
         Ok(())
     }
 
@@ -178,6 +230,23 @@ impl TerminalRenderer {
         ));
     }
 
+    fn push_cursor_damage(&mut self, grid: &Grid, cursor: Option<Cursor>) {
+        let Some(cursor) = cursor else {
+            return;
+        };
+        let Some(instance) = CursorInstance::from_cursor(cursor, grid, self.theme())
+            .ok()
+            .flatten()
+        else {
+            return;
+        };
+        let row = instance.grid_position[1] as usize;
+        let start_col = instance.grid_position[0] as usize;
+        let end_col = start_col.saturating_add(instance.extent[0].ceil().max(1.0) as usize - 1);
+        self.full_redraw_damage
+            .push(DamageRegion::new(row, row, start_col, end_col));
+    }
+
     fn resize_frame_surface(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
         let next_size = frame_surface_size_for_uniforms(uniforms);
         if next_size == self.frame_surface.size() {
@@ -189,6 +258,8 @@ impl TerminalRenderer {
         self.present_bind_group = self
             .present_pipeline
             .create_texture_bind_group(renderer.device(), &self.frame_surface);
+        self.frame_initialized = false;
+        self.previous_cursor = None;
     }
 }
 
@@ -289,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_renderer_redraws_the_full_frame_for_cursor_only_updates() {
+    fn terminal_renderer_updates_cached_frame_for_cursor_only_changes() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
             Ok(renderer) => renderer,
@@ -326,23 +397,83 @@ mod tests {
             .expect("initial terminal frame should prepare");
         assert_eq!(terminal_renderer.instance_count(), 1);
 
-        let _ = terminal.take_damage();
         terminal.cursor.move_to(0, 0);
 
         terminal_renderer
-            .prepare_terminal(&renderer, &terminal)
-            .expect("cursor-only update should still prepare");
+            .update_terminal(&renderer, &mut terminal)
+            .expect("cursor-only update should refresh the cached frame");
         terminal_renderer.render_to_texture_surface(&renderer, &surface);
 
         let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
         let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
-        assert_eq!(terminal_renderer.instance_count(), 1);
+        assert_eq!(terminal_renderer.instance_count(), 2);
         assert_eq!(terminal_renderer.cursor_instance_count(), 1);
         assert!(
             pixels
                 .chunks_exact(background.len())
                 .any(|pixel| pixel != background),
-            "full-frame redraw should preserve text when only the cursor moves"
+            "cursor-only updates should preserve visible text in the cached frame"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_clears_removed_text_during_damage_updates() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: Theme {
+                        background: ThemeColor::rgb(0xff, 0x00, 0x00),
+                        ..Theme::default()
+                    },
+                    uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+        terminal
+            .write_char('A')
+            .expect("terminal write should succeed");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        terminal
+            .grid
+            .write(0, 0, iris_core::cell::Cell::default())
+            .expect("cell clear should mark damage");
+        terminal.cursor.visible = false;
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("blank-cell damage should refresh the cached frame");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert!(
+            pixels
+                .chunks_exact(background.len())
+                .all(|pixel| pixel == background),
+            "blank default cells should clear previously rendered glyphs back to the background"
         );
     }
 

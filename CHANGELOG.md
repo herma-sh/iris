@@ -49,7 +49,7 @@ Target release: `0.2.0`
 - Hardened font rasterizer initialization so `NaN` font sizes are rejected with the same `InvalidFontSize` error path as other non-positive inputs.
 - Integrated the new cursor overlay into `TextRenderer` so prepared cursor state now renders alongside the text pass and correctly normalizes continuation-column cursors back to wide-cell lead positions.
 - Hardened cursor-span normalization so defensive right-edge and orphan-continuation states fall back to single-cell overlays, and documented the single-instance cursor draw invariant in the cursor pipeline.
-- Updated the terminal-facing renderer integration to cache prepared output in a dedicated frame texture and present from that cached frame, while still using full visible redraws until retained damage-only updates land.
+- Updated the terminal-facing renderer integration to retain a cached frame texture, apply incremental damage updates for changed text and old/new cursor regions, and present the cached output through a dedicated fullscreen sample pass.
 
 ### 2026-03-20
 

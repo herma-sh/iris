@@ -144,7 +144,30 @@ pub fn encode_damage_instances<F>(
     damage: &[DamageRegion],
     atlas_size: AtlasSize,
     theme: &Theme,
+    resolve_glyph: F,
+) -> Result<()>
+where
+    F: FnMut(Cell) -> Option<CachedGlyph>,
+{
+    encode_damage_instances_with_options(
+        instances,
+        grid,
+        damage,
+        atlas_size,
+        theme,
+        resolve_glyph,
+        false,
+    )
+}
+
+pub(crate) fn encode_damage_instances_with_options<F>(
+    instances: &mut Vec<CellInstance>,
+    grid: &Grid,
+    damage: &[DamageRegion],
+    atlas_size: AtlasSize,
+    theme: &Theme,
     mut resolve_glyph: F,
+    include_default_blank_cells: bool,
 ) -> Result<()>
 where
     F: FnMut(Cell) -> Option<CachedGlyph>,
@@ -163,7 +186,7 @@ where
             .skip(region.start_col)
             .take(region.end_col - region.start_col + 1)
         {
-            if !cell_needs_rendering(cell) {
+            if !cell_needs_rendering_with_blank_default_cells(cell, include_default_blank_cells) {
                 continue;
             }
 
@@ -204,8 +227,12 @@ where
 }
 
 #[must_use]
-pub(crate) fn cell_needs_rendering(cell: Cell) -> bool {
-    cell.width.columns() != 0 && (!cell.is_empty() || cell.attrs != CellAttrs::default())
+pub(crate) fn cell_needs_rendering_with_blank_default_cells(
+    cell: Cell,
+    include_default_blank_cells: bool,
+) -> bool {
+    cell.width.columns() != 0
+        && (include_default_blank_cells || !cell.is_empty() || cell.attrs != CellAttrs::default())
 }
 
 pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {

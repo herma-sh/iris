@@ -332,6 +332,25 @@ impl TextPipeline {
         buffers: &TextBuffers,
         clear_color: wgpu::Color,
     ) {
+        self.render_with_load_op(
+            encoder,
+            view,
+            uniform_bind_group,
+            atlas,
+            buffers,
+            wgpu::LoadOp::Clear(clear_color),
+        );
+    }
+
+    pub(crate) fn render_with_load_op(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        uniform_bind_group: &wgpu::BindGroup,
+        atlas: &GlyphAtlas,
+        buffers: &TextBuffers,
+        load_op: wgpu::LoadOp<wgpu::Color>,
+    ) {
         // Cursor overlays upload at most one instance, so the count always fits in `u32`.
         let instance_count = buffers.instance_count() as u32;
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -340,7 +359,7 @@ impl TextPipeline {
                 view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear_color),
+                    load: load_op,
                     store: wgpu::StoreOp::Store,
                 },
             })],
