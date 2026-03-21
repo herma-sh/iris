@@ -64,6 +64,7 @@ Target release: `0.2.0`
 - Added renderer integration coverage for partial scroll-region updates so non-full-grid scroll operations are now explicitly validated in the terminal renderer path.
 - Extended retained-frame scroll shifting to handle partial scroll regions (not just full-grid deltas), preserving rows outside the active scroll window while shifting the affected band in-place.
 - Hardened incremental renderer error recovery so failed updates now invalidate cached retained frames after scroll-shift mutation, preventing stale shifted textures from being reused on retry.
+- Wired the renderer throughput benchmark as an executable crate benchmark target (`cargo bench -p iris-render-wgpu --bench renderer_throughput`) and refreshed the documented local baseline measurements.
 
 ### 2026-03-20
 

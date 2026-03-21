@@ -72,9 +72,9 @@ Latest verified run on `2026-03-21`:
 
 | Fixture | Result |
 |---------|--------|
-| `full_prepare_160x45` | `~0.29 ms/frame` |
-| `retained_scroll_update_160x45` | `~3500 updates/s` |
-| `estimated_renderer_memory` | `~13.34 MiB` |
+| `full_prepare_160x45` | `~0.4-0.8 ms/frame` |
+| `retained_scroll_update_160x45` | `~1.4k-2.1k updates/s` |
+| `estimated_renderer_memory` | `~13.53 MiB` |
 
 ## Planned Benchmarks
 

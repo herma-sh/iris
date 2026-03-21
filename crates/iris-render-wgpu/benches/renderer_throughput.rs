@@ -1,4 +1,5 @@
 use std::hint::black_box;
+use std::mem::size_of;
 use std::time::{Duration, Instant};
 
 use iris_core::parser::Action;
@@ -55,21 +56,31 @@ fn main() {
     config.font_rasterizer.font_size_px = 14.0;
 
     let full_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
-    let mut full_terminal_renderer = TerminalRenderer::new(
+    let mut full_terminal_renderer = match TerminalRenderer::new(
         &renderer,
         wgpu::TextureFormat::Bgra8UnormSrgb,
         config.clone(),
-    )
-    .expect("terminal renderer should initialize for full-frame benchmark");
+    ) {
+        Ok(terminal_renderer) => terminal_renderer,
+        Err(Error::NoUsableSystemFont) => {
+            println!("renderer_throughput");
+            println!("===================");
+            println!("skipped: no usable system font was available");
+            return;
+        }
+        Err(error) => {
+            panic!("terminal renderer should initialize for full-frame benchmark: {error}")
+        }
+    };
     let full_target = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
             TextureSurfaceSize::new(
                 config.text.uniforms.resolution[0] as u32,
                 config.text.uniforms.resolution[1] as u32,
             )
-            .expect("benchmark render target dimensions should be valid"),
+            .expect("benchmark render-target dimensions should be valid"),
         ))
-        .expect("full benchmark render target should initialize");
+        .expect("full benchmark render-target should initialize");
 
     let full_prepare = run_benchmark(|_| {
         full_terminal_renderer
@@ -82,24 +93,34 @@ fn main() {
     let full_frame_ms = per_iteration_ms(&full_prepare);
 
     let mut scroll_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
-    let mut scroll_terminal_renderer = TerminalRenderer::new(
+    let mut scroll_terminal_renderer = match TerminalRenderer::new(
         &renderer,
         wgpu::TextureFormat::Bgra8UnormSrgb,
         config.clone(),
-    )
-    .expect("terminal renderer should initialize for retained-scroll benchmark");
+    ) {
+        Ok(terminal_renderer) => terminal_renderer,
+        Err(Error::NoUsableSystemFont) => {
+            println!("renderer_throughput");
+            println!("===================");
+            println!("skipped: no usable system font was available");
+            return;
+        }
+        Err(error) => {
+            panic!("terminal renderer should initialize for retained-scroll benchmark: {error}")
+        }
+    };
     let scroll_target = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
             TextureSurfaceSize::new(
                 config.text.uniforms.resolution[0] as u32,
                 config.text.uniforms.resolution[1] as u32,
             )
-            .expect("benchmark render target dimensions should be valid"),
+            .expect("benchmark render-target dimensions should be valid"),
         ))
-        .expect("scroll benchmark render target should initialize");
+        .expect("scroll benchmark render-target should initialize");
     scroll_terminal_renderer
         .prepare_terminal(&renderer, &scroll_terminal)
-        .expect("initial retained frame prepare should succeed");
+        .expect("initial retained-frame prepare should succeed");
 
     let mut line_buffer = vec![b'a'; GRID_COLS];
     let scroll_update = run_benchmark(|iteration| {
@@ -207,26 +228,23 @@ fn estimate_renderer_memory_mb(config: &TerminalRendererConfig) -> f64 {
     let width = config.text.uniforms.resolution[0].max(1.0).round() as u64;
     let height = config.text.uniforms.resolution[1].max(1.0).round() as u64;
 
-    // This estimate intentionally models the major retained-renderer allocations
-    // visible from config/input sizing; it does not include backend/driver
-    // bookkeeping or opaque GPU allocator overhead.
+    // This estimate intentionally models major retained-renderer allocations
+    // visible from config/input sizing. Backend allocator and driver-side
+    // bookkeeping are intentionally excluded.
     let frame_surface_bytes = width * height * 4;
     let scroll_surface_bytes = frame_surface_bytes;
     let atlas_bytes =
         u64::from(config.text.atlas.size.width) * u64::from(config.text.atlas.size.height);
     let instance_bytes =
-        config.text.initial_instance_capacity as u64 * std::mem::size_of::<CellInstance>() as u64;
+        config.text.initial_instance_capacity as u64 * size_of::<CellInstance>() as u64;
     let uniform_buffer_count = 2u64;
-    let uniform_bytes = uniform_buffer_count * std::mem::size_of::<TextUniforms>() as u64;
-    let cursor_instance_bytes = std::mem::size_of::<CursorInstance>() as u64;
+    let uniform_bytes = uniform_buffer_count * size_of::<TextUniforms>() as u64;
+    let cursor_instance_bytes = size_of::<CursorInstance>() as u64;
 
-    // The runtime glyph-cache size depends on seen text; cap the estimate so the
-    // number tracks realistic viewport-driven churn instead of unbounded growth.
     let estimated_glyph_entries = (config.text.initial_instance_capacity as u64).min(4_096);
     let glyph_cache_entry_bytes = 48u64;
     let glyph_cache_bytes = estimated_glyph_entries * glyph_cache_entry_bytes;
 
-    // Approximate allocator/config state tied to rasterizer setup.
     let fallback_family_bytes = config
         .font_rasterizer
         .fallback_families
