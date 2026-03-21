@@ -79,6 +79,23 @@ pub enum Error {
         requested_height: u32,
     },
 
+    /// A glyph cache entry must not be reused with different placement offsets.
+    #[error(
+        "glyph cache entry {key} already exists with placement ({cached_left_px},{cached_top_px}), cannot reuse it for ({requested_left_px},{requested_top_px})"
+    )]
+    GlyphCachePlacementMismatch {
+        /// The caller-defined glyph cache key.
+        key: u64,
+        /// The cached glyph horizontal placement offset.
+        cached_left_px: i32,
+        /// The cached glyph vertical placement offset.
+        cached_top_px: i32,
+        /// The requested glyph horizontal placement offset.
+        requested_left_px: i32,
+        /// The requested glyph vertical placement offset.
+        requested_top_px: i32,
+    },
+
     /// Continuation cells must not be emitted as standalone text instances.
     #[error("continuation cells cannot be encoded as renderable text instances")]
     ContinuationCellNotRenderable,

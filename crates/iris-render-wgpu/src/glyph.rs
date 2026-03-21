@@ -230,6 +230,15 @@ impl GlyphCache {
                     requested_height: bitmap.height,
                 });
             }
+            if entry.placement != placement {
+                return Err(Error::GlyphCachePlacementMismatch {
+                    key: key.value(),
+                    cached_left_px: entry.placement.left_px,
+                    cached_top_px: entry.placement.top_px,
+                    requested_left_px: placement.left_px,
+                    requested_top_px: placement.top_px,
+                });
+            }
 
             return Ok(entry);
         }
@@ -372,6 +381,54 @@ mod tests {
                 cached_height: 4,
                 requested_width: 5,
                 requested_height: 4,
+            })
+        ));
+    }
+
+    #[test]
+    fn glyph_cache_rejects_mixed_api_reinsertion_with_different_placement() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut atlas = renderer
+            .create_glyph_atlas(AtlasConfig::new(
+                AtlasSize::new(32, 32).expect("atlas size is valid"),
+            ))
+            .expect("glyph atlas should be created");
+        let mut cache = GlyphCache::new();
+        let key = GlyphKey::new(10);
+
+        cache
+            .cache_glyph(
+                &mut atlas,
+                renderer.queue(),
+                key,
+                GlyphBitmap::new(4, 4, &[255; 16]),
+            )
+            .expect("first cache insertion should succeed");
+
+        let result = cache.cache_glyph_with_placement(
+            &mut atlas,
+            renderer.queue(),
+            key,
+            GlyphBitmap::new(4, 4, &[255; 16]),
+            GlyphPlacement {
+                left_px: 1,
+                top_px: 2,
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(Error::GlyphCachePlacementMismatch {
+                key: 10,
+                cached_left_px: 0,
+                cached_top_px: 0,
+                requested_left_px: 1,
+                requested_top_px: 2,
             })
         ));
     }
