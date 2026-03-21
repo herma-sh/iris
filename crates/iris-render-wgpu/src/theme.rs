@@ -396,11 +396,32 @@ const fn toml_value_kind(value: &Value) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use iris_core::cell::{CellAttrs, CellFlags, Color};
 
     use super::{Theme, ThemeColor, ThemeLoadError};
+
+    struct TempFileGuard {
+        path: PathBuf,
+    }
+
+    impl TempFileGuard {
+        fn new(path: PathBuf) -> Self {
+            Self { path }
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempFileGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
 
     #[test]
     fn theme_defaults_match_terminal_expectations() {
@@ -678,6 +699,32 @@ foreground = "123456"
     }
 
     #[test]
+    fn theme_toml_accepts_mixed_case_hex() {
+        let theme = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "#AaBbCc"
+"##,
+        )
+        .expect("mixed-case hex should parse");
+
+        assert_eq!(theme.foreground, ThemeColor::rgb(0xaa, 0xbb, 0xcc));
+    }
+
+    #[test]
+    fn theme_toml_trims_surrounding_color_whitespace() {
+        let theme = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "  #aAbBcC  "
+"##,
+        )
+        .expect("surrounding color whitespace should be ignored");
+
+        assert_eq!(theme.foreground, ThemeColor::rgb(0xaa, 0xbb, 0xcc));
+    }
+
+    #[test]
     fn theme_toml_rejects_invalid_ansi_palette_length() {
         let result = Theme::from_toml_str(
             r##"
@@ -699,8 +746,9 @@ ansi = ["#000000", "#ffffff"]
             .expect("system clock should be after unix epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!("iris-theme-{unique}.toml"));
+        let guard = TempFileGuard::new(path);
         std::fs::write(
-            &path,
+            guard.path(),
             r##"
 [colors]
 cursor = "#abcdef"
@@ -708,8 +756,7 @@ cursor = "#abcdef"
         )
         .expect("temp theme file should be writable");
 
-        let loaded = Theme::from_toml_file(&path).expect("theme file should parse");
-        let _ = std::fs::remove_file(path);
+        let loaded = Theme::from_toml_file(guard.path()).expect("theme file should parse");
 
         assert_eq!(loaded.cursor, ThemeColor::rgb(0xab, 0xcd, 0xef));
     }

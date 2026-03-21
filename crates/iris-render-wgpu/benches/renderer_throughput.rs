@@ -5,6 +5,7 @@ use iris_core::parser::Action;
 use iris_core::terminal::Terminal;
 use iris_render_wgpu::atlas::{AtlasConfig, AtlasSize};
 use iris_render_wgpu::cell::{CellInstance, TextUniforms};
+use iris_render_wgpu::cursor::CursorInstance;
 use iris_render_wgpu::error::Error;
 use iris_render_wgpu::renderer::{Renderer, RendererConfig};
 use iris_render_wgpu::terminal_renderer::{TerminalRenderer, TerminalRendererConfig};
@@ -138,7 +139,7 @@ fn main() {
         scroll_update.elapsed.as_secs_f64()
     );
     println!(
-        "estimated_renderer_memory: {:.2} MiB (surfaces + atlas + instance buffers)",
+        "estimated_renderer_memory: {:.2} MiB (approximate; excludes driver/backend allocations)",
         estimated_memory_mb
     );
     println!(
@@ -199,13 +200,48 @@ fn iterations_per_second(result: &BenchResult) -> f64 {
 fn estimate_renderer_memory_mb(config: &TerminalRendererConfig) -> f64 {
     let width = config.text.uniforms.resolution[0].max(1.0).round() as u64;
     let height = config.text.uniforms.resolution[1].max(1.0).round() as u64;
+
+    // This estimate intentionally models the major retained-renderer allocations
+    // visible from config/input sizing; it does not include backend/driver
+    // bookkeeping or opaque GPU allocator overhead.
     let frame_surface_bytes = width * height * 4;
     let scroll_surface_bytes = frame_surface_bytes;
     let atlas_bytes =
         u64::from(config.text.atlas.size.width) * u64::from(config.text.atlas.size.height);
     let instance_bytes =
         config.text.initial_instance_capacity as u64 * std::mem::size_of::<CellInstance>() as u64;
-    let total_bytes = frame_surface_bytes + scroll_surface_bytes + atlas_bytes + instance_bytes;
+    let uniform_buffer_count = 2u64;
+    let uniform_bytes = uniform_buffer_count * std::mem::size_of::<TextUniforms>() as u64;
+    let cursor_instance_bytes = std::mem::size_of::<CursorInstance>() as u64;
+
+    // The runtime glyph-cache size depends on seen text; cap the estimate so the
+    // number tracks realistic viewport-driven churn instead of unbounded growth.
+    let estimated_glyph_entries = (config.text.initial_instance_capacity as u64).min(4_096);
+    let glyph_cache_entry_bytes = 48u64;
+    let glyph_cache_bytes = estimated_glyph_entries * glyph_cache_entry_bytes;
+
+    // Approximate allocator/config state tied to rasterizer setup.
+    let fallback_family_bytes = config
+        .font_rasterizer
+        .fallback_families
+        .iter()
+        .map(|family| family.len() as u64)
+        .sum::<u64>();
+    let primary_family_bytes = config
+        .font_rasterizer
+        .primary_family
+        .as_ref()
+        .map_or(0, |family| family.len() as u64);
+    let rasterizer_state_bytes = fallback_family_bytes + primary_family_bytes + 128;
+
+    let total_bytes = frame_surface_bytes
+        + scroll_surface_bytes
+        + atlas_bytes
+        + instance_bytes
+        + uniform_bytes
+        + cursor_instance_bytes
+        + glyph_cache_bytes
+        + rasterizer_state_bytes;
 
     total_bytes as f64 / (1024.0 * 1024.0)
 }
