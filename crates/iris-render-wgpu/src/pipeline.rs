@@ -188,7 +188,8 @@ impl TextPipeline {
         buffers: &TextBuffers,
         clear_color: wgpu::Color,
     ) {
-        let instance_count = u32::try_from(buffers.instance_count()).unwrap_or(u32::MAX);
+        // Cursor overlays upload at most one instance, so the count always fits in `u32`.
+        let instance_count = buffers.instance_count() as u32;
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("iris-render-wgpu-text-pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

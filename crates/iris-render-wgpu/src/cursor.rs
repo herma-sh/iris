@@ -119,7 +119,13 @@ fn normalize_cursor_span(grid: &Grid, row: usize, col: &mut usize) -> f32 {
     };
 
     match cell.width {
-        CellWidth::Double => 2.0,
+        CellWidth::Double => {
+            if *col + 1 < grid.cols() {
+                2.0
+            } else {
+                1.0
+            }
+        }
         CellWidth::Continuation if *col > 0 => {
             if matches!(
                 grid.cell(row, *col - 1).map(|lead| lead.width),
@@ -219,6 +225,38 @@ mod tests {
 
         assert_eq!(instance.grid_position, [0.0, 0.0]);
         assert_eq!(instance.extent, [2.0, 1.0]);
+    }
+
+    #[test]
+    fn cursor_instance_falls_back_to_single_width_at_the_right_edge() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('A'))
+            .expect("leading cell should be written");
+        grid.write(0, 1, Cell::new('\u{4E2D}'))
+            .expect("right-edge wide cell should be normalized by the grid");
+        let mut cursor = Cursor::new();
+        cursor.move_to(0, 1);
+
+        let instance = CursorInstance::from_cursor(cursor, &grid, &Theme::default())
+            .expect("right-edge cursor should encode")
+            .expect("cursor should be visible");
+
+        assert_eq!(instance.grid_position, [1.0, 0.0]);
+        assert_eq!(instance.extent, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn cursor_instance_handles_continuation_at_column_zero() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::continuation(Default::default()))
+            .expect("orphan continuation should be written");
+
+        let instance = CursorInstance::from_cursor(Cursor::new(), &grid, &Theme::default())
+            .expect("orphan continuation should still encode")
+            .expect("cursor should remain visible");
+
+        assert_eq!(instance.grid_position, [0.0, 0.0]);
+        assert_eq!(instance.extent, [1.0, 1.0]);
     }
 
     #[test]
