@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use iris_core::cell::{Cell, CellWidth};
+use iris_core::cell::{Cell, CellAttrs, CellWidth};
 use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 
@@ -136,7 +136,8 @@ impl CellInstance {
 
 /// Encodes visible damaged cells into GPU instances using the provided glyph resolver.
 ///
-/// Empty cells, continuation cells, and cells without a cached glyph are skipped.
+/// Blank cells with default attributes, continuation cells, and cells without a
+/// cached glyph are skipped.
 pub fn encode_damage_instances<F>(
     instances: &mut Vec<CellInstance>,
     grid: &Grid,
@@ -162,7 +163,7 @@ where
             .skip(region.start_col)
             .take(region.end_col - region.start_col + 1)
         {
-            if cell.is_empty() || cell.width.columns() == 0 {
+            if !cell_needs_rendering(cell) {
                 continue;
             }
 
@@ -202,7 +203,12 @@ where
     Ok(())
 }
 
-fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
+#[must_use]
+pub(crate) fn cell_needs_rendering(cell: Cell) -> bool {
+    cell.width.columns() != 0 && (!cell.is_empty() || cell.attrs != CellAttrs::default())
+}
+
+pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
     if grid.rows() == 0 || grid.cols() == 0 || damage.is_empty() {
         return Vec::new();
     }
@@ -318,6 +324,11 @@ impl TextBuffers {
     #[must_use]
     pub const fn instance_count(&self) -> usize {
         self.instance_count
+    }
+
+    /// Clears the tracked instance count without rewriting the GPU buffer.
+    pub fn clear_instances(&mut self) {
+        self.instance_count = 0;
     }
 
     /// Uploads the latest text uniforms.
@@ -629,6 +640,41 @@ mod tests {
     }
 
     #[test]
+    fn text_buffers_can_clear_tracked_instances() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let mut buffers =
+            TextBuffers::new(renderer.device(), 2).expect("text buffers should be created");
+        let instance = CellInstance::from_cell(
+            Cell::new('a'),
+            0,
+            0,
+            CachedGlyph::new(AtlasRegion {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            }),
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("cell should encode into an instance");
+
+        buffers
+            .write_instances(renderer.device(), renderer.queue(), &[instance])
+            .expect("instance upload should succeed");
+        assert_eq!(buffers.instance_count(), 1);
+
+        buffers.clear_instances();
+
+        assert_eq!(buffers.instance_count(), 0);
+    }
+
+    #[test]
     fn text_buffers_reject_unrepresentable_instance_capacity() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
@@ -746,6 +792,47 @@ mod tests {
 
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].grid_position, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn encode_damage_instances_keeps_blank_cells_with_non_default_attributes() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(
+            0,
+            0,
+            Cell::with_attrs(
+                ' ',
+                CellAttrs {
+                    bg: iris_core::cell::Color::Ansi(1),
+                    ..CellAttrs::default()
+                },
+            ),
+        )
+        .expect("styled blank cell should be written");
+
+        let mut instances = Vec::new();
+        encode_damage_instances(
+            &mut instances,
+            &grid,
+            &[DamageRegion::new(0, 0, 0, 0)],
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            &Theme::default(),
+            |_| {
+                Some(CachedGlyph::new(AtlasRegion {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                }))
+            },
+        )
+        .expect("styled blank cells should encode");
+
+        assert_eq!(instances.len(), 1);
+        assert_eq!(
+            instances[0].bg_color,
+            Theme::default().ansi[1].to_f32_array()
+        );
     }
 
     #[test]

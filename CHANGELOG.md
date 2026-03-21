@@ -27,6 +27,24 @@ This project uses a phase-based versioning scheme:
 
 Target release: `0.2.0`
 
+### 2026-03-21
+
+#### Added
+
+- Added a stateful `TextRenderer` in `iris-render-wgpu` that owns the glyph atlas, glyph cache, text buffers, text pipeline, theme, and viewport uniforms needed to render `iris-core` grid content through the existing renderer bootstrap.
+- Added owned `RasterizedGlyph` payloads plus renderer-side glyph-miss orchestration so damaged cells can request rasterization through an injected callback, populate the atlas/cache once, and then upload reusable text instances for drawing.
+- Added renderer coverage for themed empty clears, cache reuse across repeated damage updates, and wide-cell glyph population when damage begins on a continuation column.
+- Added a system-font-backed `FontRasterizer` in `iris-render-wgpu` using `fontdb` and `fontdue`, including best-effort primary-family selection, monospace defaults, fallback scanning, and a `TextRenderer` convenience path that prepares grid text directly from system fonts.
+
+#### Changed
+
+- Extended the text pipeline so callers can clear using an explicit color instead of a hardcoded black, allowing the new text-render path to respect the active theme background.
+- Exported the new text-render integration types from `iris-render-wgpu` and reused normalized damage spans during glyph population so cache misses follow the same wide-cell handling as instance encoding.
+- Corrected text-instance eligibility so blank cells with non-default attributes are rendered through a transparent glyph path instead of being skipped, preserving styled background cells during damage-driven draws.
+- Hardened system font parsing with explicit font-data size bounds, rasterized glyph dimension caps before atlas allocation, and cached fallback-face lookups so repeated glyph misses do not rescan the full system font database.
+- Reset prepared text-instance state at the start of each `TextRenderer::prepare_grid` call so failed prepares cannot leave stale instance counts active for later draws, and expanded renderer regression coverage for atlas exhaustion, empty damage, missing-font mapping, and continuation-origin rendering.
+- Hardened font rasterizer initialization so `NaN` font sizes are rejected with the same `InvalidFontSize` error path as other non-positive inputs.
+
 ### 2026-03-20
 
 #### Added

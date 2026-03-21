@@ -177,6 +177,7 @@ impl TextPipeline {
         uniform_bind_group: &wgpu::BindGroup,
         atlas: &GlyphAtlas,
         buffers: &TextBuffers,
+        clear_color: wgpu::Color,
     ) {
         let instance_count = u32::try_from(buffers.instance_count()).unwrap_or(u32::MAX);
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -185,7 +186,7 @@ impl TextPipeline {
                 view,
                 resolve_target: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    load: wgpu::LoadOp::Clear(clear_color),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -324,6 +325,7 @@ mod tests {
             &uniform_bind_group,
             &atlas,
             &buffers,
+            wgpu::Color::BLACK,
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
 
@@ -380,6 +382,7 @@ mod tests {
             &uniform_bind_group,
             &atlas,
             &buffers,
+            wgpu::Color::BLACK,
         );
         renderer.queue().submit(std::iter::once(encoder.finish()));
 

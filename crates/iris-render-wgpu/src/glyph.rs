@@ -47,6 +47,50 @@ impl<'a> GlyphBitmap<'a> {
     }
 }
 
+/// Owned single-channel glyph bitmap produced by a rasterizer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RasterizedGlyph {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+}
+
+impl RasterizedGlyph {
+    /// Creates an owned glyph bitmap ready for atlas upload.
+    #[must_use]
+    pub fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            data,
+        }
+    }
+
+    /// Returns the bitmap width in pixels.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Returns the bitmap height in pixels.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Returns the owned bitmap bytes.
+    #[must_use]
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Borrows the owned bitmap as an atlas-upload descriptor.
+    #[must_use]
+    pub fn as_bitmap(&self) -> GlyphBitmap<'_> {
+        GlyphBitmap::new(self.width, self.height, &self.data)
+    }
+}
+
 /// Atlas-backed cache entry for a rasterized glyph variant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CachedGlyph {
@@ -153,10 +197,23 @@ impl GlyphCache {
 
 #[cfg(test)]
 mod tests {
-    use super::{GlyphBitmap, GlyphCache, GlyphKey};
+    use super::{GlyphBitmap, GlyphCache, GlyphKey, RasterizedGlyph};
     use crate::atlas::{AtlasConfig, AtlasSize};
     use crate::error::Error;
     use crate::renderer::{Renderer, RendererConfig};
+
+    #[test]
+    fn rasterized_glyph_exposes_borrowed_bitmap_view() {
+        let glyph = RasterizedGlyph::new(2, 3, vec![0, 1, 2, 3, 4, 5]);
+        let bitmap = glyph.as_bitmap();
+
+        assert_eq!(glyph.width(), 2);
+        assert_eq!(glyph.height(), 3);
+        assert_eq!(glyph.data(), &[0, 1, 2, 3, 4, 5]);
+        assert_eq!(bitmap.width, 2);
+        assert_eq!(bitmap.height, 3);
+        assert_eq!(bitmap.data, &[0, 1, 2, 3, 4, 5]);
+    }
 
     #[test]
     fn glyph_cache_starts_empty() {

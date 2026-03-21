@@ -18,6 +18,34 @@ pub enum Error {
     #[error("surface creation failed: {reason}")]
     CreateSurface { reason: String },
 
+    /// Acquiring a presentation frame from the surface failed.
+    #[error("failed to acquire a surface texture: {0}")]
+    AcquireSurfaceTexture(#[from] wgpu::SurfaceError),
+
+    /// Font rasterization requires a positive font size.
+    #[error("font size must be positive, got {size}")]
+    InvalidFontSize { size: f32 },
+
+    /// No usable system font could be loaded for rasterization.
+    #[error("no usable system font could be loaded")]
+    NoUsableSystemFont,
+
+    /// Font bytes could not be obtained for the selected face.
+    #[error("font data was unavailable for {family}")]
+    FontDataUnavailable { family: String },
+
+    /// Font data must stay within a bounded parse size.
+    #[error("font data for {family} exceeded the maximum supported size: {size} bytes")]
+    FontDataTooLarge { family: String, size: usize },
+
+    /// A selected font face could not be parsed.
+    #[error("failed to load font {family}: {reason}")]
+    FontLoadFailed { family: String, reason: String },
+
+    /// Glyph rasterization could not produce a representable bitmap.
+    #[error("glyph rasterization failed: {reason}")]
+    GlyphRasterizationFailed { reason: String },
+
     /// An atlas requires non-zero dimensions.
     #[error("atlas size must be non-zero, got {width}x{height}")]
     InvalidAtlasSize { width: u32, height: u32 },

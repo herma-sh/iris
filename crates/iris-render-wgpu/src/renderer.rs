@@ -268,6 +268,7 @@ impl Renderer {
             uniform_bind_group,
             atlas,
             buffers,
+            wgpu::Color::BLACK,
         );
         self.queue.submit(std::iter::once(encoder.finish()));
     }

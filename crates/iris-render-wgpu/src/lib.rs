@@ -7,20 +7,24 @@
 pub mod atlas;
 pub mod cell;
 pub mod error;
+pub mod font;
 pub mod glyph;
 pub mod pipeline;
 pub mod renderer;
 pub mod surface;
+pub mod text_renderer;
 pub mod texture;
 pub mod theme;
 
 pub use atlas::{AtlasConfig, AtlasRegion, AtlasSize, GlyphAtlas};
 pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, TextUniforms};
 pub use error::{Error, Result};
-pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey};
+pub use font::{FontRasterizer, FontRasterizerConfig};
+pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey, RasterizedGlyph};
 pub use pipeline::{FullscreenPipeline, TextPipeline};
 pub use renderer::{Renderer, RendererConfig};
 pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
+pub use text_renderer::{TextRenderer, TextRendererConfig};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
 pub use theme::{Theme, ThemeColor};
 
@@ -109,5 +113,9 @@ pub(crate) mod test_support {
         buffer.unmap();
 
         bytes
+    }
+
+    pub(crate) const fn bgra_pixel(color: crate::theme::ThemeColor) -> [u8; 4] {
+        [color.b, color.g, color.r, color.a]
     }
 }
