@@ -33,7 +33,7 @@ pub use surface::{RendererSurface, SurfaceConfig, SurfaceSize};
 pub use terminal_renderer::{TerminalRenderer, TerminalRendererConfig};
 pub use text_renderer::{TextRenderer, TextRendererConfig};
 pub use texture::{TextureSurface, TextureSurfaceConfig, TextureSurfaceSize};
-pub use theme::{Theme, ThemeColor};
+pub use theme::{Theme, ThemeColor, ThemeLoadError};
 
 #[cfg(test)]
 pub(crate) mod test_support {

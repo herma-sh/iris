@@ -1,4 +1,8 @@
+use std::path::Path;
+
 use iris_core::cell::{CellAttrs, CellFlags, Color};
+use thiserror::Error;
+use toml::Value;
 
 use crate::cell::CellColors;
 
@@ -22,6 +26,40 @@ const DEFAULT_ANSI_COLORS: [ThemeColor; 16] = [
     ThemeColor::rgb(0x29, 0xb8, 0xdb),
     ThemeColor::rgb(0xff, 0xff, 0xff),
 ];
+
+/// Errors returned when loading a renderer theme from TOML.
+#[derive(Debug, Error)]
+pub enum ThemeLoadError {
+    /// The supplied TOML input could not be parsed.
+    #[error("failed to parse theme TOML: {reason}")]
+    ParseToml { reason: String },
+
+    /// A theme field had an unexpected TOML type.
+    #[error("theme field {field} must be {expected}, got {actual}")]
+    InvalidFieldType {
+        /// Field name.
+        field: String,
+        /// Expected TOML type.
+        expected: &'static str,
+        /// Actual TOML type.
+        actual: &'static str,
+    },
+
+    /// A color field used an unsupported color format.
+    #[error("theme color {field} must be #RRGGBB or #RRGGBBAA, got {value}")]
+    InvalidColor { field: String, value: String },
+
+    /// ANSI palettes must have exactly 16 entries.
+    #[error("theme ansi palette must contain exactly 16 colors, got {actual}")]
+    InvalidAnsiPaletteLength {
+        /// Number of entries found in the parsed palette.
+        actual: usize,
+    },
+
+    /// Reading a theme file failed.
+    #[error("failed to read theme file: {reason}")]
+    ReadFile { reason: String },
+}
 
 /// RGBA color used by the renderer theme.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -96,6 +134,67 @@ pub struct Theme {
 }
 
 impl Theme {
+    /// Loads a theme from a TOML document.
+    ///
+    /// The parser accepts either top-level color fields or a nested `[colors]`
+    /// table with the following keys:
+    ///
+    /// - `foreground = "#RRGGBB"` (or `#RRGGBBAA`)
+    /// - `background = "#RRGGBB"` (or `#RRGGBBAA`)
+    /// - `cursor = "#RRGGBB"` (or `#RRGGBBAA`)
+    /// - `ansi = ["#RRGGBB", ...]` (exactly 16 entries)
+    pub fn from_toml_str(input: &str) -> std::result::Result<Self, ThemeLoadError> {
+        let root = input
+            .parse::<Value>()
+            .map_err(|error| ThemeLoadError::ParseToml {
+                reason: error.to_string(),
+            })?;
+
+        let root_table = root
+            .as_table()
+            .ok_or_else(|| ThemeLoadError::InvalidFieldType {
+                field: "root".to_string(),
+                expected: "table",
+                actual: toml_value_kind(&root),
+            })?;
+
+        let colors_table = if let Some(colors) = root_table.get("colors") {
+            colors
+                .as_table()
+                .ok_or_else(|| ThemeLoadError::InvalidFieldType {
+                    field: "colors".to_string(),
+                    expected: "table",
+                    actual: toml_value_kind(colors),
+                })?
+        } else {
+            root_table
+        };
+
+        let mut theme = Self::default();
+        if let Some(color) = parse_optional_color(colors_table, "foreground")? {
+            theme.foreground = color;
+        }
+        if let Some(color) = parse_optional_color(colors_table, "background")? {
+            theme.background = color;
+        }
+        if let Some(color) = parse_optional_color(colors_table, "cursor")? {
+            theme.cursor = color;
+        }
+        if let Some(ansi) = parse_optional_ansi(colors_table)? {
+            theme.ansi = ansi;
+        }
+
+        Ok(theme)
+    }
+
+    /// Loads a theme from a TOML file on disk.
+    pub fn from_toml_file(path: impl AsRef<Path>) -> std::result::Result<Self, ThemeLoadError> {
+        let input = std::fs::read_to_string(path).map_err(|error| ThemeLoadError::ReadFile {
+            reason: error.to_string(),
+        })?;
+        Self::from_toml_str(&input)
+    }
+
     /// Resolves the provided cell attributes into render-ready colors.
     #[must_use]
     pub fn resolve_cell_colors(&self, attrs: CellAttrs) -> CellColors {
@@ -186,11 +285,117 @@ fn dim_channel(channel: u8) -> u8 {
     u16::from(channel).div_ceil(2) as u8
 }
 
+fn parse_optional_color(
+    table: &toml::value::Table,
+    key: &str,
+) -> std::result::Result<Option<ThemeColor>, ThemeLoadError> {
+    let Some(value) = table.get(key) else {
+        return Ok(None);
+    };
+
+    let color = value
+        .as_str()
+        .ok_or_else(|| ThemeLoadError::InvalidFieldType {
+            field: key.to_string(),
+            expected: "string",
+            actual: toml_value_kind(value),
+        })
+        .and_then(|value| parse_hex_color(key, value))?;
+
+    Ok(Some(color))
+}
+
+fn parse_optional_ansi(
+    table: &toml::value::Table,
+) -> std::result::Result<Option<[ThemeColor; 16]>, ThemeLoadError> {
+    let Some(value) = table.get("ansi") else {
+        return Ok(None);
+    };
+    let array = value
+        .as_array()
+        .ok_or_else(|| ThemeLoadError::InvalidFieldType {
+            field: "ansi".to_string(),
+            expected: "array",
+            actual: toml_value_kind(value),
+        })?;
+    if array.len() != 16 {
+        return Err(ThemeLoadError::InvalidAnsiPaletteLength {
+            actual: array.len(),
+        });
+    }
+
+    let mut palette = [ThemeColor::rgb(0, 0, 0); 16];
+    for (index, value) in array.iter().enumerate() {
+        let field = format!("ansi[{index}]");
+        let color = value
+            .as_str()
+            .ok_or_else(|| ThemeLoadError::InvalidFieldType {
+                field: field.clone(),
+                expected: "string",
+                actual: toml_value_kind(value),
+            })
+            .and_then(|value| parse_hex_color(&field, value))?;
+        palette[index] = color;
+    }
+
+    Ok(Some(palette))
+}
+
+fn parse_hex_color(field: &str, value: &str) -> std::result::Result<ThemeColor, ThemeLoadError> {
+    let color = value.trim();
+    let normalized = color.strip_prefix('#').unwrap_or(color);
+
+    match normalized.len() {
+        6 => {
+            let r = parse_hex_byte(field, value, &normalized[0..2])?;
+            let g = parse_hex_byte(field, value, &normalized[2..4])?;
+            let b = parse_hex_byte(field, value, &normalized[4..6])?;
+            Ok(ThemeColor::rgb(r, g, b))
+        }
+        8 => {
+            let r = parse_hex_byte(field, value, &normalized[0..2])?;
+            let g = parse_hex_byte(field, value, &normalized[2..4])?;
+            let b = parse_hex_byte(field, value, &normalized[4..6])?;
+            let a = parse_hex_byte(field, value, &normalized[6..8])?;
+            Ok(ThemeColor::rgba(r, g, b, a))
+        }
+        _ => Err(ThemeLoadError::InvalidColor {
+            field: field.to_string(),
+            value: value.to_string(),
+        }),
+    }
+}
+
+fn parse_hex_byte(
+    field: &str,
+    raw_value: &str,
+    component: &str,
+) -> std::result::Result<u8, ThemeLoadError> {
+    u8::from_str_radix(component, 16).map_err(|_| ThemeLoadError::InvalidColor {
+        field: field.to_string(),
+        value: raw_value.to_string(),
+    })
+}
+
+const fn toml_value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::String(_) => "string",
+        Value::Integer(_) => "integer",
+        Value::Float(_) => "float",
+        Value::Boolean(_) => "boolean",
+        Value::Datetime(_) => "datetime",
+        Value::Array(_) => "array",
+        Value::Table(_) => "table",
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use iris_core::cell::{CellAttrs, CellFlags, Color};
 
-    use super::{Theme, ThemeColor};
+    use super::{Theme, ThemeColor, ThemeLoadError};
 
     #[test]
     fn theme_defaults_match_terminal_expectations() {
@@ -380,5 +585,125 @@ mod tests {
                 a: 1.0,
             }
         );
+    }
+
+    #[test]
+    fn theme_loads_from_toml_colors_table() {
+        let theme = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "#d0d0d0"
+background = "#101010"
+cursor = "#ffcc00ff"
+ansi = [
+    "#000000", "#aa0000", "#00aa00", "#aa5500",
+    "#0000aa", "#aa00aa", "#00aaaa", "#aaaaaa",
+    "#555555", "#ff5555", "#55ff55", "#ffff55",
+    "#5555ff", "#ff55ff", "#55ffff", "#ffffff"
+]
+"##,
+        )
+        .expect("valid colors table should load");
+
+        assert_eq!(theme.foreground, ThemeColor::rgb(0xd0, 0xd0, 0xd0));
+        assert_eq!(theme.background, ThemeColor::rgb(0x10, 0x10, 0x10));
+        assert_eq!(theme.cursor, ThemeColor::rgba(0xff, 0xcc, 0x00, 0xff));
+        assert_eq!(theme.ansi[1], ThemeColor::rgb(0xaa, 0x00, 0x00));
+        assert_eq!(theme.ansi[15], ThemeColor::rgb(0xff, 0xff, 0xff));
+    }
+
+    #[test]
+    fn theme_loads_from_top_level_toml_fields() {
+        let theme = Theme::from_toml_str(
+            r##"
+foreground = "#112233"
+background = "445566"
+"##,
+        )
+        .expect("top-level fields should load");
+
+        assert_eq!(theme.foreground, ThemeColor::rgb(0x11, 0x22, 0x33));
+        assert_eq!(theme.background, ThemeColor::rgb(0x44, 0x55, 0x66));
+    }
+
+    #[test]
+    fn theme_toml_defaults_missing_fields() {
+        let theme = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "#123456"
+"##,
+        )
+        .expect("partial themes should load");
+
+        assert_eq!(theme.foreground, ThemeColor::rgb(0x12, 0x34, 0x56));
+        assert_eq!(theme.background, Theme::default().background);
+        assert_eq!(theme.ansi, Theme::default().ansi);
+    }
+
+    #[test]
+    fn theme_toml_rejects_invalid_color_values() {
+        let result = Theme::from_toml_str(
+            r##"
+[colors]
+foreground = "#12zz90"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::InvalidColor { field, .. }) if field == "foreground"
+        ));
+    }
+
+    #[test]
+    fn theme_toml_rejects_invalid_ansi_palette_length() {
+        let result = Theme::from_toml_str(
+            r##"
+[colors]
+ansi = ["#000000", "#ffffff"]
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::InvalidAnsiPaletteLength { actual: 2 })
+        ));
+    }
+
+    #[test]
+    fn theme_loads_from_toml_file() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("iris-theme-{unique}.toml"));
+        std::fs::write(
+            &path,
+            r##"
+[colors]
+cursor = "#abcdef"
+"##,
+        )
+        .expect("temp theme file should be writable");
+
+        let loaded = Theme::from_toml_file(&path).expect("theme file should parse");
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(loaded.cursor, ThemeColor::rgb(0xab, 0xcd, 0xef));
+    }
+
+    #[test]
+    fn theme_toml_rejects_non_table_colors_section() {
+        let result = Theme::from_toml_str(
+            r##"
+colors = "#ffffff"
+"##,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ThemeLoadError::InvalidFieldType { field, expected: "table", .. }) if field == "colors"
+        ));
     }
 }
