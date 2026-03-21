@@ -7,6 +7,7 @@
 pub mod atlas;
 pub mod cell;
 pub mod error;
+pub mod font;
 pub mod glyph;
 pub mod pipeline;
 pub mod renderer;
@@ -18,6 +19,7 @@ pub mod theme;
 pub use atlas::{AtlasConfig, AtlasRegion, AtlasSize, GlyphAtlas};
 pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, TextUniforms};
 pub use error::{Error, Result};
+pub use font::{FontRasterizer, FontRasterizerConfig};
 pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey, RasterizedGlyph};
 pub use pipeline::{FullscreenPipeline, TextPipeline};
 pub use renderer::{Renderer, RendererConfig};

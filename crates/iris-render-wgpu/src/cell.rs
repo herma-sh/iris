@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use iris_core::cell::{Cell, CellWidth};
+use iris_core::cell::{Cell, CellAttrs, CellWidth};
 use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 
@@ -136,7 +136,8 @@ impl CellInstance {
 
 /// Encodes visible damaged cells into GPU instances using the provided glyph resolver.
 ///
-/// Empty cells, continuation cells, and cells without a cached glyph are skipped.
+/// Blank cells with default attributes, continuation cells, and cells without a
+/// cached glyph are skipped.
 pub fn encode_damage_instances<F>(
     instances: &mut Vec<CellInstance>,
     grid: &Grid,
@@ -162,7 +163,7 @@ where
             .skip(region.start_col)
             .take(region.end_col - region.start_col + 1)
         {
-            if cell.is_empty() || cell.width.columns() == 0 {
+            if !cell_needs_rendering(cell) {
                 continue;
             }
 
@@ -200,6 +201,11 @@ where
     }
 
     Ok(())
+}
+
+#[must_use]
+pub(crate) fn cell_needs_rendering(cell: Cell) -> bool {
+    cell.width.columns() != 0 && (!cell.is_empty() || cell.attrs != CellAttrs::default())
 }
 
 pub(crate) fn normalized_damage_regions(grid: &Grid, damage: &[DamageRegion]) -> Vec<DamageRegion> {
@@ -746,6 +752,47 @@ mod tests {
 
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].grid_position, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn encode_damage_instances_keeps_blank_cells_with_non_default_attributes() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(
+            0,
+            0,
+            Cell::with_attrs(
+                ' ',
+                CellAttrs {
+                    bg: iris_core::cell::Color::Ansi(1),
+                    ..CellAttrs::default()
+                },
+            ),
+        )
+        .expect("styled blank cell should be written");
+
+        let mut instances = Vec::new();
+        encode_damage_instances(
+            &mut instances,
+            &grid,
+            &[DamageRegion::new(0, 0, 0, 0)],
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            &Theme::default(),
+            |_| {
+                Some(CachedGlyph::new(AtlasRegion {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                }))
+            },
+        )
+        .expect("styled blank cells should encode");
+
+        assert_eq!(instances.len(), 1);
+        assert_eq!(
+            instances[0].bg_color,
+            Theme::default().ansi[1].to_f32_array()
+        );
     }
 
     #[test]

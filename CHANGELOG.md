@@ -34,11 +34,13 @@ Target release: `0.2.0`
 - Added a stateful `TextRenderer` in `iris-render-wgpu` that owns the glyph atlas, glyph cache, text buffers, text pipeline, theme, and viewport uniforms needed to render `iris-core` grid content through the existing renderer bootstrap.
 - Added owned `RasterizedGlyph` payloads plus renderer-side glyph-miss orchestration so damaged cells can request rasterization through an injected callback, populate the atlas/cache once, and then upload reusable text instances for drawing.
 - Added renderer coverage for themed empty clears, cache reuse across repeated damage updates, and wide-cell glyph population when damage begins on a continuation column.
+- Added a system-font-backed `FontRasterizer` in `iris-render-wgpu` using `fontdb` and `fontdue`, including best-effort primary-family selection, monospace defaults, fallback scanning, and a `TextRenderer` convenience path that prepares grid text directly from system fonts.
 
 #### Changed
 
 - Extended the text pipeline so callers can clear using an explicit color instead of a hardcoded black, allowing the new text-render path to respect the active theme background.
 - Exported the new text-render integration types from `iris-render-wgpu` and reused normalized damage spans during glyph population so cache misses follow the same wide-cell handling as instance encoding.
+- Corrected text-instance eligibility so blank cells with non-default attributes are rendered through a transparent glyph path instead of being skipped, preserving styled background cells during damage-driven draws.
 
 ### 2026-03-20
 

@@ -3,8 +3,11 @@ use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 
 use crate::atlas::{AtlasConfig, AtlasSize};
-use crate::cell::{normalized_damage_regions, CellInstance, TextBuffers, TextUniforms};
+use crate::cell::{
+    cell_needs_rendering, normalized_damage_regions, CellInstance, TextBuffers, TextUniforms,
+};
 use crate::error::Result;
+use crate::font::FontRasterizer;
 use crate::glyph::{GlyphCache, GlyphKey, RasterizedGlyph};
 use crate::pipeline::TextPipeline;
 use crate::renderer::Renderer;
@@ -132,6 +135,19 @@ impl TextRenderer {
         renderer.write_text_instances(&mut self.buffers, &self.instances)
     }
 
+    /// Populates and prepares damaged grid cells using the built-in system font rasterizer.
+    pub fn prepare_grid_with_font_rasterizer(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        font_rasterizer: &mut FontRasterizer,
+    ) -> Result<()> {
+        self.prepare_grid(renderer, grid, damage, |cell| {
+            font_rasterizer.rasterize_cell(cell)
+        })
+    }
+
     /// Renders the prepared text instances into an off-screen texture surface.
     pub fn render_to_texture_surface(&self, renderer: &Renderer, surface: &TextureSurface) {
         let mut encoder =
@@ -202,7 +218,7 @@ impl TextRenderer {
                 .skip(region.start_col)
                 .take(region.end_col - region.start_col + 1)
             {
-                if cell.is_empty() || cell.width.columns() == 0 {
+                if !cell_needs_rendering(cell) {
                     continue;
                 }
 
@@ -262,6 +278,8 @@ mod tests {
     use crate::renderer::{Renderer, RendererConfig};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
     use crate::theme::{Theme, ThemeColor};
+    use crate::FontRasterizer;
+    use crate::FontRasterizerConfig;
 
     #[test]
     fn glyph_key_for_cell_tracks_shape_relevant_state() {
@@ -422,6 +440,115 @@ mod tests {
 
         assert_eq!(rasterized_count.load(Ordering::Relaxed), 1);
         assert_eq!(text_renderer.instance_count(), 1);
+    }
+
+    #[test]
+    fn text_renderer_draws_styled_blank_cells() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let theme = Theme {
+            background: ThemeColor::rgb(0x00, 0x00, 0x00),
+            ..Theme::default()
+        };
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                theme: theme.clone(),
+                uniforms: crate::cell::TextUniforms::new([16.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(
+            0,
+            0,
+            Cell::with_attrs(
+                ' ',
+                iris_core::cell::CellAttrs {
+                    bg: iris_core::cell::Color::Ansi(1),
+                    ..Default::default()
+                },
+            ),
+        )
+        .expect("styled blank cell should be written");
+
+        text_renderer
+            .prepare_grid(&renderer, &grid, &[DamageRegion::new(0, 0, 0, 0)], |_| {
+                Ok(Some(RasterizedGlyph::new(1, 1, vec![0])))
+            })
+            .expect("styled blank cell should prepare");
+        text_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(theme.background);
+        assert!(
+            pixels
+                .chunks_exact(background.len())
+                .any(|pixel| pixel != background),
+            "styled blank cells should draw their own background color"
+        );
+    }
+
+    #[test]
+    fn text_renderer_can_prepare_grid_with_system_font_rasterizer() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(64, 32).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut font_rasterizer = match FontRasterizer::new(FontRasterizerConfig::default()) {
+            Ok(font_rasterizer) => font_rasterizer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("font rasterizer failed unexpectedly: {error}"),
+        };
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                uniforms: crate::cell::TextUniforms::new([64.0, 32.0], [8.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('A'))
+            .expect("ASCII cell should be written");
+
+        text_renderer
+            .prepare_grid_with_font_rasterizer(
+                &renderer,
+                &grid,
+                &[DamageRegion::new(0, 0, 0, 0)],
+                &mut font_rasterizer,
+            )
+            .expect("system font rasterizer should prepare grid text");
+        text_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(text_renderer.theme().background);
+        assert!(
+            pixels
+                .chunks_exact(background.len())
+                .any(|pixel| pixel != background),
+            "system font rasterization should produce visible text pixels"
+        );
     }
 
     fn test_glyph_for(cell: Cell) -> RasterizedGlyph {
