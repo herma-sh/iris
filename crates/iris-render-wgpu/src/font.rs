@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn font_rasterizer_can_find_a_fallback_for_a_missing_primary_glyph_when_available() {
+    fn font_rasterizer_best_effort_rasterizes_cjk_when_available() {
         let mut rasterizer = match FontRasterizer::new(FontRasterizerConfig {
             primary_family: Some("Courier New".to_string()),
             ..FontRasterizerConfig::default()
@@ -418,15 +418,41 @@ mod tests {
             Err(error) => panic!("font rasterizer failed unexpectedly: {error}"),
         };
 
-        let fallback_candidate = ['中', '😀', 'あ', '한', 'Ж']
+        let fallback_candidate = ['\u{4E2D}', '\u{6F22}', '\u{3042}', '\u{D55C}']
             .into_iter()
             .find(|character| rasterizer.rasterize_cell(Cell::new(*character)).is_ok());
 
         if let Some(character) = fallback_candidate {
             let glyph = rasterizer
                 .rasterize_cell(Cell::new(character))
-                .expect("fallback rasterization should succeed")
-                .expect("fallback glyph should be returned");
+                .expect("CJK rasterization should succeed")
+                .expect("CJK glyph should be returned");
+
+            assert!(glyph.width() > 0);
+            assert!(glyph.height() > 0);
+        }
+    }
+
+    #[test]
+    fn font_rasterizer_best_effort_rasterizes_emoji_when_available() {
+        let mut rasterizer = match FontRasterizer::new(FontRasterizerConfig {
+            primary_family: Some("Courier New".to_string()),
+            ..FontRasterizerConfig::default()
+        }) {
+            Ok(rasterizer) => rasterizer,
+            Err(Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("font rasterizer failed unexpectedly: {error}"),
+        };
+
+        let fallback_candidate = ['\u{1F600}', '\u{1F680}', '\u{1F44D}', '\u{1F4A1}']
+            .into_iter()
+            .find(|character| rasterizer.rasterize_cell(Cell::new(*character)).is_ok());
+
+        if let Some(character) = fallback_candidate {
+            let glyph = rasterizer
+                .rasterize_cell(Cell::new(character))
+                .expect("emoji rasterization should succeed")
+                .expect("emoji glyph should be returned");
 
             assert!(glyph.width() > 0);
             assert!(glyph.height() > 0);
