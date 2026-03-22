@@ -89,6 +89,7 @@ Target release: `0.2.0`
 - Expanded operator ligature substitution to support longest-match three-character sequences (`<->`, `<=>`, `===`, `!==`) while preserving incremental damage-context expansion across ligature boundaries.
 - Refreshed the renderer phase checklist/status docs to mark ligature rendering and retained mixed-stream optimization follow-ups complete after the latest merged renderer changes.
 - Extracted inline Rust unit-test modules out of core source files into dedicated module test files across `iris-core` and `iris-render-wgpu`, reducing implementation-file bloat without changing runtime behavior.
+- Split large renderer source modules into focused submodules (`terminal_renderer::internals`, `text_renderer::ligatures`, and `pipeline::{present,text,cursor}`), keeping implementation files smaller while preserving API behavior.
 
 ### 2026-03-20
 
