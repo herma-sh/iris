@@ -252,7 +252,9 @@ impl TerminalRenderer {
             return self.prepare_grid_and_cursor(renderer, grid, cursor);
         }
 
+        let mut shifted_retained_frame = false;
         if let Some(scroll_delta) = normalized_scroll_delta(scroll_delta, grid) {
+            shifted_retained_frame = true;
             if is_full_grid_scroll_delta(scroll_delta, grid) {
                 self.shift_retained_frame_for_scroll(renderer, scroll_delta);
             } else {
@@ -262,8 +264,11 @@ impl TerminalRenderer {
 
         self.full_redraw_damage.clear();
         self.full_redraw_damage.extend_from_slice(damage);
-        self.push_cursor_damage(grid, self.previous_cursor);
-        self.push_cursor_damage(grid, Some(cursor));
+        let cursor_changed = self.previous_cursor != Some(cursor);
+        if shifted_retained_frame || cursor_changed {
+            self.push_cursor_damage(grid, self.previous_cursor);
+            self.push_cursor_damage(grid, Some(cursor));
+        }
 
         if self.full_redraw_damage.is_empty() {
             self.previous_cursor = Some(cursor);
@@ -1061,6 +1066,63 @@ mod tests {
         assert!(
             cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
             "cursor-only updates should preserve visible text and the new cursor position"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_skips_noop_cursor_redraw_when_nothing_changed() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(48, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([48.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 3).expect("terminal should be created");
+        terminal
+            .write_ascii_run(b"ab")
+            .expect("terminal write should succeed");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        let initial_instances = terminal_renderer.instance_count();
+        assert_eq!(
+            initial_instances, 2,
+            "full prepare should encode visible non-blank cells"
+        );
+
+        // Drain pending terminal state so the next update is a true no-op.
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("no-op update should succeed");
+
+        assert_eq!(
+            terminal_renderer.instance_count(),
+            initial_instances,
+            "no-op updates should keep previous prepared instances instead of forcing cursor-cell redraw"
         );
     }
 

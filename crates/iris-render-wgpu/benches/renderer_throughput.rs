@@ -16,6 +16,7 @@ const WARMUP_RUNS: usize = 5;
 const MIN_BENCH_TIME: Duration = Duration::from_millis(750);
 const TARGET_FRAME_TIME_MS: f64 = 16.0;
 const TARGET_SCROLL_FPS: f64 = 60.0;
+const TARGET_MIXED_UPDATES_PER_SECOND: f64 = 60.0;
 const TARGET_MEMORY_MB: f64 = 50.0;
 
 const GRID_ROWS: usize = 45;
@@ -119,6 +120,64 @@ fn main() {
     });
     let scroll_fps = iterations_per_second(&scroll_update);
 
+    let mut mixed_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
+    let Some(mut mixed_terminal_renderer) =
+        create_terminal_renderer(&renderer, "mixed-update benchmark", config.clone())
+    else {
+        return;
+    };
+    let mixed_target = renderer
+        .create_texture_surface(TextureSurfaceConfig::new(
+            TextureSurfaceSize::new(
+                config.text.uniforms.resolution[0] as u32,
+                config.text.uniforms.resolution[1] as u32,
+            )
+            .expect("benchmark render-target dimensions should be valid"),
+        ))
+        .expect("mixed benchmark render-target should initialize");
+    mixed_terminal_renderer
+        .prepare_terminal(&renderer, &mixed_terminal)
+        .expect("initial mixed-frame prepare should succeed");
+
+    let mut mixed_line_buffer = vec![b'a'; GRID_COLS];
+    let mixed_update = run_benchmark(|iteration| {
+        match iteration % 4 {
+            0 => {
+                // no-op update to measure retained no-change overhead.
+            }
+            1 => {
+                let next_col = (iteration as usize) % GRID_COLS;
+                mixed_terminal.cursor.move_to(GRID_ROWS - 1, next_col);
+            }
+            2 => {
+                let row = (iteration as usize) % GRID_ROWS;
+                let col = (iteration as usize) % GRID_COLS.saturating_sub(1).max(1);
+                mixed_terminal.move_cursor(row, col);
+                mixed_terminal
+                    .write_char((b'a' + (iteration % 26) as u8) as char)
+                    .expect("cell write should succeed");
+            }
+            _ => {
+                mixed_terminal
+                    .apply_action(Action::ScrollUp(1))
+                    .expect("scroll action should succeed");
+                populate_ascii_line(&mut mixed_line_buffer, iteration as usize);
+                mixed_terminal.move_cursor(GRID_ROWS - 1, 0);
+                mixed_terminal
+                    .write_ascii_run(&mixed_line_buffer)
+                    .expect("line fill should succeed");
+            }
+        }
+
+        mixed_terminal_renderer
+            .update_terminal(&renderer, &mut mixed_terminal)
+            .expect("mixed retained update should succeed");
+        mixed_terminal_renderer.render_to_texture_surface(&renderer, &mixed_target);
+        wait_for_gpu(&renderer);
+        black_box(&mixed_terminal_renderer);
+    });
+    let mixed_updates_per_second = iterations_per_second(&mixed_update);
+
     let estimated_memory_mb = estimate_renderer_memory_mb(&config);
 
     println!("renderer_throughput");
@@ -140,12 +199,20 @@ fn main() {
         scroll_update.elapsed.as_secs_f64()
     );
     println!(
+        "retained_mixed_update_{}x{}: {:.2} updates/s over {} iterations ({:.3}s)",
+        GRID_COLS,
+        GRID_ROWS,
+        mixed_updates_per_second,
+        mixed_update.iterations,
+        mixed_update.elapsed.as_secs_f64()
+    );
+    println!(
         "estimated_renderer_memory: {:.2} MiB (approximate; excludes driver/backend allocations)",
         estimated_memory_mb
     );
     println!(
-        "targets: full_prepare <= {:.2} ms/frame, retained_scroll >= {:.0} updates/s, memory <= {:.0} MiB",
-        TARGET_FRAME_TIME_MS, TARGET_SCROLL_FPS, TARGET_MEMORY_MB
+        "targets: full_prepare <= {:.2} ms/frame, retained_scroll >= {:.0} updates/s, retained_mixed >= {:.0} updates/s, memory <= {:.0} MiB",
+        TARGET_FRAME_TIME_MS, TARGET_SCROLL_FPS, TARGET_MIXED_UPDATES_PER_SECOND, TARGET_MEMORY_MB
     );
 }
 
