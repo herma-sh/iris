@@ -70,6 +70,7 @@ pub struct TextRenderer {
     uniforms: TextUniforms,
     instances: Vec<CellInstance>,
     rewritten_instances: Vec<CellInstance>,
+    ligature_damage: Vec<DamageRegion>,
     normalized_damage: Vec<DamageRegion>,
     ligature_overrides: HashMap<(usize, usize), LigatureOverride>,
     ligature_followers: HashSet<(usize, usize)>,
@@ -106,6 +107,7 @@ impl TextRenderer {
             uniforms: config.uniforms,
             instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
             rewritten_instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
+            ligature_damage: Vec::with_capacity(config.initial_instance_capacity.max(1)),
             normalized_damage: Vec::with_capacity(config.initial_instance_capacity.max(1)),
             ligature_overrides: HashMap::with_capacity(config.initial_instance_capacity.max(1)),
             ligature_followers: HashSet::with_capacity(config.initial_instance_capacity.max(1)),
@@ -169,16 +171,13 @@ impl TextRenderer {
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
     ) -> Result<()> {
-        let mut ligature_damage = Vec::with_capacity(damage.len());
-        expand_damage_regions_for_ligature_context(grid, damage, &mut ligature_damage);
-        self.prepare_grid_internal(
+        self.prepare_grid_with_font_rasterizer_internal(
             renderer,
             grid,
-            &ligature_damage,
-            &mut |cell| font_rasterizer.rasterize_cell(cell),
+            damage,
+            font_rasterizer,
             false,
-        )?;
-        self.apply_operator_ligatures(renderer, grid, font_rasterizer)
+        )
     }
 
     /// Populates and prepares damaged grid cells for retained updates, keeping
@@ -190,16 +189,13 @@ impl TextRenderer {
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
     ) -> Result<()> {
-        let mut ligature_damage = Vec::with_capacity(damage.len());
-        expand_damage_regions_for_ligature_context(grid, damage, &mut ligature_damage);
-        self.prepare_grid_internal(
+        self.prepare_grid_with_font_rasterizer_internal(
             renderer,
             grid,
-            &ligature_damage,
-            &mut |cell| font_rasterizer.rasterize_cell(cell),
+            damage,
+            font_rasterizer,
             true,
-        )?;
-        self.apply_operator_ligatures(renderer, grid, font_rasterizer)
+        )
     }
 
     /// Updates the cursor overlay from core cursor state.
@@ -382,6 +378,32 @@ impl TextRenderer {
             include_default_blank_cells,
         )?;
         renderer.write_text_instances(&mut self.buffers, &self.instances)
+    }
+
+    fn prepare_grid_with_font_rasterizer_internal(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        font_rasterizer: &mut FontRasterizer,
+        include_blank_default_cells: bool,
+    ) -> Result<()> {
+        let mut ligature_damage = std::mem::take(&mut self.ligature_damage);
+        ligature_damage.clear();
+        ligature_damage.reserve(damage.len());
+        expand_damage_regions_for_ligature_context(grid, damage, &mut ligature_damage);
+
+        let prepare_result = self.prepare_grid_internal(
+            renderer,
+            grid,
+            &ligature_damage,
+            &mut |cell| font_rasterizer.rasterize_cell(cell),
+            include_blank_default_cells,
+        );
+        self.ligature_damage = ligature_damage;
+
+        prepare_result?;
+        self.apply_operator_ligatures(renderer, grid, font_rasterizer)
     }
 
     fn apply_operator_ligatures(
