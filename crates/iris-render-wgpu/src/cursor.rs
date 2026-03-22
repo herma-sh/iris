@@ -1,6 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use iris_core::cell::CellWidth;
 use iris_core::cursor::{Cursor, CursorStyle};
+use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 
 use crate::error::{Error, Result};
@@ -141,6 +142,21 @@ fn normalize_cursor_span(grid: &Grid, row: usize, col: &mut usize) -> f32 {
     }
 }
 
+/// Computes the visible cursor damage region in grid coordinates.
+#[must_use]
+pub(crate) fn cursor_damage_region(cursor: Cursor, grid: &Grid) -> Option<DamageRegion> {
+    if !cursor.visible || grid.rows() == 0 || grid.cols() == 0 {
+        return None;
+    }
+
+    let row = cursor.position.row.min(grid.rows().saturating_sub(1));
+    let mut col = cursor.position.col.min(grid.cols().saturating_sub(1));
+    let span = normalize_cursor_span(grid, row, &mut col);
+    let (_, extent) = cursor_geometry(cursor.style, span);
+    let end_col = col.saturating_add(extent[0].ceil().max(1.0) as usize - 1);
+    Some(DamageRegion::new(row, row, col, end_col))
+}
+
 fn cursor_geometry(style: CursorStyle, span: f32) -> ([f32; 2], [f32; 2]) {
     match style {
         CursorStyle::Block => ([0.0, 0.0], [span, 1.0]),
@@ -153,9 +169,10 @@ fn cursor_geometry(style: CursorStyle, span: f32) -> ([f32; 2], [f32; 2]) {
 mod tests {
     use iris_core::cell::Cell;
     use iris_core::cursor::{Cursor, CursorStyle};
+    use iris_core::damage::DamageRegion;
     use iris_core::grid::{Grid, GridSize};
 
-    use super::{cursor_geometry, CursorBuffers, CursorInstance};
+    use super::{cursor_damage_region, cursor_geometry, CursorBuffers, CursorInstance};
     use crate::renderer::{Renderer, RendererConfig};
     use crate::theme::Theme;
 
@@ -257,6 +274,31 @@ mod tests {
 
         assert_eq!(instance.grid_position, [0.0, 0.0]);
         assert_eq!(instance.extent, [1.0, 1.0]);
+    }
+
+    #[test]
+    fn cursor_damage_region_skips_hidden_and_empty_grids() {
+        let mut hidden_cursor = Cursor::new();
+        hidden_cursor.visible = false;
+        let grid = Grid::new(GridSize { rows: 1, cols: 1 }).expect("grid should be created");
+        assert_eq!(cursor_damage_region(hidden_cursor, &grid), None);
+
+        let empty_grid = Grid::new(GridSize { rows: 0, cols: 0 }).expect("grid should be created");
+        assert_eq!(cursor_damage_region(Cursor::new(), &empty_grid), None);
+    }
+
+    #[test]
+    fn cursor_damage_region_tracks_wide_cell_spans() {
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('中'))
+            .expect("wide cell should be written");
+        let mut cursor = Cursor::new();
+        cursor.move_to(0, 1);
+
+        assert_eq!(
+            cursor_damage_region(cursor, &grid),
+            Some(DamageRegion::new(0, 0, 0, 1))
+        );
     }
 
     #[test]
