@@ -265,12 +265,13 @@ impl TerminalRenderer {
         self.full_redraw_damage.clear();
         self.full_redraw_damage.extend_from_slice(damage);
         let cursor_changed = self.previous_cursor != Some(cursor);
-        if shifted_retained_frame || cursor_changed {
+        if cursor_changed || shifted_retained_frame {
             self.push_cursor_damage(grid, self.previous_cursor);
             self.push_cursor_damage(grid, Some(cursor));
         }
 
         if self.full_redraw_damage.is_empty() {
+            // Keep cursor state current even when no redraw work is required.
             self.previous_cursor = Some(cursor);
             return Ok(());
         }
@@ -1123,6 +1124,139 @@ mod tests {
             terminal_renderer.instance_count(),
             initial_instances,
             "no-op updates should keep previous prepared instances instead of forcing cursor-cell redraw"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_repaints_cell_damage_without_forcing_cursor_damage() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(48, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([48.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 3).expect("terminal should be created");
+        terminal
+            .write_ascii_run(b"ab")
+            .expect("terminal write should succeed");
+        terminal.cursor.move_to(0, 2);
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial terminal frame should prepare");
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+
+        terminal
+            .grid
+            .write(0, 0, Cell::new('x'))
+            .expect("cell write should mark damage");
+        let cursor_before = terminal.cursor;
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("cell-only update should succeed");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert_eq!(terminal.cursor, cursor_before);
+        assert_eq!(
+            terminal_renderer.instance_count(),
+            1,
+            "cell-only updates should not force cursor damage when cursor and scroll state are unchanged"
+        );
+        assert!(
+            cell_region_has_non_background(&pixels, surface.size(), (0, 0), (16, 16), background),
+            "the changed text cell should be repainted"
+        );
+        assert!(
+            cell_region_has_non_background(&pixels, surface.size(), (2, 0), (16, 16), background),
+            "the cursor overlay should remain visible at the unchanged cursor position"
+        );
+    }
+
+    #[test]
+    fn terminal_renderer_scroll_only_updates_still_include_cursor_repaint() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(16, 48).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    uniforms: TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(3, 1).expect("terminal should be created");
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial frame should prepare");
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+        let cursor_before = terminal.cursor;
+
+        terminal
+            .apply_action(Action::ScrollUp(1))
+            .expect("scroll up should succeed");
+        // Exercise the scroll-delta path directly without additional damage.
+        let _ = terminal.take_damage();
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("scroll-only update should succeed");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+        assert_eq!(terminal.cursor, cursor_before);
+        assert_eq!(terminal_renderer.cursor_instance_count(), 1);
+        assert!(
+            cell_region_has_non_background(
+                &pixels,
+                surface.size(),
+                (cursor_before.position.col, cursor_before.position.row),
+                (16, 16),
+                background,
+            ),
+            "scroll-only updates should keep cursor pixels visible after retained-frame shifting"
         );
     }
 
