@@ -166,4 +166,5 @@ fn cursor_geometry(style: CursorStyle, span: f32) -> ([f32; 2], [f32; 2]) {
 }
 
 #[cfg(test)]
+#[path = "test/cursor/tests.rs"]
 mod tests;

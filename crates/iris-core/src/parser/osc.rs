@@ -39,4 +39,5 @@ fn parse_hyperlink(data: &[u8]) -> Vec<Action> {
 }
 
 #[cfg(test)]
+#[path = "../test/parser/osc/tests.rs"]
 mod tests;

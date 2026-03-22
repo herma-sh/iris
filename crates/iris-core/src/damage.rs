@@ -157,4 +157,5 @@ impl Default for DamageTracker {
 }
 
 #[cfg(test)]
+#[path = "test/damage/tests.rs"]
 mod tests;

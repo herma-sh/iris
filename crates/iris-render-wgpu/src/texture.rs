@@ -129,4 +129,5 @@ impl TextureSurface {
 }
 
 #[cfg(test)]
+#[path = "test/texture/tests.rs"]
 mod tests;

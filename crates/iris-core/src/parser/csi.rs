@@ -91,4 +91,5 @@ fn normalized_modes(params: &[u16], private_marker: Option<u8>) -> ModeParams {
 }
 
 #[cfg(test)]
+#[path = "../test/parser/csi/tests.rs"]
 mod tests;

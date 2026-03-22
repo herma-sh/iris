@@ -191,4 +191,5 @@ fn supports_alpha_mode(
 }
 
 #[cfg(test)]
+#[path = "test/surface/tests.rs"]
 mod tests;

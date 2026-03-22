@@ -144,4 +144,5 @@ impl CellWidth {
 }
 
 #[cfg(test)]
+#[path = "test/cell/tests.rs"]
 mod tests;

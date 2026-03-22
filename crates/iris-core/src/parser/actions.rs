@@ -220,4 +220,5 @@ fn parse_extended_color(params: &[u16]) -> Option<(Color, usize)> {
 }
 
 #[cfg(test)]
+#[path = "../test/parser/actions/tests.rs"]
 mod tests;

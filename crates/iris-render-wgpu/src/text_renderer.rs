@@ -693,4 +693,5 @@ fn operator_ligature_crosses_damage_boundary(
 }
 
 #[cfg(test)]
+#[path = "test/text_renderer/tests.rs"]
 mod tests;

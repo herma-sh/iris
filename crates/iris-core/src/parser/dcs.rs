@@ -10,4 +10,5 @@ pub fn parse_dcs(_payload: &[u8]) -> Vec<Action> {
 }
 
 #[cfg(test)]
+#[path = "../test/parser/dcs/tests.rs"]
 mod tests;

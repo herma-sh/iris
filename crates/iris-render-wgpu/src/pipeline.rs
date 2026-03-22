@@ -580,4 +580,5 @@ impl CursorPipeline {
 }
 
 #[cfg(test)]
+#[path = "test/pipeline/tests.rs"]
 mod tests;

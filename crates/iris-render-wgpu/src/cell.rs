@@ -463,4 +463,5 @@ fn instance_buffer_size(capacity: usize) -> Result<wgpu::BufferAddress> {
 }
 
 #[cfg(test)]
+#[path = "test/cell/tests.rs"]
 mod tests;

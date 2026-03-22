@@ -13,10 +13,13 @@ mod movement;
 mod screen;
 
 #[cfg(test)]
+#[path = "../test/terminal/tests.rs"]
 mod tests;
 #[cfg(test)]
+#[path = "../test/terminal/tests_ascii.rs"]
 mod tests_ascii;
 #[cfg(test)]
+#[path = "../test/terminal/tests_erase.rs"]
 mod tests_erase;
 
 /// The visible terminal state used by Iris core.

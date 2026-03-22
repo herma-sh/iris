@@ -892,4 +892,5 @@ fn normalized_surface_dimension(dimension: f32) -> u32 {
 }
 
 #[cfg(test)]
+#[path = "test/terminal_renderer/tests.rs"]
 mod tests;

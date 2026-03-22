@@ -125,4 +125,5 @@ impl Mode {
 }
 
 #[cfg(test)]
+#[path = "test/modes/tests.rs"]
 mod tests;

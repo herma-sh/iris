@@ -370,4 +370,5 @@ fn validate_glyph_dimension(dimension: u32, axis: &str, character: char) -> Resu
 }
 
 #[cfg(test)]
+#[path = "test/font/tests.rs"]
 mod tests;

@@ -299,4 +299,5 @@ impl AtlasAllocator {
 }
 
 #[cfg(test)]
+#[path = "test/atlas/tests.rs"]
 mod tests;

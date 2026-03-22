@@ -269,4 +269,5 @@ impl GlyphCache {
 }
 
 #[cfg(test)]
+#[path = "test/glyph/tests.rs"]
 mod tests;

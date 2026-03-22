@@ -443,4 +443,5 @@ const fn toml_value_kind(value: &Value) -> &'static str {
 }
 
 #[cfg(test)]
+#[path = "test/theme/tests.rs"]
 mod tests;

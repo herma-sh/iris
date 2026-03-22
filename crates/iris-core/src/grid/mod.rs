@@ -8,6 +8,7 @@ mod indexing;
 mod resize;
 mod scroll;
 #[cfg(test)]
+#[path = "../test/grid/tests.rs"]
 mod tests;
 mod write;
 
