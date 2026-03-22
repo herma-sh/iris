@@ -72,6 +72,7 @@ Target release: `0.2.0`
 - Switched font rasterization placement to a shared renderer baseline per rasterizer instance so fallback-face glyph placement no longer recomputes per-face baselines that can drift vertical alignment.
 - Updated font fallback loading so dynamically discovered fallback faces immediately expand the shared rasterization baseline, preventing taller fallback glyph ascents from being clipped.
 - Refreshed the Phase 2 renderer documentation to replace bootstrap-era crate/API sections with the current retained-frame architecture, including `TextRenderer`/`TerminalRenderer` lifecycle contracts and placement-aware glyph-cache invariants.
+- Added a mixed-update retained-render benchmark path (no-op/cursor/cell-write/scroll blend) and optimized incremental terminal updates to skip cursor-damage redraws when cursor state and scroll state are unchanged.
 
 ### 2026-03-20
 
