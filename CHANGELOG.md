@@ -73,6 +73,7 @@ Target release: `0.2.0`
 - Updated font fallback loading so dynamically discovered fallback faces immediately expand the shared rasterization baseline, preventing taller fallback glyph ascents from being clipped.
 - Refreshed the Phase 2 renderer documentation to replace bootstrap-era crate/API sections with the current retained-frame architecture, including `TextRenderer`/`TerminalRenderer` lifecycle contracts and placement-aware glyph-cache invariants.
 - Added a mixed-update retained-render benchmark path (no-op/cursor/cell-write/scroll blend) and optimized incremental terminal updates to skip cursor-damage redraws when cursor state and scroll state are unchanged.
+- Added an explicit retained no-op benchmark path and short-circuited `TerminalRenderer` no-op incremental updates before damage-vector processing when scroll delta, cursor state, and grid damage are all unchanged.
 
 ### 2026-03-20
 

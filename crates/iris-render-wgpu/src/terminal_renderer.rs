@@ -252,8 +252,14 @@ impl TerminalRenderer {
             return self.prepare_grid_and_cursor(renderer, grid, cursor);
         }
 
+        let cursor_changed = self.previous_cursor != Some(cursor);
+        let normalized_scroll = normalized_scroll_delta(scroll_delta, grid);
+        if normalized_scroll.is_none() && damage.is_empty() && !cursor_changed {
+            return Ok(());
+        }
+
         let mut shifted_retained_frame = false;
-        if let Some(scroll_delta) = normalized_scroll_delta(scroll_delta, grid) {
+        if let Some(scroll_delta) = normalized_scroll {
             shifted_retained_frame = true;
             if is_full_grid_scroll_delta(scroll_delta, grid) {
                 self.shift_retained_frame_for_scroll(renderer, scroll_delta);
@@ -264,7 +270,6 @@ impl TerminalRenderer {
 
         self.full_redraw_damage.clear();
         self.full_redraw_damage.extend_from_slice(damage);
-        let cursor_changed = self.previous_cursor != Some(cursor);
         if cursor_changed || shifted_retained_frame {
             self.push_cursor_damage(grid, self.previous_cursor);
             self.push_cursor_damage(grid, Some(cursor));
