@@ -74,6 +74,7 @@ Target release: `0.2.0`
 - Refreshed the Phase 2 renderer documentation to replace bootstrap-era crate/API sections with the current retained-frame architecture, including `TextRenderer`/`TerminalRenderer` lifecycle contracts and placement-aware glyph-cache invariants.
 - Added a mixed-update retained-render benchmark path (no-op/cursor/cell-write/scroll blend) and optimized incremental terminal updates to skip cursor-damage redraws when cursor state and scroll state are unchanged.
 - Added an explicit retained no-op benchmark path and short-circuited `TerminalRenderer` no-op incremental updates before damage-vector processing when scroll delta, cursor state, and grid damage are all unchanged.
+- Deduplicated retained cursor invalidation regions when previous/current cursor damage resolves to the same cell region (for example scroll-only updates with unchanged cursor position), reducing redundant damage processing in incremental updates.
 
 ### 2026-03-20
 

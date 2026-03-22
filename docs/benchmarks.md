@@ -77,8 +77,8 @@ Latest verified run on `2026-03-22`:
 |---------|--------|
 | `full_prepare_160x45` | `~0.4-0.8 ms/frame` |
 | `retained_scroll_update_160x45` | `~1.4k-2.1k updates/s` |
-| `retained_noop_update_160x45` | `~9k updates/s` |
-| `retained_mixed_update_160x45` | `~3.8k-4.7k updates/s` |
+| `retained_noop_update_160x45` | `~9k-14k updates/s` |
+| `retained_mixed_update_160x45` | `~3.8k-5.1k updates/s` |
 | `estimated_renderer_memory` | `~13.6 MiB` |
 
 ## Planned Benchmarks
