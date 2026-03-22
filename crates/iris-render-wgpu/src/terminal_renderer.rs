@@ -5,7 +5,6 @@ use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::grid::Grid;
 use iris_core::terminal::Terminal;
 
-use crate::cursor::CursorInstance;
 use crate::error::Result;
 use crate::font::{FontRasterizer, FontRasterizerConfig};
 use crate::pipeline::{PresentPipeline, PresentUniforms};
@@ -410,14 +409,7 @@ impl TerminalRenderer {
     }
 
     fn cursor_damage_region(&self, grid: &Grid, cursor: Option<Cursor>) -> Option<DamageRegion> {
-        let cursor = cursor?;
-        let instance = CursorInstance::from_cursor(cursor, grid, self.theme())
-            .ok()
-            .flatten()?;
-        let row = instance.grid_position[1] as usize;
-        let start_col = instance.grid_position[0] as usize;
-        let end_col = start_col.saturating_add(instance.extent[0].ceil().max(1.0) as usize - 1);
-        Some(DamageRegion::new(row, row, start_col, end_col))
+        crate::cursor::cursor_damage_region(cursor?, grid)
     }
 
     fn resize_frame_surface(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
