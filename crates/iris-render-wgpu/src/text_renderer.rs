@@ -426,18 +426,38 @@ impl TextRenderer {
                 };
                 let replacement_key = glyph_key_for_cell(replacement_cell);
                 if !self.glyph_cache.contains(replacement_key) {
-                    let Some(rasterized) = font_rasterizer.rasterize_cell(replacement_cell)? else {
-                        col += 1;
-                        continue;
+                    let rasterized = match font_rasterizer.rasterize_cell(replacement_cell) {
+                        Ok(Some(rasterized)) => rasterized,
+                        Ok(None) => {
+                            col += 1;
+                            continue;
+                        }
+                        Err(error) => {
+                            tracing::debug!(
+                                ?error,
+                                replacement_character = %replacement_character,
+                                "skipping operator ligature replacement after rasterization failure"
+                            );
+                            col += 1;
+                            continue;
+                        }
                     };
 
-                    renderer.cache_glyph_with_placement(
+                    if let Err(error) = renderer.cache_glyph_with_placement(
                         &mut self.glyph_cache,
                         &mut self.atlas,
                         replacement_key,
                         rasterized.as_bitmap(),
                         rasterized.placement(),
-                    )?;
+                    ) {
+                        tracing::debug!(
+                            ?error,
+                            replacement_character = %replacement_character,
+                            "skipping operator ligature replacement after cache insertion failure"
+                        );
+                        col += 1;
+                        continue;
+                    }
                 }
 
                 let Some(glyph) = self.glyph_cache.get(replacement_key).copied() else {
