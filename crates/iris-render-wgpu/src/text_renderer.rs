@@ -551,10 +551,6 @@ fn operator_ligature_replacement(left: char, right: char) -> Option<char> {
     }
 }
 
-fn is_operator_ligature_character(character: char) -> bool {
-    matches!(character, '-' | '<' | '=' | '>' | '!')
-}
-
 fn expand_damage_regions_for_ligature_context(
     grid: &Grid,
     damage: &[DamageRegion],
@@ -579,9 +575,12 @@ fn expand_damage_regions_for_ligature_context(
                 continue;
             };
 
-            if (context_start_col..=context_end_col)
-                .any(|col| is_operator_ligature_character(row_cells[col].character))
-            {
+            if operator_ligature_crosses_damage_boundary(
+                row_cells,
+                region.start_col,
+                region.end_col,
+                last_col,
+            ) {
                 needs_context = true;
                 break;
             }
@@ -599,6 +598,35 @@ fn expand_damage_regions_for_ligature_context(
             end_col,
         ));
     }
+}
+
+fn operator_ligature_crosses_damage_boundary(
+    row_cells: &[Cell],
+    start_col: usize,
+    end_col: usize,
+    last_col: usize,
+) -> bool {
+    if row_cells.is_empty() {
+        return false;
+    }
+
+    if start_col <= last_col && start_col > 0 {
+        let left = row_cells[start_col - 1].character;
+        let right = row_cells[start_col].character;
+        if operator_ligature_replacement(left, right).is_some() {
+            return true;
+        }
+    }
+
+    if end_col < last_col {
+        let left = row_cells[end_col].character;
+        let right = row_cells[end_col + 1].character;
+        if operator_ligature_replacement(left, right).is_some() {
+            return true;
+        }
+    }
+
+    false
 }
 
 #[cfg(test)]
@@ -680,7 +708,7 @@ mod tests {
             .expect("non-operator cell should be written");
 
         let damage = [
-            DamageRegion::new(0, 1, 2, 4),
+            DamageRegion::new(0, 0, 2, 2),
             DamageRegion::new(3, 3, 0, 0),
             DamageRegion::new(3, 3, 8, 9),
         ];
@@ -690,7 +718,7 @@ mod tests {
         assert_eq!(
             expanded,
             vec![
-                DamageRegion::new(0, 1, 1, 5),
+                DamageRegion::new(0, 0, 1, 3),
                 DamageRegion::new(3, 3, 0, 0),
                 DamageRegion::new(3, 3, 8, 9),
             ]

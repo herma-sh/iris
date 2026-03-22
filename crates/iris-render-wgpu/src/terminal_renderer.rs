@@ -273,6 +273,11 @@ impl TerminalRenderer {
         if cursor_changed || shifted_retained_frame {
             self.push_cursor_damage_pair(grid, self.previous_cursor, Some(cursor));
         }
+        let cursor_damage_overlap = self
+            .cursor_damage_region(grid, Some(cursor))
+            .is_some_and(|region| damage_overlaps_region(damage, region));
+        let should_prepare_cursor =
+            cursor_changed || shifted_retained_frame || cursor_damage_overlap;
 
         if self.full_redraw_damage.is_empty() {
             // Keep cursor state current even when no redraw work is required.
@@ -287,7 +292,9 @@ impl TerminalRenderer {
                 &self.full_redraw_damage,
                 &mut self.font_rasterizer,
             )?;
-        self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
+        if should_prepare_cursor {
+            self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
+        }
         self.text_renderer
             .render_to_texture_surface_with_load(renderer, &self.frame_surface);
         self.previous_cursor = Some(cursor);
@@ -734,6 +741,15 @@ fn normalized_scroll_delta(scroll_delta: Option<ScrollDelta>, grid: &Grid) -> Op
     Some(scroll_delta)
 }
 
+fn damage_overlaps_region(damage: &[DamageRegion], region: DamageRegion) -> bool {
+    damage.iter().any(|candidate| {
+        candidate.start_row <= region.end_row
+            && candidate.end_row >= region.start_row
+            && candidate.start_col <= region.end_col
+            && candidate.end_col >= region.start_col
+    })
+}
+
 fn is_full_grid_scroll_delta(scroll_delta: ScrollDelta, grid: &Grid) -> bool {
     let Some(full_grid_bottom) = grid.rows().checked_sub(1) else {
         return false;
@@ -850,7 +866,7 @@ fn normalized_surface_dimension(dimension: f32) -> u32 {
 #[cfg(test)]
 mod tests {
     use iris_core::cell::{Cell, CellAttrs, Color};
-    use iris_core::damage::ScrollDelta;
+    use iris_core::damage::{DamageRegion, ScrollDelta};
     use iris_core::parser::Action;
     use iris_core::terminal::Terminal;
 
@@ -1218,6 +1234,80 @@ mod tests {
     }
 
     #[test]
+    fn terminal_renderer_rebuilds_cursor_overlay_when_damage_overlaps_cursor_cell() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(48, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let cursor_theme = Theme {
+            background: ThemeColor::rgb(0x00, 0x00, 0x00),
+            cursor: ThemeColor::rgb(0x00, 0xff, 0x00),
+            ..Theme::default()
+        };
+        let mut terminal_renderer = match TerminalRenderer::new(
+            &renderer,
+            surface.format(),
+            TerminalRendererConfig {
+                text: crate::text_renderer::TextRendererConfig {
+                    theme: cursor_theme.clone(),
+                    uniforms: TextUniforms::new([48.0, 16.0], [16.0, 16.0], 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        ) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+        };
+        let mut terminal = Terminal::new(1, 3).expect("terminal should be created");
+        terminal
+            .grid
+            .write(0, 0, Cell::new('a'))
+            .expect("seed cell should be written");
+        terminal.cursor.move_to(0, 0);
+
+        terminal_renderer
+            .prepare_terminal(&renderer, &terminal)
+            .expect("initial frame should prepare");
+        let _ = terminal.take_damage();
+        let _ = terminal.take_scroll_delta();
+
+        terminal
+            .grid
+            .write(
+                0,
+                0,
+                Cell {
+                    character: 'A',
+                    width: iris_core::cell::CellWidth::Double,
+                    attrs: CellAttrs::default(),
+                },
+            )
+            .expect("wide replacement cell should be written");
+
+        terminal_renderer
+            .update_terminal(&renderer, &mut terminal)
+            .expect("overlapping cell damage should update cursor overlay");
+        terminal_renderer.render_to_texture_surface(&renderer, &surface);
+
+        let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        let cursor_color = crate::test_support::bgra_pixel(cursor_theme.cursor);
+        assert_eq!(
+            pixel_at(&pixels, surface.size(), (24, 8)),
+            cursor_color,
+            "cursor overlay should refresh when overlapping damage changes the cursor cell span"
+        );
+    }
+
+    #[test]
     fn terminal_renderer_scroll_only_updates_still_include_cursor_repaint() {
         let _gpu_test_lock = crate::test_support::gpu_test_lock();
         let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
@@ -1284,6 +1374,28 @@ mod tests {
             ),
             "scroll-only updates should keep cursor pixels visible after retained-frame shifting"
         );
+    }
+
+    #[test]
+    fn damage_overlaps_region_detects_intersections() {
+        let damage = [DamageRegion::new(0, 0, 0, 2), DamageRegion::new(2, 3, 4, 5)];
+
+        assert!(super::damage_overlaps_region(
+            &damage,
+            DamageRegion::new(0, 0, 2, 4)
+        ));
+        assert!(super::damage_overlaps_region(
+            &damage,
+            DamageRegion::new(3, 3, 4, 4)
+        ));
+        assert!(!super::damage_overlaps_region(
+            &damage,
+            DamageRegion::new(1, 1, 0, 1)
+        ));
+        assert!(!super::damage_overlaps_region(
+            &damage,
+            DamageRegion::new(4, 4, 4, 5)
+        ));
     }
 
     #[test]
