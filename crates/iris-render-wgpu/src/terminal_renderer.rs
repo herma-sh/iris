@@ -271,8 +271,7 @@ impl TerminalRenderer {
         self.full_redraw_damage.clear();
         self.full_redraw_damage.extend_from_slice(damage);
         if cursor_changed || shifted_retained_frame {
-            self.push_cursor_damage(grid, self.previous_cursor);
-            self.push_cursor_damage(grid, Some(cursor));
+            self.push_cursor_damage_pair(grid, self.previous_cursor, Some(cursor));
         }
 
         if self.full_redraw_damage.is_empty() {
@@ -348,21 +347,34 @@ impl TerminalRenderer {
         ));
     }
 
-    fn push_cursor_damage(&mut self, grid: &Grid, cursor: Option<Cursor>) {
-        let Some(cursor) = cursor else {
-            return;
-        };
-        let Some(instance) = CursorInstance::from_cursor(cursor, grid, self.theme())
+    fn push_cursor_damage_pair(
+        &mut self,
+        grid: &Grid,
+        previous_cursor: Option<Cursor>,
+        current_cursor: Option<Cursor>,
+    ) {
+        let previous_region = self.cursor_damage_region(grid, previous_cursor);
+        let current_region = self.cursor_damage_region(grid, current_cursor);
+
+        if let Some(region) = previous_region {
+            self.full_redraw_damage.push(region);
+        }
+        if let Some(region) = current_region {
+            if Some(region) != previous_region {
+                self.full_redraw_damage.push(region);
+            }
+        }
+    }
+
+    fn cursor_damage_region(&self, grid: &Grid, cursor: Option<Cursor>) -> Option<DamageRegion> {
+        let cursor = cursor?;
+        let instance = CursorInstance::from_cursor(cursor, grid, self.theme())
             .ok()
-            .flatten()
-        else {
-            return;
-        };
+            .flatten()?;
         let row = instance.grid_position[1] as usize;
         let start_col = instance.grid_position[0] as usize;
         let end_col = start_col.saturating_add(instance.extent[0].ceil().max(1.0) as usize - 1);
-        self.full_redraw_damage
-            .push(DamageRegion::new(row, row, start_col, end_col));
+        Some(DamageRegion::new(row, row, start_col, end_col))
     }
 
     fn resize_frame_surface(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
@@ -1053,6 +1065,10 @@ mod tests {
         let cached_pixels =
             crate::test_support::read_texture_surface(&renderer, &terminal_renderer.frame_surface);
         let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+        assert!(
+            terminal_renderer.full_redraw_damage.len() >= 2,
+            "cursor movement should include old/new cursor repaint regions"
+        );
         assert_eq!(terminal_renderer.instance_count(), 2);
         assert_eq!(terminal_renderer.cursor_instance_count(), 1);
         assert_eq!(
@@ -1252,6 +1268,11 @@ mod tests {
         let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
         let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
         assert_eq!(terminal.cursor, cursor_before);
+        assert_eq!(
+            terminal_renderer.full_redraw_damage.len(),
+            1,
+            "scroll-only updates with an unchanged cursor should deduplicate cursor damage regions"
+        );
         assert_eq!(terminal_renderer.cursor_instance_count(), 1);
         assert!(
             cell_region_has_non_background(
