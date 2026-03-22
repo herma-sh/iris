@@ -420,18 +420,41 @@ pub(super) fn scroll_copy_region(
         return None;
     }
 
-    match scroll_delta.lines {
-        lines if lines > 0 => Some((
+    let (source_y, destination_y, copy_height) = match scroll_delta.lines {
+        lines if lines > 0 => (
             vertical_padding,
             vertical_padding.saturating_sub(shift_pixels),
             viewport_size.height,
-        )),
-        lines if lines < 0 => Some((
+        ),
+        lines if lines < 0 => (
             vertical_padding,
             vertical_padding.saturating_add(shift_pixels),
             viewport_size.height,
-        )),
-        _ => None,
+        ),
+        _ => return None,
+    };
+
+    if !copy_region_fits_in_surface_height(frame_surface_size.height, source_y, copy_height)
+        || !copy_region_fits_in_surface_height(
+            frame_surface_size.height,
+            destination_y,
+            copy_height,
+        )
+    {
+        return None;
+    }
+
+    Some((source_y, destination_y, copy_height))
+}
+
+fn copy_region_fits_in_surface_height(
+    surface_height: u32,
+    origin_y: u32,
+    copy_height: u32,
+) -> bool {
+    match origin_y.checked_add(copy_height) {
+        Some(copy_end) => copy_end <= surface_height,
+        None => false,
     }
 }
 

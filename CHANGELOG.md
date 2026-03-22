@@ -90,6 +90,7 @@ Target release: `0.2.0`
 - Refreshed the renderer phase checklist/status docs to mark ligature rendering and retained mixed-stream optimization follow-ups complete after the latest merged renderer changes.
 - Extracted inline Rust unit-test modules out of core source files into dedicated module test files across `iris-core` and `iris-render-wgpu`, reducing implementation-file bloat without changing runtime behavior.
 - Split large renderer source modules into focused submodules (`terminal_renderer::internals`, `text_renderer::ligatures`, and `pipeline::{present,text,cursor}`), keeping implementation files smaller while preserving API behavior.
+- Hardened full-grid retained scroll copy planning with explicit source/destination Y-range validation against `frame_surface_size.height`, preventing invalid texture-copy regions when retained-frame uniforms and live surface size diverge during resize/reconfigure edges.
 
 ### 2026-03-20
 
