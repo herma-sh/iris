@@ -8,14 +8,16 @@ use crate::error::{Error, Result};
 use crate::glyph::CachedGlyph;
 use crate::theme::Theme;
 
-const CELL_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+const CELL_INSTANCE_ATTRIBUTES: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
     0 => Float32x2,
     1 => Float32x2,
     2 => Float32x2,
-    3 => Float32x4,
-    4 => Float32x4,
-    5 => Float32,
-    6 => Uint32
+    3 => Float32x2,
+    4 => Float32x2,
+    5 => Float32x4,
+    6 => Float32x4,
+    7 => Float32,
+    8 => Uint32
 ];
 
 /// Resolved foreground and background colors used for text rendering.
@@ -78,6 +80,10 @@ pub struct CellInstance {
     pub atlas_min: [f32; 2],
     /// Glyph UV extent in atlas space.
     pub atlas_max: [f32; 2],
+    /// Glyph offset in pixels relative to the cell's top-left corner.
+    pub glyph_offset: [f32; 2],
+    /// Glyph bitmap extent in pixels.
+    pub glyph_extent: [f32; 2],
     /// Resolved foreground color.
     pub fg_color: [f32; 4],
     /// Resolved background color.
@@ -114,6 +120,11 @@ impl CellInstance {
             grid_position: [column as f32, row as f32],
             atlas_min: [atlas_min_x, atlas_min_y],
             atlas_max: [atlas_max_x, atlas_max_y],
+            glyph_offset: [
+                glyph.placement().left_px as f32,
+                glyph.placement().top_px as f32,
+            ],
+            glyph_extent: [region.width as f32, region.height as f32],
             fg_color: colors.fg,
             bg_color: colors.bg,
             cell_span: cell.width.columns() as f32,
@@ -507,6 +518,8 @@ mod tests {
         assert_eq!(instance.grid_position, [3.0, 5.0]);
         assert_eq!(instance.atlas_min, [0.2578125, 0.265625]);
         assert_eq!(instance.atlas_max, [0.3671875, 0.609375]);
+        assert_eq!(instance.glyph_offset, [0.0, 0.0]);
+        assert_eq!(instance.glyph_extent, [8.0, 12.0]);
         assert_eq!(instance.cell_span, 1.0);
         assert_eq!(
             instance.style_flags,
@@ -533,6 +546,34 @@ mod tests {
         .expect("wide cell should encode into an instance");
 
         assert_eq!(instance.cell_span, 2.0);
+    }
+
+    #[test]
+    fn cell_instance_tracks_cached_glyph_pixel_offsets() {
+        let cell = Cell::new('A');
+        let instance = CellInstance::from_cell(
+            cell,
+            0,
+            0,
+            CachedGlyph::with_placement(
+                AtlasRegion {
+                    x: 4,
+                    y: 4,
+                    width: 6,
+                    height: 10,
+                },
+                crate::glyph::GlyphPlacement {
+                    left_px: -1,
+                    top_px: 3,
+                },
+            ),
+            AtlasSize::new(32, 32).expect("atlas size is valid"),
+            CellColors::new([1.0; 4], [0.0; 4]),
+        )
+        .expect("cell should encode into an instance");
+
+        assert_eq!(instance.glyph_offset, [-1.0, 3.0]);
+        assert_eq!(instance.glyph_extent, [6.0, 10.0]);
     }
 
     #[test]
@@ -593,12 +634,13 @@ mod tests {
             size_of::<CellInstance>() as wgpu::BufferAddress
         );
         assert_eq!(layout.step_mode, wgpu::VertexStepMode::Instance);
-        assert_eq!(layout.attributes.len(), 7);
+        assert_eq!(layout.attributes.len(), 9);
         assert_eq!(layout.attributes[0].offset, 0);
         assert_eq!(layout.attributes[3].offset, 24);
-        assert_eq!(layout.attributes[5].offset, 56);
-        assert_eq!(layout.attributes[6].offset, 60);
-        assert_eq!(layout.attributes[6].format, wgpu::VertexFormat::Uint32);
+        assert_eq!(layout.attributes[5].offset, 40);
+        assert_eq!(layout.attributes[7].offset, 72);
+        assert_eq!(layout.attributes[8].offset, 76);
+        assert_eq!(layout.attributes[8].format, wgpu::VertexFormat::Uint32);
     }
 
     #[test]

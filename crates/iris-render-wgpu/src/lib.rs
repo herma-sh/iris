@@ -24,7 +24,7 @@ pub use cell::{cell_instances_as_bytes, CellColors, CellInstance, TextBuffers, T
 pub use cursor::{CursorBuffers, CursorInstance};
 pub use error::{Error, Result};
 pub use font::{FontRasterizer, FontRasterizerConfig};
-pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey, RasterizedGlyph};
+pub use glyph::{CachedGlyph, GlyphBitmap, GlyphCache, GlyphKey, GlyphPlacement, RasterizedGlyph};
 pub use pipeline::{
     CursorPipeline, FullscreenPipeline, PresentPipeline, PresentUniforms, TextPipeline,
 };
