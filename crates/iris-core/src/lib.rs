@@ -10,6 +10,7 @@ pub mod error;
 pub mod grid;
 pub mod modes;
 pub mod parser;
+pub mod selection;
 pub mod terminal;
 pub mod utils;
 
@@ -20,4 +21,5 @@ pub use error::{Error, Result};
 pub use grid::{Grid, GridSize};
 pub use modes::{Mode, TerminalModes};
 pub use parser::{Action, GraphicsRendition, Parser, ParserConfig, ParserState};
+pub use selection::{Anchor, Selection, SelectionEngine, SelectionKind, SelectionState};
 pub use terminal::Terminal;

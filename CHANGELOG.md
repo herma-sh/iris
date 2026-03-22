@@ -4,11 +4,23 @@ All notable changes to Iris should be recorded in this file.
 
 This project uses a phase-based versioning scheme:
 
-## 0.3.0  (In Progress)
+Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N.0`.
 
-## 0.2.0 
+## 0.3.0 (In Progress)
 
-Work window: `2026-03-19` to  `2026-03-22` 
+Work window: `2026-03-22` to present
+
+### 2026-03-22
+
+#### Added
+
+- Added an initial `iris-core::selection` foundation with `SelectionKind`, `SelectionState`, `Anchor`, and `Selection` range helpers for linear and block selection behavior.
+- Added a stateful `SelectionEngine` in `iris-core` covering selection lifecycle (`start`, `extend`, `complete`, `cancel`), word/line selection helpers, and selected-text extraction from `Grid`.
+- Added focused unit coverage for selection containment, row-bound clamping, selection lifecycle transitions, word/line selection, and block-selection text extraction.
+
+## 0.2.0 - 2026-03-22
+
+Work window: `2026-03-19` to `2026-03-22`
 
 ### 2026-03-21
 
