@@ -780,6 +780,41 @@ fn scroll_copy_region_returns_none_for_zero_width_frame() {
 }
 
 #[test]
+fn scroll_copy_region_returns_none_when_copy_exceeds_frame_height() {
+    let uniforms = TextUniforms::new([32.0, 32.0], [16.0, 16.0], 0.0);
+    let delta = ScrollDelta::new(0, 1, -1);
+
+    assert!(scroll_copy_region(
+        uniforms,
+        TextureSurfaceSize::new(32, 70).expect("frame size is valid"),
+        delta,
+    )
+    .is_none());
+}
+
+#[test]
+fn scroll_copy_region_returns_none_for_invalid_cell_height() {
+    let uniforms = TextUniforms::new([32.0, 32.0], [16.0, 0.0], 0.0);
+    let delta = ScrollDelta::new(0, 1, 1);
+
+    assert!(scroll_copy_region(
+        uniforms,
+        TextureSurfaceSize::new(32, 96).expect("frame size is valid"),
+        delta,
+    )
+    .is_none());
+}
+
+#[test]
+fn partial_scroll_copy_region_returns_none_for_invalid_cell_height() {
+    let uniforms = TextUniforms::new([16.0, 48.0], [16.0, f32::NAN], 0.0);
+    let frame_size = TextureSurfaceSize::new(16, 144).expect("frame size is valid");
+    let delta = ScrollDelta::new(1, 2, 1);
+
+    assert!(partial_scroll_copy_region(uniforms, frame_size, delta).is_none());
+}
+
+#[test]
 fn partial_scroll_copy_region_returns_expected_shift_for_middle_band() {
     let uniforms = TextUniforms::new([16.0, 48.0], [16.0, 16.0], 0.0);
     let frame_size = TextureSurfaceSize::new(16, 144).expect("frame size is valid");
