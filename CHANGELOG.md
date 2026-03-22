@@ -91,6 +91,7 @@ Target release: `0.2.0`
 - Extracted inline Rust unit-test modules out of core source files into dedicated module test files across `iris-core` and `iris-render-wgpu`, reducing implementation-file bloat without changing runtime behavior.
 - Split large renderer source modules into focused submodules (`terminal_renderer::internals`, `text_renderer::ligatures`, and `pipeline::{present,text,cursor}`), keeping implementation files smaller while preserving API behavior.
 - Hardened full-grid retained scroll copy planning with explicit source/destination Y-range validation against `frame_surface_size.height`, preventing invalid texture-copy regions when retained-frame uniforms and live surface size diverge during resize/reconfigure edges.
+- Refactored retained-scroll prelude command encoding into a shared helper and added explicit cell-height validation for retained scroll/partial-scroll copy planning so invalid cell metrics now cleanly skip retained-shift geometry instead of using fallback dimensions.
 
 ### 2026-03-20
 

@@ -1,24 +1,17 @@
 use super::*;
 
 impl TerminalRenderer {
-    pub(super) fn shift_retained_frame_for_scroll(
-        &mut self,
+    fn begin_scroll_shift_prelude(
+        &self,
         renderer: &Renderer,
-        scroll_delta: ScrollDelta,
-    ) {
-        let Some((source_y, destination_y, copy_height)) = scroll_copy_region(
-            self.requested_uniforms,
-            self.frame_surface.size(),
-            scroll_delta,
-        ) else {
-            return;
-        };
-
+        encoder_label: &'static str,
+        clear_pass_label: &'static str,
+    ) -> wgpu::CommandEncoder {
         let mut encoder =
             renderer
                 .device()
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("iris-render-wgpu-terminal-renderer-scroll-shift"),
+                    label: Some(encoder_label),
                 });
         let surface_size = self.frame_surface.size();
         let full_extent = wgpu::Extent3d {
@@ -43,7 +36,7 @@ impl TerminalRenderer {
         );
         {
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("iris-render-wgpu-terminal-renderer-scroll-clear-pass"),
+                label: Some(clear_pass_label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.frame_surface.view(),
                     resolve_target: None,
@@ -57,6 +50,29 @@ impl TerminalRenderer {
                 occlusion_query_set: None,
             });
         }
+
+        encoder
+    }
+
+    pub(super) fn shift_retained_frame_for_scroll(
+        &mut self,
+        renderer: &Renderer,
+        scroll_delta: ScrollDelta,
+    ) {
+        let Some((source_y, destination_y, copy_height)) = scroll_copy_region(
+            self.requested_uniforms,
+            self.frame_surface.size(),
+            scroll_delta,
+        ) else {
+            return;
+        };
+
+        let mut encoder = self.begin_scroll_shift_prelude(
+            renderer,
+            "iris-render-wgpu-terminal-renderer-scroll-shift",
+            "iris-render-wgpu-terminal-renderer-scroll-clear-pass",
+        );
+        let surface_size = self.frame_surface.size();
         encoder.copy_texture_to_texture(
             wgpu::ImageCopyTexture {
                 texture: self.scroll_surface.texture(),
@@ -102,49 +118,12 @@ impl TerminalRenderer {
             return;
         };
 
-        let mut encoder =
-            renderer
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("iris-render-wgpu-terminal-renderer-partial-scroll-shift"),
-                });
-        let surface_size = self.frame_surface.size();
-        let full_extent = wgpu::Extent3d {
-            width: surface_size.width,
-            height: surface_size.height,
-            depth_or_array_layers: 1,
-        };
-        encoder.copy_texture_to_texture(
-            wgpu::ImageCopyTexture {
-                texture: self.frame_surface.texture(),
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyTexture {
-                texture: self.scroll_surface.texture(),
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            full_extent,
+        let mut encoder = self.begin_scroll_shift_prelude(
+            renderer,
+            "iris-render-wgpu-terminal-renderer-partial-scroll-shift",
+            "iris-render-wgpu-terminal-renderer-partial-scroll-clear-pass",
         );
-        {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("iris-render-wgpu-terminal-renderer-partial-scroll-clear-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: self.frame_surface.view(),
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.theme().background.to_wgpu_color()),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-        }
+        let surface_size = self.frame_surface.size();
         if region_top_y > 0 {
             encoder.copy_texture_to_texture(
                 wgpu::ImageCopyTexture {
@@ -351,10 +330,7 @@ pub(super) fn partial_scroll_copy_region(
         return None;
     }
 
-    let cell_height = normalized_surface_dimension(uniforms.cell_size[1]);
-    if cell_height == 0 {
-        return None;
-    }
+    let cell_height = validated_cell_height_pixels(uniforms.cell_size[1])?;
 
     let top_row = u32::try_from(scroll_delta.top).unwrap_or(u32::MAX);
     let bottom_row_exclusive =
@@ -412,10 +388,11 @@ pub(super) fn scroll_copy_region(
     }
 
     let vertical_padding = frame_vertical_padding_pixels(uniforms);
+    let cell_height = validated_cell_height_pixels(uniforms.cell_size[1])?;
     let shift_pixels = scroll_delta
         .lines
         .unsigned_abs()
-        .saturating_mul(normalized_surface_dimension(uniforms.cell_size[1]));
+        .saturating_mul(cell_height);
     if shift_pixels == 0 || shift_pixels > viewport_size.height {
         return None;
     }
@@ -456,6 +433,18 @@ fn copy_region_fits_in_surface_height(
         Some(copy_end) => copy_end <= surface_height,
         None => false,
     }
+}
+
+fn validated_cell_height_pixels(raw_cell_height: f32) -> Option<u32> {
+    if !raw_cell_height.is_finite() || raw_cell_height <= 0.0 {
+        tracing::warn!(
+            ?raw_cell_height,
+            "invalid cell height for retained scroll copy planning"
+        );
+        return None;
+    }
+
+    Some(normalized_surface_dimension(raw_cell_height))
 }
 
 fn normalized_surface_dimension(dimension: f32) -> u32 {
