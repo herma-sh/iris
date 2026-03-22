@@ -199,19 +199,23 @@ impl TerminalRenderer {
         }
 
         let scroll_delta = terminal.take_scroll_delta();
-        let damage = terminal.take_damage();
-        match self.update_grid_and_cursor(
+        let mut damage = terminal.take_damage();
+        let original_damage_len = damage.len();
+        let result = self.update_grid_and_cursor_internal(
             renderer,
             &terminal.grid,
-            &damage,
+            &mut damage,
             scroll_delta,
             terminal.cursor,
-        ) {
+        );
+        self.full_redraw_damage = damage;
+
+        match result {
             Ok(()) => Ok(()),
             Err(error) => {
                 self.invalidate_cached_frame();
                 terminal.restore_scroll_delta(scroll_delta);
-                terminal.restore_damage(&damage);
+                terminal.restore_damage(&self.full_redraw_damage[..original_damage_len]);
                 Err(error)
             }
         }
@@ -252,6 +256,29 @@ impl TerminalRenderer {
             return self.prepare_grid_and_cursor(renderer, grid, cursor);
         }
 
+        let mut full_redraw_damage = std::mem::take(&mut self.full_redraw_damage);
+        full_redraw_damage.clear();
+        full_redraw_damage.extend_from_slice(damage);
+        let result = self.update_grid_and_cursor_internal(
+            renderer,
+            grid,
+            &mut full_redraw_damage,
+            scroll_delta,
+            cursor,
+        );
+        self.full_redraw_damage = full_redraw_damage;
+        result
+    }
+
+    fn update_grid_and_cursor_internal(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &mut Vec<DamageRegion>,
+        scroll_delta: Option<ScrollDelta>,
+        cursor: Cursor,
+    ) -> Result<()> {
+        let original_damage_len = damage.len();
         let cursor_changed = self.previous_cursor != Some(cursor);
         let normalized_scroll = normalized_scroll_delta(scroll_delta, grid);
         if normalized_scroll.is_none() && damage.is_empty() && !cursor_changed {
@@ -268,18 +295,16 @@ impl TerminalRenderer {
             }
         }
 
-        self.full_redraw_damage.clear();
-        self.full_redraw_damage.extend_from_slice(damage);
         if cursor_changed || shifted_retained_frame {
-            self.push_cursor_damage_pair(grid, self.previous_cursor, Some(cursor));
+            self.push_cursor_damage_pair(damage, grid, self.previous_cursor, Some(cursor));
         }
         let cursor_damage_overlap = self
             .cursor_damage_region(grid, Some(cursor))
-            .is_some_and(|region| damage_overlaps_region(damage, region));
+            .is_some_and(|region| damage_overlaps_region(&damage[..original_damage_len], region));
         let should_prepare_cursor =
             cursor_changed || shifted_retained_frame || cursor_damage_overlap;
 
-        if self.full_redraw_damage.is_empty() {
+        if damage.is_empty() {
             // Keep cursor state current even when no redraw work is required.
             self.previous_cursor = Some(cursor);
             return Ok(());
@@ -289,7 +314,7 @@ impl TerminalRenderer {
             .prepare_grid_update_with_font_rasterizer(
                 renderer,
                 grid,
-                &self.full_redraw_damage,
+                damage,
                 &mut self.font_rasterizer,
             )?;
         if should_prepare_cursor {
@@ -355,7 +380,8 @@ impl TerminalRenderer {
     }
 
     fn push_cursor_damage_pair(
-        &mut self,
+        &self,
+        damage: &mut Vec<DamageRegion>,
         grid: &Grid,
         previous_cursor: Option<Cursor>,
         current_cursor: Option<Cursor>,
@@ -364,11 +390,11 @@ impl TerminalRenderer {
         let current_region = self.cursor_damage_region(grid, current_cursor);
 
         if let Some(region) = previous_region {
-            self.full_redraw_damage.push(region);
+            damage.push(region);
         }
         if let Some(region) = current_region {
             if Some(region) != previous_region {
-                self.full_redraw_damage.push(region);
+                damage.push(region);
             }
         }
     }
