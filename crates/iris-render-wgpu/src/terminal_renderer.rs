@@ -389,6 +389,13 @@ impl TerminalRenderer {
         previous_cursor: Option<Cursor>,
         current_cursor: Option<Cursor>,
     ) {
+        if previous_cursor == current_cursor {
+            if let Some(region) = self.cursor_damage_region(grid, current_cursor) {
+                damage.push(region);
+            }
+            return;
+        }
+
         let previous_region = self.cursor_damage_region(grid, previous_cursor);
         let current_region = self.cursor_damage_region(grid, current_cursor);
 
