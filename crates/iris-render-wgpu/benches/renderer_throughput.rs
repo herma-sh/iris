@@ -17,6 +17,7 @@ const MIN_BENCH_TIME: Duration = Duration::from_millis(750);
 const TARGET_FRAME_TIME_MS: f64 = 16.0;
 const TARGET_SCROLL_FPS: f64 = 60.0;
 const TARGET_MIXED_UPDATES_PER_SECOND: f64 = 60.0;
+const TARGET_NOOP_UPDATES_PER_SECOND: f64 = 60.0;
 const TARGET_MEMORY_MB: f64 = 50.0;
 
 const GRID_ROWS: usize = 45;
@@ -120,6 +121,36 @@ fn main() {
     });
     let scroll_fps = iterations_per_second(&scroll_update);
 
+    let mut noop_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
+    let Some(mut noop_terminal_renderer) =
+        create_terminal_renderer(&renderer, "noop-retained benchmark", config.clone())
+    else {
+        return;
+    };
+    let noop_target = renderer
+        .create_texture_surface(TextureSurfaceConfig::new(
+            TextureSurfaceSize::new(
+                config.text.uniforms.resolution[0] as u32,
+                config.text.uniforms.resolution[1] as u32,
+            )
+            .expect("benchmark render-target dimensions should be valid"),
+        ))
+        .expect("noop benchmark render-target should initialize");
+    noop_terminal_renderer
+        .prepare_terminal(&renderer, &noop_terminal)
+        .expect("initial noop-frame prepare should succeed");
+    let _ = noop_terminal.take_damage();
+    let _ = noop_terminal.take_scroll_delta();
+    let noop_update = run_benchmark(|_| {
+        noop_terminal_renderer
+            .update_terminal(&renderer, &mut noop_terminal)
+            .expect("noop retained update should succeed");
+        noop_terminal_renderer.render_to_texture_surface(&renderer, &noop_target);
+        wait_for_gpu(&renderer);
+        black_box(&noop_terminal_renderer);
+    });
+    let noop_updates_per_second = iterations_per_second(&noop_update);
+
     let mut mixed_terminal = seeded_terminal(GRID_ROWS, GRID_COLS);
     let Some(mut mixed_terminal_renderer) =
         create_terminal_renderer(&renderer, "mixed-update benchmark", config.clone())
@@ -199,6 +230,14 @@ fn main() {
         scroll_update.elapsed.as_secs_f64()
     );
     println!(
+        "retained_noop_update_{}x{}: {:.2} updates/s over {} iterations ({:.3}s)",
+        GRID_COLS,
+        GRID_ROWS,
+        noop_updates_per_second,
+        noop_update.iterations,
+        noop_update.elapsed.as_secs_f64()
+    );
+    println!(
         "retained_mixed_update_{}x{}: {:.2} updates/s over {} iterations ({:.3}s)",
         GRID_COLS,
         GRID_ROWS,
@@ -211,8 +250,12 @@ fn main() {
         estimated_memory_mb
     );
     println!(
-        "targets: full_prepare <= {:.2} ms/frame, retained_scroll >= {:.0} updates/s, retained_mixed >= {:.0} updates/s, memory <= {:.0} MiB",
-        TARGET_FRAME_TIME_MS, TARGET_SCROLL_FPS, TARGET_MIXED_UPDATES_PER_SECOND, TARGET_MEMORY_MB
+        "targets: full_prepare <= {:.2} ms/frame, retained_scroll >= {:.0} updates/s, retained_noop >= {:.0} updates/s, retained_mixed >= {:.0} updates/s, memory <= {:.0} MiB",
+        TARGET_FRAME_TIME_MS,
+        TARGET_SCROLL_FPS,
+        TARGET_NOOP_UPDATES_PER_SECOND,
+        TARGET_MIXED_UPDATES_PER_SECOND,
+        TARGET_MEMORY_MB
     );
 }
 
