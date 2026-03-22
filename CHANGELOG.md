@@ -23,9 +23,9 @@ This project uses a phase-based versioning scheme:
 | 14 | `0.14.0` |
 | 15 | `0.15.0` |
 
-## Unreleased
+## 0.2.0 (In Progress)
 
-Target release: `0.2.0`
+Work window: `2026-03-19` to present
 
 ### 2026-03-21
 
@@ -110,18 +110,6 @@ Target release: `0.2.0`
 
 #### Added
 
-- Added a bootstrap atlas-backed text render pipeline and WGSL shader in `iris-render-wgpu`, including uniform bind-group creation and smoke coverage for off-screen text draw submission.
-
-#### Changed
-
-- Expanded text-pipeline coverage with GPU readback assertions for populated and zero-instance off-screen draws so the tests verify rendered output instead of only checking submission succeeds.
-
-## 0.2.0 (In Progress)
-
-Work window: `2026-03-19` to `2026-03-20`
-
-### Added
-
 - Began the renderer bootstrap in `iris-render-wgpu` with concrete `wgpu` instance/adapter/device initialization, validated off-screen texture render targets, and smoke coverage for clear-pass submission.
 - Added renderer surface creation and configuration types in `iris-render-wgpu`, including validated surface sizing, capability-based format selection, and resize support for window-backed presentation targets.
 - Added a bootstrap fullscreen render pipeline and WGSL shader in `iris-render-wgpu` so off-screen draw submission can be exercised before cell, glyph, and atlas rendering are implemented.
@@ -129,15 +117,16 @@ Work window: `2026-03-19` to `2026-03-20`
 - Added a CPU-side glyph cache in `iris-render-wgpu` with typed cache keys, atlas-backed glyph entries, idempotent cache insertion, and a renderer helper for caching uploaded glyph masks.
 - Added GPU-ready text uniforms and per-cell instance encoding in `iris-render-wgpu`, including atlas UV generation, style-flag packing, continuation-cell rejection, and raw instance-byte conversion for later buffer uploads.
 - Added resizable text uniform and instance buffer helpers in `iris-render-wgpu`, including `CellInstance` vertex-layout metadata and renderer helpers for uploading text uniforms and instance data.
-- Added a renderer theme bootstrap in `iris-render-wgpu` with default terminal colors, ANSI and indexed color resolution, and cell-attribute mapping into render-ready foreground and background RGBA values.
+- Added a bootstrap atlas-backed text render pipeline and WGSL shader in `iris-render-wgpu`, including uniform bind-group creation and smoke coverage for off-screen text draw submission.
 
-### Changed
+#### Changed
 
 - Hardened glyph-cache insertion to validate atlas upload sizing before allocation so failed uploads do not leak atlas space, and expanded glyph-cache edge-case coverage for invalid upload sizes, zero-sized bitmaps, and full-atlas behavior.
 - Hardened glyph-atlas allocation bounds checks with checked arithmetic and expanded atlas allocator edge-case coverage for row-height tracking, zero-sized allocations, and exact-fill behavior.
 - Expanded renderer surface coverage with direct tests for surface-state resize behavior and stored surface configuration metadata.
 - Hardened renderer texture-surface creation so configs that omit `RENDER_ATTACHMENT` are rejected before allocating invalid render targets.
 - Replaced the renderer trait stub with a concrete renderer bootstrap API so follow-up PRs can add real surfaces, pipelines, glyph caches, and damage-driven cell rendering without reworking crate boundaries again.
+- Expanded text-pipeline coverage with GPU readback assertions for populated and zero-instance off-screen draws so the tests verify rendered output instead of only checking submission succeeds.
 
 ## 0.1.0 - 2026-03-18
 
