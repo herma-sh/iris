@@ -78,6 +78,7 @@ Target release: `0.2.0`
 - Added two-cell operator ligature substitutions in the font-rasterizer text path (`->`, `<-`, `=>`, `<=`, `>=`, `!=`), with one-column damage-context expansion to keep incremental retained updates from leaving stale half-ligature pixels.
 - Hardened operator ligature substitution to be best-effort: replacement glyph rasterization/cache insertion failures now fall back to existing per-cell glyphs instead of aborting frame preparation.
 - Corrected ligature-context damage expansion so non-context spans preserve original column bounds (including out-of-range spans) and leave final clamping/rejection to normalized damage handling.
+- Optimized retained incremental updates by reusing the existing cursor overlay when cursor/scroll state are unchanged and damage does not intersect the cursor cell, while preserving cursor-overlay refresh on overlapping damage.
 
 ### 2026-03-20
 
