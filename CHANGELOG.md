@@ -75,6 +75,9 @@ Target release: `0.2.0`
 - Added a mixed-update retained-render benchmark path (no-op/cursor/cell-write/scroll blend) and optimized incremental terminal updates to skip cursor-damage redraws when cursor state and scroll state are unchanged.
 - Added an explicit retained no-op benchmark path and short-circuited `TerminalRenderer` no-op incremental updates before damage-vector processing when scroll delta, cursor state, and grid damage are all unchanged.
 - Deduplicated retained cursor invalidation regions when previous/current cursor damage resolves to the same cell region (for example scroll-only updates with unchanged cursor position), reducing redundant damage processing in incremental updates.
+- Added two-cell operator ligature substitutions in the font-rasterizer text path (`->`, `<-`, `=>`, `<=`, `>=`, `!=`), with one-column damage-context expansion to keep incremental retained updates from leaving stale half-ligature pixels.
+- Hardened operator ligature substitution to be best-effort: replacement glyph rasterization/cache insertion failures now fall back to existing per-cell glyphs instead of aborting frame preparation.
+- Corrected ligature-context damage expansion so non-context spans preserve original column bounds (including out-of-range spans) and leave final clamping/rejection to normalized damage handling.
 
 ### 2026-03-20
 

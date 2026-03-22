@@ -1,4 +1,6 @@
-use iris_core::cell::{Cell, CellFlags};
+use std::collections::{HashMap, HashSet};
+
+use iris_core::cell::{Cell, CellFlags, CellWidth};
 use iris_core::damage::DamageRegion;
 use iris_core::grid::Grid;
 
@@ -18,6 +20,13 @@ use crate::texture::TextureSurface;
 use crate::theme::Theme;
 
 const GLYPH_STYLE_FLAGS: CellFlags = CellFlags::BOLD.union(CellFlags::ITALIC);
+const LIGATURE_CONTEXT_COLUMNS: usize = 1;
+
+#[derive(Clone, Copy)]
+struct LigatureOverride {
+    glyph: crate::glyph::CachedGlyph,
+    span: usize,
+}
 
 /// Configuration for a stateful atlas-backed text renderer.
 #[derive(Clone, Debug)]
@@ -154,9 +163,16 @@ impl TextRenderer {
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
     ) -> Result<()> {
-        self.prepare_grid(renderer, grid, damage, |cell| {
-            font_rasterizer.rasterize_cell(cell)
-        })
+        let mut ligature_damage = Vec::with_capacity(damage.len());
+        expand_damage_regions_for_ligature_context(grid, damage, &mut ligature_damage);
+        self.prepare_grid_internal(
+            renderer,
+            grid,
+            &ligature_damage,
+            &mut |cell| font_rasterizer.rasterize_cell(cell),
+            false,
+        )?;
+        self.apply_operator_ligatures(renderer, grid, font_rasterizer)
     }
 
     /// Populates and prepares damaged grid cells for retained updates, keeping
@@ -168,13 +184,16 @@ impl TextRenderer {
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
     ) -> Result<()> {
+        let mut ligature_damage = Vec::with_capacity(damage.len());
+        expand_damage_regions_for_ligature_context(grid, damage, &mut ligature_damage);
         self.prepare_grid_internal(
             renderer,
             grid,
-            damage,
+            &ligature_damage,
             &mut |cell| font_rasterizer.rasterize_cell(cell),
             true,
-        )
+        )?;
+        self.apply_operator_ligatures(renderer, grid, font_rasterizer)
     }
 
     /// Updates the cursor overlay from core cursor state.
@@ -358,6 +377,144 @@ impl TextRenderer {
         )?;
         renderer.write_text_instances(&mut self.buffers, &self.instances)
     }
+
+    fn apply_operator_ligatures(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        font_rasterizer: &mut FontRasterizer,
+    ) -> Result<()> {
+        if self.instances.is_empty() || self.normalized_damage.is_empty() {
+            return Ok(());
+        }
+
+        let mut overrides = HashMap::<(usize, usize), LigatureOverride>::new();
+        let mut follower_cells = HashSet::<(usize, usize)>::new();
+
+        for region in &self.normalized_damage {
+            let Some(row_cells) = grid.row(region.start_row) else {
+                continue;
+            };
+            if region.end_col <= region.start_col {
+                continue;
+            }
+
+            let mut col = region.start_col;
+            while col < region.end_col {
+                let left = row_cells[col];
+                let right_col = col + 1;
+                let right = row_cells[right_col];
+                let Some(replacement_character) =
+                    operator_ligature_replacement(left.character, right.character)
+                else {
+                    col += 1;
+                    continue;
+                };
+
+                if left.attrs != right.attrs
+                    || left.width != CellWidth::Single
+                    || right.width != CellWidth::Single
+                {
+                    col += 1;
+                    continue;
+                }
+
+                let replacement_cell = Cell {
+                    character: replacement_character,
+                    width: CellWidth::Single,
+                    attrs: left.attrs,
+                };
+                let replacement_key = glyph_key_for_cell(replacement_cell);
+                if !self.glyph_cache.contains(replacement_key) {
+                    let rasterized = match font_rasterizer.rasterize_cell(replacement_cell) {
+                        Ok(Some(rasterized)) => rasterized,
+                        Ok(None) => {
+                            col += 1;
+                            continue;
+                        }
+                        Err(error) => {
+                            tracing::debug!(
+                                ?error,
+                                replacement_character = %replacement_character,
+                                "skipping operator ligature replacement after rasterization failure"
+                            );
+                            col += 1;
+                            continue;
+                        }
+                    };
+
+                    if let Err(error) = renderer.cache_glyph_with_placement(
+                        &mut self.glyph_cache,
+                        &mut self.atlas,
+                        replacement_key,
+                        rasterized.as_bitmap(),
+                        rasterized.placement(),
+                    ) {
+                        tracing::debug!(
+                            ?error,
+                            replacement_character = %replacement_character,
+                            "skipping operator ligature replacement after cache insertion failure"
+                        );
+                        col += 1;
+                        continue;
+                    }
+                }
+
+                let Some(glyph) = self.glyph_cache.get(replacement_key).copied() else {
+                    col += 1;
+                    continue;
+                };
+
+                overrides.insert((region.start_row, col), LigatureOverride { glyph, span: 2 });
+                follower_cells.insert((region.start_row, right_col));
+                col += 2;
+            }
+        }
+
+        if overrides.is_empty() && follower_cells.is_empty() {
+            return Ok(());
+        }
+
+        let atlas_size = self.atlas.size();
+        let mut rewritten_instances = Vec::with_capacity(self.instances.len());
+
+        for instance in &self.instances {
+            let row = instance.grid_position[1] as usize;
+            let col = instance.grid_position[0] as usize;
+
+            if follower_cells.contains(&(row, col)) {
+                continue;
+            }
+
+            let Some(override_glyph) = overrides.get(&(row, col)).copied() else {
+                rewritten_instances.push(*instance);
+                continue;
+            };
+
+            let Some(&cell) = grid.cell(row, col) else {
+                rewritten_instances.push(*instance);
+                continue;
+            };
+
+            let row_u32 = u32::try_from(row)
+                .map_err(|_| crate::error::Error::GridCoordinateOutOfRange { row, col })?;
+            let col_u32 = u32::try_from(col)
+                .map_err(|_| crate::error::Error::GridCoordinateOutOfRange { row, col })?;
+            let mut rewritten = CellInstance::from_cell(
+                cell,
+                col_u32,
+                row_u32,
+                override_glyph.glyph,
+                atlas_size,
+                self.theme.resolve_cell_colors(cell.attrs),
+            )?;
+            rewritten.cell_span = override_glyph.span as f32;
+            rewritten_instances.push(rewritten);
+        }
+
+        self.instances = rewritten_instances;
+        renderer.write_text_instances(&mut self.buffers, &self.instances)
+    }
 }
 
 /// Creates a glyph cache key for the rendered glyph shape of a cell.
@@ -382,6 +539,68 @@ fn glyph_key_for_cell(cell: Cell) -> GlyphKey {
     )
 }
 
+fn operator_ligature_replacement(left: char, right: char) -> Option<char> {
+    match (left, right) {
+        ('-', '>') => Some('\u{2192}'),
+        ('<', '-') => Some('\u{2190}'),
+        ('=', '>') => Some('\u{21D2}'),
+        ('<', '=') => Some('\u{2264}'),
+        ('>', '=') => Some('\u{2265}'),
+        ('!', '=') => Some('\u{2260}'),
+        _ => None,
+    }
+}
+
+fn is_operator_ligature_character(character: char) -> bool {
+    matches!(character, '-' | '<' | '=' | '>' | '!')
+}
+
+fn expand_damage_regions_for_ligature_context(
+    grid: &Grid,
+    damage: &[DamageRegion],
+    output: &mut Vec<DamageRegion>,
+) {
+    output.clear();
+    if grid.cols() == 0 {
+        return;
+    }
+
+    let last_col = grid.cols().saturating_sub(1);
+    for region in damage {
+        let context_start_col = region.start_col.saturating_sub(LIGATURE_CONTEXT_COLUMNS);
+        let context_end_col = region
+            .end_col
+            .saturating_add(LIGATURE_CONTEXT_COLUMNS)
+            .min(last_col);
+
+        let mut needs_context = false;
+        for row_index in region.start_row..=region.end_row {
+            let Some(row_cells) = grid.row(row_index) else {
+                continue;
+            };
+
+            if (context_start_col..=context_end_col)
+                .any(|col| is_operator_ligature_character(row_cells[col].character))
+            {
+                needs_context = true;
+                break;
+            }
+        }
+
+        let (start_col, end_col) = if needs_context {
+            (context_start_col, context_end_col)
+        } else {
+            (region.start_col, region.end_col)
+        };
+        output.push(DamageRegion::new(
+            region.start_row,
+            region.end_row,
+            start_col,
+            end_col,
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -391,7 +610,10 @@ mod tests {
     use iris_core::damage::DamageRegion;
     use iris_core::grid::{Grid, GridSize};
 
-    use super::{glyph_key_for_cell, TextRenderer, TextRendererConfig};
+    use super::{
+        expand_damage_regions_for_ligature_context, glyph_key_for_cell,
+        operator_ligature_replacement, TextRenderer, TextRendererConfig,
+    };
     use crate::glyph::{GlyphPlacement, RasterizedGlyph};
     use crate::renderer::{Renderer, RendererConfig};
     use crate::texture::{TextureSurfaceConfig, TextureSurfaceSize};
@@ -434,6 +656,50 @@ mod tests {
 
         assert_ne!(regular, bold);
         assert_eq!(regular, underlined);
+    }
+
+    #[test]
+    fn operator_ligature_replacement_maps_supported_pairs() {
+        assert_eq!(operator_ligature_replacement('-', '>'), Some('\u{2192}'));
+        assert_eq!(operator_ligature_replacement('<', '-'), Some('\u{2190}'));
+        assert_eq!(operator_ligature_replacement('=', '>'), Some('\u{21D2}'));
+        assert_eq!(operator_ligature_replacement('<', '='), Some('\u{2264}'));
+        assert_eq!(operator_ligature_replacement('>', '='), Some('\u{2265}'));
+        assert_eq!(operator_ligature_replacement('!', '='), Some('\u{2260}'));
+        assert_eq!(operator_ligature_replacement('x', 'y'), None);
+    }
+
+    #[test]
+    fn ligature_context_damage_expands_columns_by_one_cell() {
+        let mut grid = Grid::new(GridSize { rows: 4, cols: 6 }).expect("grid should be created");
+        grid.write(0, 2, Cell::new('-'))
+            .expect("operator cell should be written");
+        grid.write(0, 3, Cell::new('>'))
+            .expect("operator cell should be written");
+        grid.write(3, 0, Cell::new('x'))
+            .expect("non-operator cell should be written");
+
+        let damage = [
+            DamageRegion::new(0, 1, 2, 4),
+            DamageRegion::new(3, 3, 0, 0),
+            DamageRegion::new(3, 3, 8, 9),
+        ];
+        let mut expanded = Vec::new();
+        expand_damage_regions_for_ligature_context(&grid, &damage, &mut expanded);
+
+        assert_eq!(
+            expanded,
+            vec![
+                DamageRegion::new(0, 1, 1, 5),
+                DamageRegion::new(3, 3, 0, 0),
+                DamageRegion::new(3, 3, 8, 9),
+            ]
+        );
+
+        let zero_width_grid =
+            Grid::new(GridSize { rows: 1, cols: 0 }).expect("grid should be created");
+        expand_damage_regions_for_ligature_context(&zero_width_grid, &damage, &mut expanded);
+        assert!(expanded.is_empty());
     }
 
     #[test]
@@ -752,6 +1018,59 @@ mod tests {
                 .any(|pixel| pixel != background),
             "system font rasterization should produce visible text pixels"
         );
+    }
+
+    #[test]
+    fn text_renderer_applies_operator_ligature_substitution_when_supported() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut font_rasterizer = match FontRasterizer::new(FontRasterizerConfig::default()) {
+            Ok(font_rasterizer) => font_rasterizer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("font rasterizer failed unexpectedly: {error}"),
+        };
+        let replacement_supported = font_rasterizer
+            .rasterize_cell(Cell::new('\u{2192}'))
+            .is_ok();
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                uniforms: crate::cell::TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('-'))
+            .expect("left operator cell should be written");
+        grid.write(0, 1, Cell::new('>'))
+            .expect("right operator cell should be written");
+
+        text_renderer
+            .prepare_grid_with_font_rasterizer(
+                &renderer,
+                &grid,
+                &[DamageRegion::new(0, 0, 0, 0)],
+                &mut font_rasterizer,
+            )
+            .expect("operator pair should prepare");
+
+        if replacement_supported {
+            assert_eq!(text_renderer.instance_count(), 1);
+            assert_eq!(text_renderer.instances[0].cell_span, 2.0);
+        } else {
+            assert_eq!(text_renderer.instance_count(), 2);
+        }
     }
 
     #[test]
