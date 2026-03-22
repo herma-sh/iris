@@ -10,11 +10,5 @@ pub fn parse_dcs(_payload: &[u8]) -> Vec<Action> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parse_dcs;
-
-    #[test]
-    fn unsupported_dcs_payloads_are_ignored() {
-        assert!(parse_dcs(b"qignored").is_empty());
-    }
-}
+#[path = "../test/parser/dcs/tests.rs"]
+mod tests;

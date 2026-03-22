@@ -13,6 +13,7 @@ mod strings;
 mod utf8;
 
 #[cfg(test)]
+#[path = "../../test/parser/state/tests.rs"]
 mod tests;
 
 /// Stateful ANSI/VT parser states.
