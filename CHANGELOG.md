@@ -88,6 +88,7 @@ Target release: `0.2.0`
 - Added a lightweight cursor-damage geometry helper and switched retained update damage checks to use it, avoiding full cursor-instance construction when only repaint bounds are needed.
 - Expanded operator ligature substitution to support longest-match three-character sequences (`<->`, `<=>`, `===`, `!==`) while preserving incremental damage-context expansion across ligature boundaries.
 - Refreshed the renderer phase checklist/status docs to mark ligature rendering and retained mixed-stream optimization follow-ups complete after the latest merged renderer changes.
+- Extracted inline Rust unit-test modules out of core source files into dedicated module test files across `iris-core` and `iris-render-wgpu`, reducing implementation-file bloat without changing runtime behavior.
 
 ### 2026-03-20
 
