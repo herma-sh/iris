@@ -86,6 +86,7 @@ Target release: `0.2.0`
 - Added a cursor-overlap fast-path in retained updates so `TerminalRenderer` skips redundant cursor overlap region scans when cursor or scroll changes already require cursor overlay preparation.
 - Optimized retained scroll-only updates to reuse a single cursor damage-region computation when previous/current cursor states are identical, avoiding duplicate cursor-geometry work during incremental shifts.
 - Added a lightweight cursor-damage geometry helper and switched retained update damage checks to use it, avoiding full cursor-instance construction when only repaint bounds are needed.
+- Expanded operator ligature substitution to support longest-match three-character sequences (`<->`, `<=>`, `===`, `!==`) while preserving incremental damage-context expansion across ligature boundaries.
 
 ### 2026-03-20
 

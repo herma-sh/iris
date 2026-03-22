@@ -20,7 +20,7 @@ use crate::texture::TextureSurface;
 use crate::theme::Theme;
 
 const GLYPH_STYLE_FLAGS: CellFlags = CellFlags::BOLD.union(CellFlags::ITALIC);
-const LIGATURE_CONTEXT_COLUMNS: usize = 1;
+const LIGATURE_CONTEXT_COLUMNS: usize = 2;
 
 #[derive(Clone, Copy, Debug)]
 struct LigatureOverride {
@@ -429,19 +429,19 @@ impl TextRenderer {
 
             let mut col = region.start_col;
             while col < region.end_col {
-                let left = row_cells[col];
-                let right_col = col + 1;
-                let right = row_cells[right_col];
-                let Some(replacement_character) =
-                    operator_ligature_replacement(left.character, right.character)
+                let Some((replacement_character, span)) =
+                    operator_ligature_replacement_for_row(row_cells, col, region.end_col)
                 else {
                     col += 1;
                     continue;
                 };
 
-                if left.attrs != right.attrs
-                    || left.width != CellWidth::Single
-                    || right.width != CellWidth::Single
+                let left = row_cells[col];
+                let ligature_cells = &row_cells[col..col + span];
+                if left.width != CellWidth::Single
+                    || ligature_cells
+                        .iter()
+                        .any(|cell| cell.width != CellWidth::Single || cell.attrs != left.attrs)
                 {
                     col += 1;
                     continue;
@@ -494,10 +494,12 @@ impl TextRenderer {
                 };
 
                 self.ligature_overrides
-                    .insert((region.start_row, col), LigatureOverride { glyph, span: 2 });
-                self.ligature_followers
-                    .insert((region.start_row, right_col));
-                col += 2;
+                    .insert((region.start_row, col), LigatureOverride { glyph, span });
+                for follower_col in (col + 1)..(col + span) {
+                    self.ligature_followers
+                        .insert((region.start_row, follower_col));
+                }
+                col += span;
             }
         }
 
@@ -570,16 +572,47 @@ fn glyph_key_for_cell(cell: Cell) -> GlyphKey {
     )
 }
 
-fn operator_ligature_replacement(left: char, right: char) -> Option<char> {
-    match (left, right) {
-        ('-', '>') => Some('\u{2192}'),
-        ('<', '-') => Some('\u{2190}'),
-        ('=', '>') => Some('\u{21D2}'),
-        ('<', '=') => Some('\u{2264}'),
-        ('>', '=') => Some('\u{2265}'),
-        ('!', '=') => Some('\u{2260}'),
+fn operator_ligature_replacement(
+    first: char,
+    second: Option<char>,
+    third: Option<char>,
+) -> Option<(char, usize)> {
+    match (first, second, third) {
+        ('<', Some('-'), Some('>')) => Some(('\u{2194}', 3)),
+        ('<', Some('='), Some('>')) => Some(('\u{21D4}', 3)),
+        ('=', Some('='), Some('=')) => Some(('\u{2261}', 3)),
+        ('!', Some('='), Some('=')) => Some(('\u{2262}', 3)),
+        ('-', Some('>'), _) => Some(('\u{2192}', 2)),
+        ('<', Some('-'), _) => Some(('\u{2190}', 2)),
+        ('=', Some('>'), _) => Some(('\u{21D2}', 2)),
+        ('<', Some('='), _) => Some(('\u{2264}', 2)),
+        ('>', Some('='), _) => Some(('\u{2265}', 2)),
+        ('!', Some('='), _) => Some(('\u{2260}', 2)),
         _ => None,
     }
+}
+
+fn operator_ligature_replacement_for_row(
+    row_cells: &[Cell],
+    col: usize,
+    last_col: usize,
+) -> Option<(char, usize)> {
+    if col > last_col || col >= row_cells.len() {
+        return None;
+    }
+
+    let first = row_cells[col].character;
+    let second = if col < last_col {
+        Some(row_cells[col + 1].character)
+    } else {
+        None
+    };
+    let third = if col + 2 <= last_col {
+        Some(row_cells[col + 2].character)
+    } else {
+        None
+    };
+    operator_ligature_replacement(first, second, third)
 }
 
 fn expand_damage_regions_for_ligature_context(
@@ -637,22 +670,21 @@ fn operator_ligature_crosses_damage_boundary(
     end_col: usize,
     last_col: usize,
 ) -> bool {
-    if row_cells.is_empty() {
+    if row_cells.is_empty() || start_col > end_col || start_col > last_col {
         return false;
     }
 
-    if start_col <= last_col && start_col > 0 {
-        let left = row_cells[start_col - 1].character;
-        let right = row_cells[start_col].character;
-        if operator_ligature_replacement(left, right).is_some() {
-            return true;
-        }
-    }
-
-    if end_col < last_col {
-        let left = row_cells[end_col].character;
-        let right = row_cells[end_col + 1].character;
-        if operator_ligature_replacement(left, right).is_some() {
+    let boundary_start = start_col.saturating_sub(LIGATURE_CONTEXT_COLUMNS);
+    let boundary_end = end_col.saturating_add(1).min(last_col);
+    for col in boundary_start..=boundary_end {
+        let Some((_, span)) = operator_ligature_replacement_for_row(row_cells, col, last_col)
+        else {
+            continue;
+        };
+        let ligature_end = col.saturating_add(span.saturating_sub(1)).min(last_col);
+        let crosses_left = col < start_col && ligature_end >= start_col;
+        let crosses_right = col <= end_col && ligature_end > end_col;
+        if crosses_left || crosses_right {
             return true;
         }
     }
@@ -718,18 +750,52 @@ mod tests {
     }
 
     #[test]
-    fn operator_ligature_replacement_maps_supported_pairs() {
-        assert_eq!(operator_ligature_replacement('-', '>'), Some('\u{2192}'));
-        assert_eq!(operator_ligature_replacement('<', '-'), Some('\u{2190}'));
-        assert_eq!(operator_ligature_replacement('=', '>'), Some('\u{21D2}'));
-        assert_eq!(operator_ligature_replacement('<', '='), Some('\u{2264}'));
-        assert_eq!(operator_ligature_replacement('>', '='), Some('\u{2265}'));
-        assert_eq!(operator_ligature_replacement('!', '='), Some('\u{2260}'));
-        assert_eq!(operator_ligature_replacement('x', 'y'), None);
+    fn operator_ligature_replacement_maps_supported_sequences() {
+        assert_eq!(
+            operator_ligature_replacement('<', Some('-'), Some('>')),
+            Some(('\u{2194}', 3))
+        );
+        assert_eq!(
+            operator_ligature_replacement('<', Some('='), Some('>')),
+            Some(('\u{21D4}', 3))
+        );
+        assert_eq!(
+            operator_ligature_replacement('=', Some('='), Some('=')),
+            Some(('\u{2261}', 3))
+        );
+        assert_eq!(
+            operator_ligature_replacement('!', Some('='), Some('=')),
+            Some(('\u{2262}', 3))
+        );
+        assert_eq!(
+            operator_ligature_replacement('-', Some('>'), Some('=')),
+            Some(('\u{2192}', 2))
+        );
+        assert_eq!(
+            operator_ligature_replacement('<', Some('-'), Some('=')),
+            Some(('\u{2190}', 2))
+        );
+        assert_eq!(
+            operator_ligature_replacement('=', Some('>'), Some('=')),
+            Some(('\u{21D2}', 2))
+        );
+        assert_eq!(
+            operator_ligature_replacement('<', Some('='), Some('-')),
+            Some(('\u{2264}', 2))
+        );
+        assert_eq!(
+            operator_ligature_replacement('>', Some('='), Some('-')),
+            Some(('\u{2265}', 2))
+        );
+        assert_eq!(
+            operator_ligature_replacement('!', Some('='), Some('-')),
+            Some(('\u{2260}', 2))
+        );
+        assert_eq!(operator_ligature_replacement('x', Some('y'), None), None);
     }
 
     #[test]
-    fn ligature_context_damage_expands_columns_by_one_cell() {
+    fn ligature_context_damage_expands_columns_for_boundary_sequences() {
         let mut grid = Grid::new(GridSize { rows: 4, cols: 6 }).expect("grid should be created");
         grid.write(0, 2, Cell::new('-'))
             .expect("operator cell should be written");
@@ -749,7 +815,7 @@ mod tests {
         assert_eq!(
             expanded,
             vec![
-                DamageRegion::new(0, 0, 1, 3),
+                DamageRegion::new(0, 0, 0, 4),
                 DamageRegion::new(3, 3, 0, 0),
                 DamageRegion::new(3, 3, 8, 9),
             ]
@@ -1129,6 +1195,61 @@ mod tests {
             assert_eq!(text_renderer.instances[0].cell_span, 2.0);
         } else {
             assert_eq!(text_renderer.instance_count(), 2);
+        }
+    }
+
+    #[test]
+    fn text_renderer_applies_three_character_operator_ligatures_when_supported() {
+        let _gpu_test_lock = crate::test_support::gpu_test_lock();
+        let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+            Ok(renderer) => renderer,
+            Err(crate::error::Error::NoAdapter) => return,
+            Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+        };
+        let surface = renderer
+            .create_texture_surface(TextureSurfaceConfig::new(
+                TextureSurfaceSize::new(48, 16).expect("surface dimensions are valid"),
+            ))
+            .expect("texture surface should be created");
+        let mut font_rasterizer = match FontRasterizer::new(FontRasterizerConfig::default()) {
+            Ok(font_rasterizer) => font_rasterizer,
+            Err(crate::error::Error::NoUsableSystemFont) => return,
+            Err(error) => panic!("font rasterizer failed unexpectedly: {error}"),
+        };
+        let replacement_supported = font_rasterizer
+            .rasterize_cell(Cell::new('\u{21D4}'))
+            .is_ok();
+        let mut text_renderer = TextRenderer::new(
+            &renderer,
+            surface.format(),
+            TextRendererConfig {
+                uniforms: crate::cell::TextUniforms::new([48.0, 16.0], [16.0, 16.0], 0.0),
+                ..TextRendererConfig::default()
+            },
+        )
+        .expect("text renderer should be created");
+        let mut grid = Grid::new(GridSize { rows: 1, cols: 3 }).expect("grid should be created");
+        grid.write(0, 0, Cell::new('<'))
+            .expect("left operator cell should be written");
+        grid.write(0, 1, Cell::new('='))
+            .expect("middle operator cell should be written");
+        grid.write(0, 2, Cell::new('>'))
+            .expect("right operator cell should be written");
+
+        text_renderer
+            .prepare_grid_with_font_rasterizer(
+                &renderer,
+                &grid,
+                &[DamageRegion::new(0, 0, 1, 1)],
+                &mut font_rasterizer,
+            )
+            .expect("operator sequence should prepare");
+
+        if replacement_supported {
+            assert_eq!(text_renderer.instance_count(), 1);
+            assert_eq!(text_renderer.instances[0].cell_span, 3.0);
+        } else {
+            assert_eq!(text_renderer.instance_count(), 3);
         }
     }
 
