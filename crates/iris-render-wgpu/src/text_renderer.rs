@@ -22,7 +22,7 @@ use crate::theme::Theme;
 const GLYPH_STYLE_FLAGS: CellFlags = CellFlags::BOLD.union(CellFlags::ITALIC);
 const LIGATURE_CONTEXT_COLUMNS: usize = 1;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct LigatureOverride {
     glyph: crate::glyph::CachedGlyph,
     span: usize,
@@ -69,7 +69,10 @@ pub struct TextRenderer {
     theme: Theme,
     uniforms: TextUniforms,
     instances: Vec<CellInstance>,
+    rewritten_instances: Vec<CellInstance>,
     normalized_damage: Vec<DamageRegion>,
+    ligature_overrides: HashMap<(usize, usize), LigatureOverride>,
+    ligature_followers: HashSet<(usize, usize)>,
 }
 
 impl TextRenderer {
@@ -102,7 +105,10 @@ impl TextRenderer {
             theme: config.theme,
             uniforms: config.uniforms,
             instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
+            rewritten_instances: Vec::with_capacity(config.initial_instance_capacity.max(1)),
             normalized_damage: Vec::with_capacity(config.initial_instance_capacity.max(1)),
+            ligature_overrides: HashMap::with_capacity(config.initial_instance_capacity.max(1)),
+            ligature_followers: HashSet::with_capacity(config.initial_instance_capacity.max(1)),
         })
     }
 
@@ -388,8 +394,8 @@ impl TextRenderer {
             return Ok(());
         }
 
-        let mut overrides = HashMap::<(usize, usize), LigatureOverride>::new();
-        let mut follower_cells = HashSet::<(usize, usize)>::new();
+        self.ligature_overrides.clear();
+        self.ligature_followers.clear();
 
         for region in &self.normalized_damage {
             let Some(row_cells) = grid.row(region.start_row) else {
@@ -465,34 +471,37 @@ impl TextRenderer {
                     continue;
                 };
 
-                overrides.insert((region.start_row, col), LigatureOverride { glyph, span: 2 });
-                follower_cells.insert((region.start_row, right_col));
+                self.ligature_overrides
+                    .insert((region.start_row, col), LigatureOverride { glyph, span: 2 });
+                self.ligature_followers
+                    .insert((region.start_row, right_col));
                 col += 2;
             }
         }
 
-        if overrides.is_empty() && follower_cells.is_empty() {
+        if self.ligature_overrides.is_empty() && self.ligature_followers.is_empty() {
             return Ok(());
         }
 
         let atlas_size = self.atlas.size();
-        let mut rewritten_instances = Vec::with_capacity(self.instances.len());
+        self.rewritten_instances.clear();
+        self.rewritten_instances.reserve(self.instances.len());
 
         for instance in &self.instances {
             let row = instance.grid_position[1] as usize;
             let col = instance.grid_position[0] as usize;
 
-            if follower_cells.contains(&(row, col)) {
+            if self.ligature_followers.contains(&(row, col)) {
                 continue;
             }
 
-            let Some(override_glyph) = overrides.get(&(row, col)).copied() else {
-                rewritten_instances.push(*instance);
+            let Some(override_glyph) = self.ligature_overrides.get(&(row, col)).copied() else {
+                self.rewritten_instances.push(*instance);
                 continue;
             };
 
             let Some(&cell) = grid.cell(row, col) else {
-                rewritten_instances.push(*instance);
+                self.rewritten_instances.push(*instance);
                 continue;
             };
 
@@ -509,10 +518,10 @@ impl TextRenderer {
                 self.theme.resolve_cell_colors(cell.attrs),
             )?;
             rewritten.cell_span = override_glyph.span as f32;
-            rewritten_instances.push(rewritten);
+            self.rewritten_instances.push(rewritten);
         }
 
-        self.instances = rewritten_instances;
+        std::mem::swap(&mut self.instances, &mut self.rewritten_instances);
         renderer.write_text_instances(&mut self.buffers, &self.instances)
     }
 }
