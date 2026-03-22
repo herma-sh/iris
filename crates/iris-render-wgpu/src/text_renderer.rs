@@ -590,7 +590,7 @@ fn expand_damage_regions_for_ligature_context(
         let (start_col, end_col) = if needs_context {
             (context_start_col, context_end_col)
         } else {
-            (region.start_col.min(last_col), region.end_col.min(last_col))
+            (region.start_col, region.end_col)
         };
         output.push(DamageRegion::new(
             region.start_row,
@@ -679,13 +679,21 @@ mod tests {
         grid.write(3, 0, Cell::new('x'))
             .expect("non-operator cell should be written");
 
-        let damage = [DamageRegion::new(0, 1, 2, 4), DamageRegion::new(3, 3, 0, 0)];
+        let damage = [
+            DamageRegion::new(0, 1, 2, 4),
+            DamageRegion::new(3, 3, 0, 0),
+            DamageRegion::new(3, 3, 8, 9),
+        ];
         let mut expanded = Vec::new();
         expand_damage_regions_for_ligature_context(&grid, &damage, &mut expanded);
 
         assert_eq!(
             expanded,
-            vec![DamageRegion::new(0, 1, 1, 5), DamageRegion::new(3, 3, 0, 0)]
+            vec![
+                DamageRegion::new(0, 1, 1, 5),
+                DamageRegion::new(3, 3, 0, 0),
+                DamageRegion::new(3, 3, 8, 9),
+            ]
         );
 
         let zero_width_grid =
