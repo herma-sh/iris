@@ -79,6 +79,7 @@ Target release: `0.2.0`
 - Hardened operator ligature substitution to be best-effort: replacement glyph rasterization/cache insertion failures now fall back to existing per-cell glyphs instead of aborting frame preparation.
 - Corrected ligature-context damage expansion so non-context spans preserve original column bounds (including out-of-range spans) and leave final clamping/rejection to normalized damage handling.
 - Optimized retained incremental updates by reusing the existing cursor overlay when cursor/scroll state are unchanged and damage does not intersect the cursor cell, while preserving cursor-overlay refresh on overlapping damage.
+- Tightened ligature-context expansion to only grow damage when operator pairs cross damage boundaries, reducing unnecessary mixed-update redraw widening.
 
 ### 2026-03-20
 
