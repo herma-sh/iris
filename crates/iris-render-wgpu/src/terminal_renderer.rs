@@ -298,11 +298,14 @@ impl TerminalRenderer {
         if cursor_changed || shifted_retained_frame {
             self.push_cursor_damage_pair(damage, grid, self.previous_cursor, Some(cursor));
         }
-        let cursor_damage_overlap = self
-            .cursor_damage_region(grid, Some(cursor))
-            .is_some_and(|region| damage_overlaps_region(&damage[..original_damage_len], region));
-        let should_prepare_cursor =
-            cursor_changed || shifted_retained_frame || cursor_damage_overlap;
+        let should_prepare_cursor = if cursor_changed || shifted_retained_frame {
+            true
+        } else {
+            self.cursor_damage_region(grid, Some(cursor))
+                .is_some_and(|region| {
+                    damage_overlaps_region(&damage[..original_damage_len], region)
+                })
+        };
 
         if damage.is_empty() {
             // Keep cursor state current even when no redraw work is required.

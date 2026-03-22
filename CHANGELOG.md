@@ -83,6 +83,7 @@ Target release: `0.2.0`
 - Reused `TextRenderer` ligature scratch state across updates (override/follower maps and rewritten-instance buffer) to avoid per-update hot-path allocations during mixed retained updates.
 - Reused the ligature-context damage scratch buffer across font-rasterizer prepare paths in `TextRenderer`, removing another per-update temporary allocation from mixed retained-update workloads.
 - Removed the extra terminal-damage copy on the common incremental update path by routing `TerminalRenderer::update_terminal` through an owned in-place damage buffer before retained text preparation.
+- Added a cursor-overlap fast-path in retained updates so `TerminalRenderer` skips redundant cursor overlap region scans when cursor or scroll changes already require cursor overlay preparation.
 
 ### 2026-03-20
 
