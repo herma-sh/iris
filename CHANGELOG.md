@@ -82,6 +82,7 @@ Target release: `0.2.0`
 - Tightened ligature-context expansion to only grow damage when operator pairs cross damage boundaries, reducing unnecessary mixed-update redraw widening.
 - Reused `TextRenderer` ligature scratch state across updates (override/follower maps and rewritten-instance buffer) to avoid per-update hot-path allocations during mixed retained updates.
 - Reused the ligature-context damage scratch buffer across font-rasterizer prepare paths in `TextRenderer`, removing another per-update temporary allocation from mixed retained-update workloads.
+- Removed the extra terminal-damage copy on the common incremental update path by routing `TerminalRenderer::update_terminal` through an owned in-place damage buffer before retained text preparation.
 
 ### 2026-03-20
 
