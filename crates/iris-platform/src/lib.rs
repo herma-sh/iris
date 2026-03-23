@@ -8,8 +8,9 @@ pub mod platform;
 pub mod pty;
 
 pub use clipboard::{
-    copy_selection_to_clipboard, encode_paste_input, paste_bytes_from_clipboard,
-    paste_bytes_from_source, paste_from_clipboard, paste_from_source, Clipboard,
+    copy_selection_to_clipboard, copy_terminal_selection_to_clipboard, encode_paste_input,
+    paste_bytes_from_clipboard, paste_bytes_from_source, paste_from_clipboard, paste_from_source,
+    paste_terminal_bytes_from_clipboard, paste_terminal_bytes_from_source, Clipboard,
     ClipboardSelection, NoopClipboard, PasteSource, PlatformClipboard, BRACKETED_PASTE_END,
     BRACKETED_PASTE_START,
 };

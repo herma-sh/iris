@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+iris-core = { path = "../iris-core" }
 portable-pty = "0.9.0"
 thiserror = "1.0"
 

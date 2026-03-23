@@ -1,9 +1,11 @@
 use crate::clipboard::{
-    copy_selection_to_clipboard, encode_paste_input, paste_bytes_from_clipboard,
-    paste_bytes_from_source, paste_from_clipboard, paste_from_source, Clipboard,
+    copy_selection_to_clipboard, copy_terminal_selection_to_clipboard, encode_paste_input,
+    paste_bytes_from_clipboard, paste_bytes_from_source, paste_from_clipboard, paste_from_source,
+    paste_terminal_bytes_from_clipboard, paste_terminal_bytes_from_source, Clipboard,
     ClipboardSelection, NoopClipboard, PasteSource, BRACKETED_PASTE_END, BRACKETED_PASTE_START,
 };
 use crate::error::{ClipboardError, Error, Result};
+use iris_core::{Action, Terminal};
 
 #[derive(Debug, Default)]
 struct MockClipboard {
@@ -113,6 +115,36 @@ fn copy_selection_to_clipboard_writes_requested_target() {
         clipboard.writes[0],
         (ClipboardSelection::Primary, "selected".to_string()),
     );
+}
+
+#[test]
+fn copy_terminal_selection_to_clipboard_returns_false_without_selection() {
+    let terminal = Terminal::new(1, 8).unwrap();
+    let mut clipboard = NoopClipboard::new();
+
+    assert!(!copy_terminal_selection_to_clipboard(
+        &terminal,
+        &mut clipboard,
+        ClipboardSelection::Clipboard,
+    )
+    .unwrap());
+    assert_eq!(clipboard.get_text().unwrap(), None);
+}
+
+#[test]
+fn copy_terminal_selection_to_clipboard_uses_terminal_copy_selection_text() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    terminal.write_ascii_run(b"linecopy").unwrap();
+    terminal.select_line(0);
+
+    let mut clipboard = NoopClipboard::new();
+    assert!(copy_terminal_selection_to_clipboard(
+        &terminal,
+        &mut clipboard,
+        ClipboardSelection::Clipboard,
+    )
+    .unwrap());
+    assert_eq!(clipboard.get_text().unwrap().as_deref(), Some("linecopy\n"));
 }
 
 #[test]
@@ -234,6 +266,66 @@ fn paste_bytes_from_source_primary_then_clipboard_wraps_fallback_payload() {
     let payload = paste_bytes_from_source(&clipboard, PasteSource::PrimaryThenClipboard, true)
         .unwrap()
         .expect("fallback clipboard should produce a payload");
+
+    let expected = format!("{BRACKETED_PASTE_START}clipboard-fallback{BRACKETED_PASTE_END}");
+    assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn paste_terminal_bytes_from_clipboard_returns_none_when_source_is_empty() {
+    let terminal = Terminal::new(2, 4).unwrap();
+    let clipboard = NoopClipboard::new();
+
+    assert_eq!(
+        paste_terminal_bytes_from_clipboard(&terminal, &clipboard, ClipboardSelection::Clipboard)
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
+fn paste_terminal_bytes_from_source_respects_terminal_bracketed_paste_mode() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let mut clipboard = NoopClipboard::new();
+    clipboard.set_text("paste").unwrap();
+
+    let raw = paste_terminal_bytes_from_source(&terminal, &clipboard, PasteSource::Clipboard)
+        .unwrap()
+        .expect("clipboard should produce a payload");
+    assert_eq!(raw, b"paste");
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+
+    let wrapped = paste_terminal_bytes_from_source(&terminal, &clipboard, PasteSource::Clipboard)
+        .unwrap()
+        .expect("clipboard should produce a payload");
+    let expected = format!("{BRACKETED_PASTE_START}paste{BRACKETED_PASTE_END}");
+    assert_eq!(wrapped, expected.into_bytes());
+}
+
+#[test]
+fn paste_terminal_bytes_from_source_primary_then_clipboard_falls_back_when_primary_is_empty() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_primary("").unwrap();
+    clipboard.set_text("clipboard-fallback").unwrap();
+
+    let payload =
+        paste_terminal_bytes_from_source(&terminal, &clipboard, PasteSource::PrimaryThenClipboard)
+            .unwrap()
+            .expect("fallback clipboard should produce a payload");
 
     let expected = format!("{BRACKETED_PASTE_START}clipboard-fallback{BRACKETED_PASTE_END}");
     assert_eq!(payload, expected.into_bytes());
