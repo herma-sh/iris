@@ -10,6 +10,22 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-22` to present
 
+### 2026-03-23
+
+#### Added
+
+- `ClipboardSelection` buffer targeting in `iris-platform` so callers can explicitly route operations to the standard clipboard or Linux/X11 PRIMARY selection, plus minimal selection copy/paste helpers (`copy_selection_to_clipboard`, `paste_from_clipboard`).
+- Primary-selection methods on the `iris-platform::Clipboard` trait (`get_primary`, `set_primary`, `clear_primary`) to expose Linux/X11 PRIMARY clipboard behavior.
+- `ClipboardError::PrimarySelectionUnavailable` as the explicit fallback/error path for unsupported PRIMARY clipboard operations.
+- A concrete `PlatformClipboard` scaffold in `iris-platform` that composes `NoopClipboard` and enables PRIMARY selection support when built for Linux targets.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
+
+#### Changed
+
+- Standardized production-grade PR authoring requirements by adding `./.github/PULL_REQUEST_TEMPLATE.md`, documenting required section detail in `docs/pull-request-guidelines.md`, and updating review/agent rules to require the template for future PRs.
+- Updated `PlatformClipboard::default` to use compile-time `#[cfg(...)]` selection for Linux PRIMARY scaffold behavior instead of runtime `cfg!()` branching.
+- Updated testing guidance across agent and project docs to prefer concrete backend and real-data coverage, and to avoid adding mock-data tests when meaningful real-backend tests are expected soon.
+
 ### 2026-03-22
 
 #### Added

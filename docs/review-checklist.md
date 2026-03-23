@@ -14,7 +14,9 @@ Before requesting review, author must verify:
 - [ ] Format is correct (`cargo fmt -- --check`)
 - [ ] Documentation is updated
 - [ ] CHANGELOG has entry (for user-facing changes)
-- [ ] PR description describes changes
+- [ ] PR description follows `./.github/PULL_REQUEST_TEMPLATE.md`
+- [ ] PR includes: Objective, Scope, API and Behavior Changes, Backward Compatibility, Test Coverage, Verification, Files Changed
+- [ ] Any non-applicable template section is marked `N/A` with a reason
 
 ---
 
@@ -216,6 +218,8 @@ Check:
 - [ ] Tests use realistic data
 - [ ] Tests test behavior, not implementation
 - [ ] Tests are independent
+- [ ] Tests prefer concrete backends/real data when those paths exist or are expected soon
+- [ ] Any mock-data tests justify why real-backend coverage is not yet practical
 
 ### Test Coverage
 
@@ -340,6 +344,8 @@ cargo bench -- --save-baseline pr
 ### 2. Manual Review
 
 1. Read PR description
+   - Confirm the PR template sections are present and detailed.
+   - Confirm verification commands listed were actually run.
 2. Review changed files in order:
    - Core types first
    - Implementation
