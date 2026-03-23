@@ -10,6 +10,16 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-22` to present
 
+### 2026-03-23
+
+#### Added
+
+- Added `ClipboardSelection` buffer targeting in `iris-platform` so callers can explicitly route operations to the standard clipboard or Linux/X11 PRIMARY selection.
+- Added primary-selection methods to the `iris-platform::Clipboard` trait (`get_primary`, `set_primary`, `clear_primary`) with a dedicated `ClipboardError::PrimarySelectionUnavailable` fallback path.
+- Added a concrete `PlatformClipboard` scaffold in `iris-platform` that composes `NoopClipboard` and enables PRIMARY selection support when built for Linux targets.
+- Added minimal selection copy/paste wiring helpers in `iris-platform` (`copy_selection_to_clipboard`, `paste_from_clipboard`) to bridge completed selection text into clipboard operations without full input/UI plumbing.
+- Added clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
+
 ### 2026-03-22
 
 #### Added

@@ -55,6 +55,9 @@ pub enum ClipboardError {
     /// Clipboard writes are unavailable.
     #[error("clipboard write is not available")]
     WriteUnavailable,
+    /// Linux/X11 primary selection is unavailable.
+    #[error("primary selection clipboard is not available")]
+    PrimarySelectionUnavailable,
 }
 
 /// Font-related failures.
