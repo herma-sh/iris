@@ -23,6 +23,7 @@ Work window: `2026-03-22` to present
 #### Changed
 
 - Standardized production-grade PR authoring requirements by adding `./.github/PULL_REQUEST_TEMPLATE.md`, documenting required section detail in `docs/pull-request-guidelines.md`, and updating review/agent rules to require the template for future PRs.
+- Updated `PlatformClipboard::default` to use compile-time `#[cfg(...)]` selection for Linux PRIMARY scaffold behavior instead of runtime `cfg!()` branching.
 
 ### 2026-03-22
 

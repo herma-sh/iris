@@ -173,11 +173,12 @@ impl PlatformClipboard {
 
 impl Default for PlatformClipboard {
     fn default() -> Self {
-        let inner = if cfg!(target_os = "linux") {
-            NoopClipboard::with_primary_selection()
-        } else {
-            NoopClipboard::new()
-        };
+        #[cfg(target_os = "linux")]
+        let inner = NoopClipboard::with_primary_selection();
+
+        #[cfg(not(target_os = "linux"))]
+        let inner = NoopClipboard::new();
+
         Self { inner }
     }
 }
