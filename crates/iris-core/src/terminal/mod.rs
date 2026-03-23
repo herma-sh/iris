@@ -7,6 +7,7 @@ use crate::error::{validate_printable_ascii, Result};
 use crate::grid::{Grid, GridSize};
 use crate::modes::TerminalModes;
 use crate::parser::Action;
+use crate::selection::{Selection, SelectionEngine, SelectionKind};
 
 mod editing;
 mod movement;
@@ -40,6 +41,8 @@ pub struct Terminal {
     pub window_title: Option<String>,
     /// The active OSC 8 hyperlink metadata.
     pub active_hyperlink: Option<Hyperlink>,
+    /// Active selection state for copy operations.
+    selection: SelectionEngine,
     tab_stops: Vec<usize>,
     alternate_screen_state: Option<AlternateScreenState>,
     scroll_region: Option<(usize, usize)>,
@@ -72,6 +75,7 @@ impl Terminal {
             attrs: CellAttrs::default(),
             window_title: None,
             active_hyperlink: None,
+            selection: SelectionEngine::new(),
             tab_stops: default_tab_stops(cols),
             alternate_screen_state: None,
             scroll_region: None,
@@ -272,6 +276,74 @@ impl Terminal {
         payload
     }
 
+    /// Returns the current terminal selection, if any.
+    #[must_use]
+    pub const fn selection(&self) -> Option<&Selection> {
+        self.selection.selection()
+    }
+
+    /// Returns `true` while an in-progress selection drag is active.
+    #[must_use]
+    pub fn is_selecting(&self) -> bool {
+        self.selection.is_selecting()
+    }
+
+    /// Returns `true` when the terminal has a completed selection.
+    #[must_use]
+    pub fn has_selection(&self) -> bool {
+        self.selection.has_selection()
+    }
+
+    /// Starts a selection anchored to the provided grid position.
+    pub fn start_selection(&mut self, row: usize, col: usize, kind: SelectionKind) {
+        let Some((row, col)) = self.clamp_selection_position(row, col) else {
+            self.selection.cancel();
+            return;
+        };
+        self.selection.start(row, col, kind);
+    }
+
+    /// Extends the current selection endpoint to the provided grid position.
+    pub fn extend_selection(&mut self, row: usize, col: usize) {
+        let Some((row, col)) = self.clamp_selection_position(row, col) else {
+            self.selection.cancel();
+            return;
+        };
+        self.selection.extend(row, col);
+    }
+
+    /// Completes the current selection.
+    pub fn complete_selection(&mut self) {
+        self.selection.complete();
+    }
+
+    /// Cancels and clears any existing selection.
+    pub fn cancel_selection(&mut self) {
+        self.selection.cancel();
+    }
+
+    /// Selects the word at the provided grid position.
+    pub fn select_word(&mut self, row: usize, col: usize) {
+        self.selection.select_word(&self.grid, row, col);
+    }
+
+    /// Selects the entire line at the provided row.
+    pub fn select_line(&mut self, row: usize) {
+        self.selection.select_line(&self.grid, row);
+    }
+
+    /// Returns selected text without copy-specific formatting adjustments.
+    #[must_use]
+    pub fn selected_text(&self) -> Option<String> {
+        self.selection.selected_text(&self.grid)
+    }
+
+    /// Returns selected text formatted for clipboard copy behavior.
+    #[must_use]
+    pub fn copy_selection_text(&self) -> Option<String> {
+        self.selection.copy_text(&self.grid)
+    }
+
     /// Moves the cursor to an absolute position inside the visible grid.
     pub fn move_cursor(&mut self, row: usize, col: usize) {
         if self.grid.rows() == 0 || self.grid.cols() == 0 {
@@ -293,6 +365,7 @@ impl Terminal {
             .scroll_region
             .and_then(|(top, bottom)| normalize_scroll_region(rows, top + 1, bottom + 1));
         self.move_cursor(self.cursor.position.row, self.cursor.position.col);
+        self.selection.cancel();
         Ok(())
     }
 
@@ -344,6 +417,18 @@ impl Terminal {
         self.tab_stops = default_tab_stops(self.grid.cols());
         self.scroll_region = None;
         self.saved_cursor = None;
+        self.selection.cancel();
         Ok(())
+    }
+
+    fn clamp_selection_position(&self, row: usize, col: usize) -> Option<(usize, usize)> {
+        if self.grid.rows() == 0 || self.grid.cols() == 0 {
+            return None;
+        }
+
+        Some((
+            row.min(self.grid.rows().saturating_sub(1)),
+            col.min(self.grid.cols().saturating_sub(1)),
+        ))
     }
 }

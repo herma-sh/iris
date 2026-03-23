@@ -1,6 +1,7 @@
 use super::Terminal;
 use crate::cell::{CellFlags, Color};
 use crate::parser::{Action, GraphicsRendition};
+use crate::selection::SelectionKind;
 
 #[test]
 fn terminal_write_advances_cursor() {
@@ -637,4 +638,115 @@ fn terminal_paste_bytes_preserves_multibyte_utf8_with_and_without_bracketing() {
         0x32, 0x30, 0x31, 0x7E,
     ];
     assert_eq!(terminal.paste_bytes(text), expected_wrapped);
+}
+
+#[test]
+fn terminal_selection_lifecycle_tracks_selected_and_copy_text() {
+    let mut terminal = Terminal::new(2, 12).unwrap();
+    terminal.write_ascii_run(b"hello world").unwrap();
+
+    assert!(!terminal.is_selecting());
+    assert!(!terminal.has_selection());
+    assert_eq!(terminal.selected_text(), None);
+    assert_eq!(terminal.copy_selection_text(), None);
+
+    terminal.start_selection(0, 6, SelectionKind::Simple);
+    assert!(terminal.is_selecting());
+    assert!(!terminal.has_selection());
+
+    terminal.extend_selection(0, 10);
+    terminal.complete_selection();
+
+    assert!(!terminal.is_selecting());
+    assert!(terminal.has_selection());
+    assert_eq!(terminal.selected_text().as_deref(), Some("world"));
+    assert_eq!(terminal.copy_selection_text().as_deref(), Some("world"));
+
+    terminal.cancel_selection();
+    assert!(!terminal.has_selection());
+    assert_eq!(terminal.selection(), None);
+}
+
+#[test]
+fn terminal_word_and_line_selection_wrappers_extract_expected_text() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    terminal.write_ascii_run(b"first").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    terminal.write_ascii_run(b"second").unwrap();
+
+    terminal.select_word(0, 1);
+    assert_eq!(
+        terminal.selection().map(|selection| selection.kind),
+        Some(SelectionKind::Word)
+    );
+    assert_eq!(terminal.selected_text().as_deref(), Some("first"));
+
+    terminal.select_line(1);
+    assert_eq!(
+        terminal.selection().map(|selection| selection.kind),
+        Some(SelectionKind::Line)
+    );
+    assert_eq!(terminal.selected_text().as_deref(), Some("second  "));
+    assert_eq!(
+        terminal.copy_selection_text().as_deref(),
+        Some("second  \n")
+    );
+}
+
+#[test]
+fn terminal_resize_and_reset_clear_selection_state() {
+    let mut terminal = Terminal::new(2, 12).unwrap();
+    terminal.write_ascii_run(b"hello world").unwrap();
+
+    terminal.start_selection(0, 0, SelectionKind::Simple);
+    terminal.extend_selection(0, 4);
+    terminal.complete_selection();
+    assert!(terminal.has_selection());
+
+    terminal.resize(1, 6).unwrap();
+    assert!(!terminal.has_selection());
+    assert_eq!(terminal.selection(), None);
+
+    terminal.start_selection(0, 0, SelectionKind::Simple);
+    terminal.extend_selection(0, 4);
+    terminal.complete_selection();
+    assert!(terminal.has_selection());
+
+    terminal.apply_action(Action::ResetTerminal).unwrap();
+    assert!(!terminal.has_selection());
+    assert_eq!(terminal.selection(), None);
+}
+
+#[test]
+fn terminal_alternate_screen_transitions_clear_selection_state() {
+    let mut terminal = Terminal::new(2, 12).unwrap();
+    terminal.write_ascii_run(b"hello world").unwrap();
+
+    terminal.start_selection(0, 0, SelectionKind::Simple);
+    terminal.extend_selection(0, 4);
+    terminal.complete_selection();
+    assert!(terminal.has_selection());
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![1049].into(),
+        })
+        .unwrap();
+    assert!(!terminal.has_selection());
+    assert_eq!(terminal.selection(), None);
+
+    terminal.start_selection(0, 0, SelectionKind::Simple);
+    terminal.extend_selection(0, 2);
+    terminal.complete_selection();
+    assert!(terminal.has_selection());
+
+    terminal
+        .apply_action(Action::ResetModes {
+            private: true,
+            modes: vec![1049].into(),
+        })
+        .unwrap();
+    assert!(!terminal.has_selection());
+    assert_eq!(terminal.selection(), None);
 }

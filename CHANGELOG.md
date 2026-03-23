@@ -30,6 +30,8 @@ Work window: `2026-03-22` to present
 - `Terminal::paste_bytes` in `iris-core` to encode clipboard paste payloads according to active bracketed-paste mode, wrapping with `ESC[200~`/`ESC[201~` when enabled.
 - Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for raw vs bracketed `Terminal::paste_bytes` payload behavior.
 - Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for exact multibyte UTF-8 paste payload bytes with bracketed paste disabled and enabled.
+- Terminal-level selection flow methods in `iris-core` (`Terminal::selection`, `is_selecting`, `has_selection`, `start_selection`, `extend_selection`, `complete_selection`, `cancel_selection`, `select_word`, `select_line`, `selected_text`, `copy_selection_text`) to wire `SelectionEngine` into the terminal API surface for copy/paste integration.
+- Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for terminal selection lifecycle behavior, word/line selection wrappers, and selection invalidation across resize, reset, and alternate-screen transitions.
 
 #### Changed
 

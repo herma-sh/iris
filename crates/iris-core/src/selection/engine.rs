@@ -2,11 +2,20 @@ use super::{Selection, SelectionKind, SelectionState};
 use crate::grid::Grid;
 
 /// Stateful selection engine for terminal grids.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SelectionEngine {
     selection: Option<Selection>,
     is_word_boundary: fn(char) -> bool,
 }
+
+impl PartialEq for SelectionEngine {
+    fn eq(&self, other: &Self) -> bool {
+        self.selection == other.selection
+            && std::ptr::fn_addr_eq(self.is_word_boundary, other.is_word_boundary)
+    }
+}
+
+impl Eq for SelectionEngine {}
 
 impl Default for SelectionEngine {
     fn default() -> Self {

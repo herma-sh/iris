@@ -129,6 +129,7 @@ impl Terminal {
         self.cursor = Cursor::new();
         self.scroll_region = None;
         self.saved_cursor = None;
+        self.selection.cancel();
         self.modes.alternate_screen = true;
         Ok(())
     }
@@ -150,6 +151,7 @@ impl Terminal {
         }
 
         self.saved_cursor = None;
+        self.selection.cancel();
         self.modes.alternate_screen = false;
     }
 
