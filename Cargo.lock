@@ -481,6 +481,7 @@ dependencies = [
 name = "iris-platform"
 version = "0.1.0"
 dependencies = [
+ "iris-core",
  "portable-pty",
  "pretty_assertions",
  "thiserror",

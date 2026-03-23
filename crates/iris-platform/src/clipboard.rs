@@ -1,4 +1,5 @@
 use crate::error::{ClipboardError, Error, Result};
+use iris_core::Terminal;
 
 /// Clipboard buffer target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,6 +95,19 @@ pub fn copy_selection_to_clipboard(
     Ok(true)
 }
 
+/// Copies terminal selection text into the requested clipboard buffer.
+///
+/// This uses `Terminal::copy_selection_text` so line selections preserve
+/// terminal copy semantics (including trailing newline behavior).
+pub fn copy_terminal_selection_to_clipboard(
+    terminal: &Terminal,
+    clipboard: &mut impl Clipboard,
+    target: ClipboardSelection,
+) -> Result<bool> {
+    let selected_text = terminal.copy_selection_text();
+    copy_selection_to_clipboard(clipboard, selected_text.as_deref(), target)
+}
+
 /// Reads text from the requested clipboard buffer for paste operations.
 pub fn paste_from_clipboard(
     clipboard: &impl Clipboard,
@@ -153,6 +167,20 @@ pub fn paste_bytes_from_clipboard(
     Ok(Some(encode_paste_input(&text, bracketed_paste_mode)))
 }
 
+/// Reads text from the requested clipboard source and returns paste bytes
+/// encoded according to the terminal's active bracketed-paste mode.
+pub fn paste_terminal_bytes_from_clipboard(
+    terminal: &Terminal,
+    clipboard: &impl Clipboard,
+    source: ClipboardSelection,
+) -> Result<Option<Vec<u8>>> {
+    let Some(text) = paste_from_clipboard(clipboard, source)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(terminal.paste_bytes(&text)))
+}
+
 /// Reads text using the requested paste source strategy and returns PTY-ready
 /// paste bytes with optional bracketed paste wrapping.
 pub fn paste_bytes_from_source(
@@ -165,6 +193,20 @@ pub fn paste_bytes_from_source(
     };
 
     Ok(Some(encode_paste_input(&text, bracketed_paste_mode)))
+}
+
+/// Reads text using the requested paste-source strategy and returns paste
+/// bytes encoded according to the terminal's active bracketed-paste mode.
+pub fn paste_terminal_bytes_from_source(
+    terminal: &Terminal,
+    clipboard: &impl Clipboard,
+    source: PasteSource,
+) -> Result<Option<Vec<u8>>> {
+    let Some(text) = paste_from_source(clipboard, source)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(terminal.paste_bytes(&text)))
 }
 
 /// Fallback clipboard implementation used until platform integration lands.
