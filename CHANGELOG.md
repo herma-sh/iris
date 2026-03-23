@@ -19,6 +19,8 @@ Work window: `2026-03-22` to present
 - `ClipboardError::PrimarySelectionUnavailable` as the explicit fallback/error path for unsupported PRIMARY clipboard operations.
 - A concrete `PlatformClipboard` scaffold in `iris-platform` that composes `NoopClipboard` and enables PRIMARY selection support when built for Linux targets.
 - Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
+- `SelectionEngine::copy_text` in `iris-core` to expose copy-oriented selection text, including trailing newline behavior for line selections while keeping `selected_text` unchanged.
+- Selection unit coverage in `crates/iris-core/src/test/selection/tests.rs` for line-copy trailing-newline behavior and non-line-selection copy behavior.
 
 #### Changed
 

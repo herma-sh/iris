@@ -146,6 +146,22 @@ impl SelectionEngine {
         wrote_any_row.then_some(output)
     }
 
+    /// Returns selected text formatted for clipboard copy operations.
+    ///
+    /// Line selections include a trailing newline to match typical terminal
+    /// copy behavior.
+    #[must_use]
+    pub fn copy_text(&self, grid: &Grid) -> Option<String> {
+        let selection = self.selection?;
+        let mut text = self.selected_text(grid)?;
+
+        if selection.kind == SelectionKind::Line && !text.is_empty() {
+            text.push('\n');
+        }
+
+        Some(text)
+    }
+
     fn find_word_start(&self, row_cells: &[crate::cell::Cell], col: usize) -> usize {
         let mut start = col;
         while start > 0 && !(self.is_word_boundary)(row_cells[start - 1].character) {
