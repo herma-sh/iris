@@ -26,6 +26,7 @@ Work window: `2026-03-22` to present
 - Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for non-bracketed `paste_bytes_from_clipboard` payload behavior (`bracketed_paste_mode=false`).
 - `PasteSource` strategy helpers in `iris-platform` (`paste_from_source`, `paste_bytes_from_source`) to support primary-first paste behavior with clipboard fallback when PRIMARY is unavailable or empty.
 - Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for `PasteSource::PrimaryThenClipboard` behavior across primary-hit, primary-unavailable fallback, primary-empty fallback, and bracketed fallback payload encoding.
+- `PasteSource::PrimaryThenClipboard` fallback handling in `iris-platform` now treats `Some(\"\")` PRIMARY text as a miss and falls back to standard clipboard content.
 
 #### Changed
 

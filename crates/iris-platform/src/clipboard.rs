@@ -112,8 +112,10 @@ pub fn paste_from_source(
         PasteSource::Primary => paste_from_clipboard(clipboard, ClipboardSelection::Primary),
         PasteSource::PrimaryThenClipboard => {
             match paste_from_clipboard(clipboard, ClipboardSelection::Primary) {
-                Ok(Some(text)) => Ok(Some(text)),
-                Ok(None) | Err(Error::Clipboard(ClipboardError::PrimarySelectionUnavailable)) => {
+                Ok(Some(text)) if !text.is_empty() => Ok(Some(text)),
+                Ok(Some(_))
+                | Ok(None)
+                | Err(Error::Clipboard(ClipboardError::PrimarySelectionUnavailable)) => {
                     paste_from_clipboard(clipboard, ClipboardSelection::Clipboard)
                 }
                 Err(error) => Err(error),

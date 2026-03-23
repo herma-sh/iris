@@ -216,6 +216,7 @@ fn paste_from_source_primary_then_clipboard_falls_back_when_primary_unavailable(
 fn paste_from_source_primary_then_clipboard_falls_back_when_primary_is_empty() {
     let mut clipboard = NoopClipboard::with_primary_selection();
     clipboard.set_text("clipboard-fallback").unwrap();
+    clipboard.set_primary("").unwrap();
 
     assert_eq!(
         paste_from_source(&clipboard, PasteSource::PrimaryThenClipboard)
