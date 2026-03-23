@@ -172,3 +172,15 @@ fn paste_bytes_from_clipboard_reads_primary_and_wraps_when_enabled() {
     let expected = format!("{BRACKETED_PASTE_START}primary-data{BRACKETED_PASTE_END}");
     assert_eq!(payload, expected.into_bytes());
 }
+
+#[test]
+fn paste_bytes_from_clipboard_returns_raw_bytes_when_bracketed_mode_is_disabled() {
+    let mut clipboard = NoopClipboard::new();
+    clipboard.set_text("raw-data").unwrap();
+
+    let payload = paste_bytes_from_clipboard(&clipboard, ClipboardSelection::Clipboard, false)
+        .unwrap()
+        .expect("clipboard should produce a payload");
+
+    assert_eq!(payload, b"raw-data");
+}
