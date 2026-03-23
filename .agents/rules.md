@@ -135,6 +135,9 @@ See:
 - Parser and terminal behavior changes should consider malformed input and `vttest` compatibility.
 - Cross-platform features need platform-specific verification notes.
 - Do not merge code that only works on one platform when the feature is documented as cross-platform.
+- Prefer tests that use concrete backends and real/captured data.
+- Do not add mock-data tests for behavior that will soon be covered by a real backend path; add or defer to real-backend tests.
+- If mocks are used, document why real-backend coverage is not yet practical.
 
 Minimum verification set for substantial work:
 

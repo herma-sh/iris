@@ -27,6 +27,9 @@ cargo test --all
 - Add integration tests when behavior crosses parser, grid, PTY, renderer, or host boundaries.
 - Add or update benchmarks when a change affects parser throughput, render latency, resize, startup, scroll performance, or memory.
 - Add manual verification notes for platform-specific behavior.
+- Prefer tests that exercise concrete backends and real/captured data when those paths exist or are expected soon.
+- Do not add mock-data tests for behavior that will be covered by a near-term real backend path; add or defer to real-backend tests instead.
+- Use mocks only when a real backend path is not practical yet, and document that reason in the PR/test notes.
 
 ## Terminal-Specific Checks
 

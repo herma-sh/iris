@@ -218,6 +218,8 @@ Check:
 - [ ] Tests use realistic data
 - [ ] Tests test behavior, not implementation
 - [ ] Tests are independent
+- [ ] Tests prefer concrete backends/real data when those paths exist or are expected soon
+- [ ] Any mock-data tests justify why real-backend coverage is not yet practical
 
 ### Test Coverage
 

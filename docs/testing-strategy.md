@@ -188,3 +188,6 @@ Enable VT conformance automation only after the standalone binary exists.
 - Test hostile or oversized escape-sequence inputs.
 - Keep integration fixtures realistic enough to catch parser/terminal boundary bugs.
 - When a behavior is deferred because the required binary or platform layer does not exist yet, document the deferral instead of implying coverage that is not real.
+- Prefer tests that exercise concrete backends and real or captured data over synthetic mocks.
+- Do not add mock-data tests for behavior that is expected to gain meaningful real-backend coverage in the near term; add or defer to the real-backend tests.
+- If mock-based tests are temporarily required, document why real-backend coverage is not yet practical and replace them when backend coverage lands.
