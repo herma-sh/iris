@@ -29,6 +29,7 @@ Work window: `2026-03-22` to present
 - `PasteSource::PrimaryThenClipboard` fallback handling in `iris-platform` now treats `Some(\"\")` PRIMARY text as a miss and falls back to standard clipboard content.
 - `Terminal::paste_bytes` in `iris-core` to encode clipboard paste payloads according to active bracketed-paste mode, wrapping with `ESC[200~`/`ESC[201~` when enabled.
 - Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for raw vs bracketed `Terminal::paste_bytes` payload behavior.
+- Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for exact multibyte UTF-8 paste payload bytes with bracketed paste disabled and enabled.
 
 #### Changed
 
