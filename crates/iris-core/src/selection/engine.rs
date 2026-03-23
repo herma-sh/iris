@@ -171,6 +171,42 @@ impl SelectionEngine {
         Some(text)
     }
 
+    /// Returns `true` when the provided grid position is inside a completed
+    /// selection.
+    #[must_use]
+    pub fn contains(&self, row: usize, col: usize) -> bool {
+        self.selection.is_some_and(|selection| {
+            selection.state == SelectionState::Complete && selection.contains(row, col)
+        })
+    }
+
+    /// Returns selected column bounds for a visible row when a completed
+    /// selection exists.
+    #[must_use]
+    pub(crate) fn row_bounds(&self, row: usize, grid_cols: usize) -> Option<(usize, usize)> {
+        let selection = self.selection?;
+        if selection.state != SelectionState::Complete {
+            return None;
+        }
+
+        selection.row_bounds(row, grid_cols)
+    }
+
+    /// Returns the inclusive selected row span when a completed selection
+    /// exists.
+    #[must_use]
+    pub fn row_span(&self) -> Option<(usize, usize)> {
+        let selection = self.selection?;
+        if selection.state != SelectionState::Complete {
+            return None;
+        }
+
+        Some((
+            selection.start.position.row.min(selection.end.position.row),
+            selection.start.position.row.max(selection.end.position.row),
+        ))
+    }
+
     fn find_word_start(&self, row_cells: &[crate::cell::Cell], col: usize) -> usize {
         let mut start = col;
         while start > 0 && !(self.is_word_boundary)(row_cells[start - 1].character) {
