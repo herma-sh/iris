@@ -594,3 +594,25 @@ fn terminal_restore_scroll_delta_replays_drained_scrolls() {
         Some(crate::damage::ScrollDelta::new(0, 1, 1))
     );
 }
+
+#[test]
+fn terminal_paste_bytes_returns_raw_text_when_bracketed_mode_is_disabled() {
+    let terminal = Terminal::new(2, 4).unwrap();
+    let payload = terminal.paste_bytes("raw-data");
+
+    assert_eq!(payload, b"raw-data");
+}
+
+#[test]
+fn terminal_paste_bytes_wraps_text_when_bracketed_mode_is_enabled() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+
+    let payload = terminal.paste_bytes("wrapped");
+    assert_eq!(payload, b"\x1b[200~wrapped\x1b[201~");
+}
