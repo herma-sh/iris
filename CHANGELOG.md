@@ -21,6 +21,9 @@ Work window: `2026-03-22` to present
 - Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
 - `SelectionEngine::copy_text` in `iris-core` to expose copy-oriented selection text, including trailing newline behavior for line selections while keeping `selected_text` unchanged.
 - Selection unit coverage in `crates/iris-core/src/test/selection/tests.rs` for line-copy trailing-newline behavior and non-line-selection copy behavior.
+- Bracketed paste encoding helpers in `iris-platform` (`BRACKETED_PASTE_START`, `BRACKETED_PASTE_END`, `encode_paste_input`) plus `paste_bytes_from_clipboard` for clipboard-to-PTY paste payload preparation.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for raw vs bracketed paste encoding and primary-selection paste payload generation.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for non-bracketed `paste_bytes_from_clipboard` payload behavior (`bracketed_paste_mode=false`).
 
 #### Changed
 
