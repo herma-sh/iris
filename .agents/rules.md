@@ -155,6 +155,9 @@ Add as needed:
 - Flag hidden allocations, extra abstraction, and host/render/core coupling.
 - Require acceptance criteria from the active phase doc to be satisfied or explicitly deferred.
 - Keep PRs focused and small enough to review coherently.
+- PR descriptions must follow the repository template in `./.github/PULL_REQUEST_TEMPLATE.md`.
+- PR descriptions must include concrete detail for objective, scope, API/behavior changes, backward compatibility, tests, verification commands run, and key files changed.
+- If a section is not applicable, mark it `N/A` with a one-line reason instead of omitting it.
 
 ## Task Routing
 

@@ -20,6 +20,10 @@ Work window: `2026-03-22` to present
 - Added minimal selection copy/paste wiring helpers in `iris-platform` (`copy_selection_to_clipboard`, `paste_from_clipboard`) to bridge completed selection text into clipboard operations without full input/UI plumbing.
 - Added clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
 
+#### Changed
+
+- Standardized production-grade PR authoring requirements by adding `./.github/PULL_REQUEST_TEMPLATE.md`, documenting required section detail in `docs/pull-request-guidelines.md`, and updating review/agent rules to require the template for future PRs.
+
 ### 2026-03-22
 
 #### Added
