@@ -34,16 +34,14 @@ impl SelectionEngine {
     #[must_use]
     pub fn is_selecting(&self) -> bool {
         self.selection
-            .map(|selection| selection.state == SelectionState::Selecting)
-            .unwrap_or(false)
+            .is_some_and(|selection| selection.state == SelectionState::Selecting)
     }
 
     /// Returns `true` when a completed selection exists.
     #[must_use]
     pub fn has_selection(&self) -> bool {
         self.selection
-            .map(|selection| selection.state == SelectionState::Complete)
-            .unwrap_or(false)
+            .is_some_and(|selection| selection.state == SelectionState::Complete)
     }
 
     /// Starts a new selection at the provided position.
