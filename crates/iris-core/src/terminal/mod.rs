@@ -12,6 +12,9 @@ mod editing;
 mod movement;
 mod screen;
 
+const BRACKETED_PASTE_START: &str = "\u{1b}[200~";
+const BRACKETED_PASTE_END: &str = "\u{1b}[201~";
+
 #[cfg(test)]
 #[path = "../test/terminal/tests.rs"]
 mod tests;
@@ -251,6 +254,22 @@ impl Terminal {
             0x0d => Action::CarriageReturn,
             _ => return Ok(()),
         })
+    }
+
+    /// Encodes paste payload bytes according to active bracketed paste mode.
+    #[must_use]
+    pub fn paste_bytes(&self, text: &str) -> Vec<u8> {
+        if !self.modes.bracketed_paste {
+            return text.as_bytes().to_vec();
+        }
+
+        let mut payload = Vec::with_capacity(
+            BRACKETED_PASTE_START.len() + text.len() + BRACKETED_PASTE_END.len(),
+        );
+        payload.extend_from_slice(BRACKETED_PASTE_START.as_bytes());
+        payload.extend_from_slice(text.as_bytes());
+        payload.extend_from_slice(BRACKETED_PASTE_END.as_bytes());
+        payload
     }
 
     /// Moves the cursor to an absolute position inside the visible grid.

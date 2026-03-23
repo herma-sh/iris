@@ -594,3 +594,47 @@ fn terminal_restore_scroll_delta_replays_drained_scrolls() {
         Some(crate::damage::ScrollDelta::new(0, 1, 1))
     );
 }
+
+#[test]
+fn terminal_paste_bytes_returns_raw_text_when_bracketed_mode_is_disabled() {
+    let terminal = Terminal::new(2, 4).unwrap();
+    let payload = terminal.paste_bytes("raw-data");
+
+    assert_eq!(payload, b"raw-data");
+}
+
+#[test]
+fn terminal_paste_bytes_wraps_text_when_bracketed_mode_is_enabled() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+
+    let payload = terminal.paste_bytes("wrapped");
+    assert_eq!(payload, b"\x1b[200~wrapped\x1b[201~");
+}
+
+#[test]
+fn terminal_paste_bytes_preserves_multibyte_utf8_with_and_without_bracketing() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    let text = "€🙂";
+
+    let expected_raw = vec![0xE2, 0x82, 0xAC, 0xF0, 0x9F, 0x99, 0x82];
+    assert_eq!(terminal.paste_bytes(text), expected_raw);
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+
+    let expected_wrapped = vec![
+        0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E, 0xE2, 0x82, 0xAC, 0xF0, 0x9F, 0x99, 0x82, 0x1B, 0x5B,
+        0x32, 0x30, 0x31, 0x7E,
+    ];
+    assert_eq!(terminal.paste_bytes(text), expected_wrapped);
+}
