@@ -1,5 +1,7 @@
 use crate::clipboard::{
-    copy_selection_to_clipboard, paste_from_clipboard, Clipboard, ClipboardSelection, NoopClipboard,
+    copy_selection_to_clipboard, encode_paste_input, paste_bytes_from_clipboard,
+    paste_from_clipboard, Clipboard, ClipboardSelection, NoopClipboard, BRACKETED_PASTE_END,
+    BRACKETED_PASTE_START,
 };
 use crate::error::{ClipboardError, Error, Result};
 
@@ -133,4 +135,40 @@ fn paste_from_clipboard_reads_requested_target() {
             .as_deref(),
         Some("primary"),
     );
+}
+
+#[test]
+fn encode_paste_input_returns_raw_text_when_bracketed_mode_is_disabled() {
+    let payload = encode_paste_input("line1\nline2", false);
+    assert_eq!(payload, b"line1\nline2");
+}
+
+#[test]
+fn encode_paste_input_wraps_text_when_bracketed_mode_is_enabled() {
+    let payload = encode_paste_input("paste", true);
+
+    let expected = format!("{BRACKETED_PASTE_START}paste{BRACKETED_PASTE_END}");
+    assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn paste_bytes_from_clipboard_returns_none_when_source_is_empty() {
+    let clipboard = NoopClipboard::new();
+    assert_eq!(
+        paste_bytes_from_clipboard(&clipboard, ClipboardSelection::Clipboard, true).unwrap(),
+        None
+    );
+}
+
+#[test]
+fn paste_bytes_from_clipboard_reads_primary_and_wraps_when_enabled() {
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_primary("primary-data").unwrap();
+
+    let payload = paste_bytes_from_clipboard(&clipboard, ClipboardSelection::Primary, true)
+        .unwrap()
+        .expect("primary clipboard should produce a payload");
+
+    let expected = format!("{BRACKETED_PASTE_START}primary-data{BRACKETED_PASTE_END}");
+    assert_eq!(payload, expected.into_bytes());
 }

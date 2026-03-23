@@ -9,6 +9,11 @@ pub enum ClipboardSelection {
     Primary,
 }
 
+/// Bracketed paste start sequence.
+pub const BRACKETED_PASTE_START: &str = "\u{1b}[200~";
+/// Bracketed paste end sequence.
+pub const BRACKETED_PASTE_END: &str = "\u{1b}[201~";
+
 /// Clipboard access abstraction.
 pub trait Clipboard {
     /// Reads the current clipboard text if available.
@@ -83,6 +88,35 @@ pub fn paste_from_clipboard(
     source: ClipboardSelection,
 ) -> Result<Option<String>> {
     clipboard.read(source)
+}
+
+/// Encodes paste input bytes, optionally wrapping with bracketed paste markers.
+#[must_use]
+pub fn encode_paste_input(text: &str, bracketed_paste_mode: bool) -> Vec<u8> {
+    if !bracketed_paste_mode {
+        return text.as_bytes().to_vec();
+    }
+
+    let mut payload =
+        Vec::with_capacity(BRACKETED_PASTE_START.len() + text.len() + BRACKETED_PASTE_END.len());
+    payload.extend_from_slice(BRACKETED_PASTE_START.as_bytes());
+    payload.extend_from_slice(text.as_bytes());
+    payload.extend_from_slice(BRACKETED_PASTE_END.as_bytes());
+    payload
+}
+
+/// Reads text from the requested clipboard source and returns PTY-ready paste
+/// bytes with optional bracketed paste wrapping.
+pub fn paste_bytes_from_clipboard(
+    clipboard: &impl Clipboard,
+    source: ClipboardSelection,
+    bracketed_paste_mode: bool,
+) -> Result<Option<Vec<u8>>> {
+    let Some(text) = paste_from_clipboard(clipboard, source)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(encode_paste_input(&text, bracketed_paste_mode)))
 }
 
 /// Fallback clipboard implementation used until platform integration lands.
