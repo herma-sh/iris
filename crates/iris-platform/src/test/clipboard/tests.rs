@@ -1,7 +1,7 @@
 use crate::clipboard::{
     copy_selection_to_clipboard, encode_paste_input, paste_bytes_from_clipboard,
-    paste_from_clipboard, Clipboard, ClipboardSelection, NoopClipboard, BRACKETED_PASTE_END,
-    BRACKETED_PASTE_START,
+    paste_bytes_from_source, paste_from_clipboard, paste_from_source, Clipboard,
+    ClipboardSelection, NoopClipboard, PasteSource, BRACKETED_PASTE_END, BRACKETED_PASTE_START,
 };
 use crate::error::{ClipboardError, Error, Result};
 
@@ -183,4 +183,57 @@ fn paste_bytes_from_clipboard_returns_raw_bytes_when_bracketed_mode_is_disabled(
         .expect("clipboard should produce a payload");
 
     assert_eq!(payload, b"raw-data");
+}
+
+#[test]
+fn paste_from_source_primary_then_clipboard_uses_primary_when_available() {
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_text("clipboard").unwrap();
+    clipboard.set_primary("primary").unwrap();
+
+    assert_eq!(
+        paste_from_source(&clipboard, PasteSource::PrimaryThenClipboard)
+            .unwrap()
+            .as_deref(),
+        Some("primary"),
+    );
+}
+
+#[test]
+fn paste_from_source_primary_then_clipboard_falls_back_when_primary_unavailable() {
+    let mut clipboard = NoopClipboard::new();
+    clipboard.set_text("clipboard-fallback").unwrap();
+
+    assert_eq!(
+        paste_from_source(&clipboard, PasteSource::PrimaryThenClipboard)
+            .unwrap()
+            .as_deref(),
+        Some("clipboard-fallback"),
+    );
+}
+
+#[test]
+fn paste_from_source_primary_then_clipboard_falls_back_when_primary_is_empty() {
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_text("clipboard-fallback").unwrap();
+
+    assert_eq!(
+        paste_from_source(&clipboard, PasteSource::PrimaryThenClipboard)
+            .unwrap()
+            .as_deref(),
+        Some("clipboard-fallback"),
+    );
+}
+
+#[test]
+fn paste_bytes_from_source_primary_then_clipboard_wraps_fallback_payload() {
+    let mut clipboard = NoopClipboard::new();
+    clipboard.set_text("clipboard-fallback").unwrap();
+
+    let payload = paste_bytes_from_source(&clipboard, PasteSource::PrimaryThenClipboard, true)
+        .unwrap()
+        .expect("fallback clipboard should produce a payload");
+
+    let expected = format!("{BRACKETED_PASTE_START}clipboard-fallback{BRACKETED_PASTE_END}");
+    assert_eq!(payload, expected.into_bytes());
 }

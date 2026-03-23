@@ -1,4 +1,4 @@
-use crate::error::{ClipboardError, Result};
+use crate::error::{ClipboardError, Error, Result};
 
 /// Clipboard buffer target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -7,6 +7,18 @@ pub enum ClipboardSelection {
     Clipboard,
     /// The Linux/X11 primary selection buffer.
     Primary,
+}
+
+/// Paste source selection strategy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PasteSource {
+    /// Read only from the standard system clipboard.
+    Clipboard,
+    /// Read only from the Linux/X11 primary selection.
+    Primary,
+    /// Prefer Linux/X11 primary selection, then fall back to standard
+    /// clipboard when primary is unavailable or empty.
+    PrimaryThenClipboard,
 }
 
 /// Bracketed paste start sequence.
@@ -90,6 +102,26 @@ pub fn paste_from_clipboard(
     clipboard.read(source)
 }
 
+/// Reads text using the requested paste-source strategy.
+pub fn paste_from_source(
+    clipboard: &impl Clipboard,
+    source: PasteSource,
+) -> Result<Option<String>> {
+    match source {
+        PasteSource::Clipboard => paste_from_clipboard(clipboard, ClipboardSelection::Clipboard),
+        PasteSource::Primary => paste_from_clipboard(clipboard, ClipboardSelection::Primary),
+        PasteSource::PrimaryThenClipboard => {
+            match paste_from_clipboard(clipboard, ClipboardSelection::Primary) {
+                Ok(Some(text)) => Ok(Some(text)),
+                Ok(None) | Err(Error::Clipboard(ClipboardError::PrimarySelectionUnavailable)) => {
+                    paste_from_clipboard(clipboard, ClipboardSelection::Clipboard)
+                }
+                Err(error) => Err(error),
+            }
+        }
+    }
+}
+
 /// Encodes paste input bytes, optionally wrapping with bracketed paste markers.
 #[must_use]
 pub fn encode_paste_input(text: &str, bracketed_paste_mode: bool) -> Vec<u8> {
@@ -113,6 +145,20 @@ pub fn paste_bytes_from_clipboard(
     bracketed_paste_mode: bool,
 ) -> Result<Option<Vec<u8>>> {
     let Some(text) = paste_from_clipboard(clipboard, source)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(encode_paste_input(&text, bracketed_paste_mode)))
+}
+
+/// Reads text using the requested paste source strategy and returns PTY-ready
+/// paste bytes with optional bracketed paste wrapping.
+pub fn paste_bytes_from_source(
+    clipboard: &impl Clipboard,
+    source: PasteSource,
+    bracketed_paste_mode: bool,
+) -> Result<Option<Vec<u8>>> {
+    let Some(text) = paste_from_source(clipboard, source)? else {
         return Ok(None);
     };
 

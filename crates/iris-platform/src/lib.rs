@@ -9,8 +9,9 @@ pub mod pty;
 
 pub use clipboard::{
     copy_selection_to_clipboard, encode_paste_input, paste_bytes_from_clipboard,
-    paste_from_clipboard, Clipboard, ClipboardSelection, NoopClipboard, PlatformClipboard,
-    BRACKETED_PASTE_END, BRACKETED_PASTE_START,
+    paste_bytes_from_source, paste_from_clipboard, paste_from_source, Clipboard,
+    ClipboardSelection, NoopClipboard, PasteSource, PlatformClipboard, BRACKETED_PASTE_END,
+    BRACKETED_PASTE_START,
 };
 pub use error::{ClipboardError, Error, FontError, ImeError, PtyError, Result};
 pub use fonts::{FontInfo, FontProvider, NoopFontProvider};

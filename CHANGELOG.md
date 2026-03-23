@@ -24,6 +24,8 @@ Work window: `2026-03-22` to present
 - Bracketed paste encoding helpers in `iris-platform` (`BRACKETED_PASTE_START`, `BRACKETED_PASTE_END`, `encode_paste_input`) plus `paste_bytes_from_clipboard` for clipboard-to-PTY paste payload preparation.
 - Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for raw vs bracketed paste encoding and primary-selection paste payload generation.
 - Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for non-bracketed `paste_bytes_from_clipboard` payload behavior (`bracketed_paste_mode=false`).
+- `PasteSource` strategy helpers in `iris-platform` (`paste_from_source`, `paste_bytes_from_source`) to support primary-first paste behavior with clipboard fallback when PRIMARY is unavailable or empty.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for `PasteSource::PrimaryThenClipboard` behavior across primary-hit, primary-unavailable fallback, primary-empty fallback, and bracketed fallback payload encoding.
 
 #### Changed
 
