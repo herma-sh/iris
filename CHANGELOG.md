@@ -14,11 +14,11 @@ Work window: `2026-03-22` to present
 
 #### Added
 
-- Added `ClipboardSelection` buffer targeting in `iris-platform` so callers can explicitly route operations to the standard clipboard or Linux/X11 PRIMARY selection.
-- Added primary-selection methods to the `iris-platform::Clipboard` trait (`get_primary`, `set_primary`, `clear_primary`) with a dedicated `ClipboardError::PrimarySelectionUnavailable` fallback path.
-- Added a concrete `PlatformClipboard` scaffold in `iris-platform` that composes `NoopClipboard` and enables PRIMARY selection support when built for Linux targets.
-- Added minimal selection copy/paste wiring helpers in `iris-platform` (`copy_selection_to_clipboard`, `paste_from_clipboard`) to bridge completed selection text into clipboard operations without full input/UI plumbing.
-- Added clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
+- `ClipboardSelection` buffer targeting in `iris-platform` so callers can explicitly route operations to the standard clipboard or Linux/X11 PRIMARY selection, plus minimal selection copy/paste helpers (`copy_selection_to_clipboard`, `paste_from_clipboard`).
+- Primary-selection methods on the `iris-platform::Clipboard` trait (`get_primary`, `set_primary`, `clear_primary`) to expose Linux/X11 PRIMARY clipboard behavior.
+- `ClipboardError::PrimarySelectionUnavailable` as the explicit fallback/error path for unsupported PRIMARY clipboard operations.
+- A concrete `PlatformClipboard` scaffold in `iris-platform` that composes `NoopClipboard` and enables PRIMARY selection support when built for Linux targets.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
 
 #### Changed
 
