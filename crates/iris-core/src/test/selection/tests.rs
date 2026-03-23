@@ -102,6 +102,17 @@ fn selection_engine_select_line_extracts_line_text() {
         Some(SelectionKind::Line)
     );
     assert_eq!(engine.selected_text(&grid).as_deref(), Some("second  "));
+    assert_eq!(engine.copy_text(&grid).as_deref(), Some("second  \n"));
+}
+
+#[test]
+fn selection_engine_copy_text_preserves_non_line_selection_without_trailing_newline() {
+    let grid = grid_from_lines(&["hello world"], 16);
+    let mut engine = SelectionEngine::new();
+
+    engine.select_word(&grid, 0, 6);
+
+    assert_eq!(engine.copy_text(&grid).as_deref(), Some("world"));
 }
 
 #[test]
