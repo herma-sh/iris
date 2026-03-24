@@ -261,7 +261,7 @@ where
     Ok(())
 }
 
-const fn never_selected(_: usize, _: usize) -> bool {
+pub(crate) const fn never_selected(_: usize, _: usize) -> bool {
     false
 }
 

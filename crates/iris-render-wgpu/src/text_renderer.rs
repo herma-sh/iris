@@ -7,8 +7,9 @@ use iris_core::grid::Grid;
 use crate::atlas::{AtlasConfig, AtlasSize};
 use crate::cell::{
     cell_needs_rendering_with_blank_default_cells,
-    encode_normalized_damage_instances_with_options_and_selection, normalized_damage_regions_into,
-    CellInstance, EncodeInstancesOptions, TextBuffers, TextUniforms,
+    encode_normalized_damage_instances_with_options_and_selection, never_selected,
+    normalized_damage_regions_into, CellInstance, EncodeInstancesOptions, TextBuffers,
+    TextUniforms,
 };
 use crate::cursor::{CursorBuffers, CursorInstance};
 use crate::error::Result;
@@ -443,10 +444,6 @@ impl TextRenderer {
         prepare_result?;
         self.apply_operator_ligatures(renderer, grid, font_rasterizer, is_selected)
     }
-}
-
-const fn never_selected(_: usize, _: usize) -> bool {
-    false
 }
 
 #[cfg(test)]
