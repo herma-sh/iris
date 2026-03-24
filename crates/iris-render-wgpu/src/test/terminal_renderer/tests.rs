@@ -1,6 +1,7 @@
 use iris_core::cell::{Cell, CellAttrs, Color};
 use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::parser::Action;
+use iris_core::selection::SelectionKind;
 use iris_core::terminal::Terminal;
 
 use super::{
@@ -141,6 +142,90 @@ fn terminal_renderer_prepares_and_renders_terminal_state() {
             .chunks_exact(background.len())
             .any(|pixel| pixel != background),
         "prepared terminal state should render text and cursor pixels"
+    );
+}
+
+#[test]
+fn terminal_renderer_updates_selection_highlight_without_grid_or_cursor_changes() {
+    let _gpu_test_lock = crate::test_support::gpu_test_lock();
+    let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+        Ok(renderer) => renderer,
+        Err(crate::error::Error::NoAdapter) => return,
+        Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+    };
+    let surface = renderer
+        .create_texture_surface(TextureSurfaceConfig::new(
+            TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+        ))
+        .expect("texture surface should be created");
+    let mut terminal_renderer = match TerminalRenderer::new(
+        &renderer,
+        surface.format(),
+        TerminalRendererConfig {
+            text: crate::text_renderer::TextRendererConfig {
+                theme: Theme {
+                    foreground: ThemeColor::rgb(0xff, 0xff, 0xff),
+                    background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                    ..Theme::default()
+                },
+                uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    ) {
+        Ok(renderer) => renderer,
+        Err(crate::error::Error::NoUsableSystemFont) => return,
+        Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+    };
+    let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+    terminal
+        .write_char('A')
+        .expect("terminal write should succeed");
+    terminal.cursor.visible = false;
+
+    terminal_renderer
+        .prepare_terminal(&renderer, &terminal)
+        .expect("initial terminal frame should prepare");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let unselected_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    let _ = terminal.take_damage();
+    let _ = terminal.take_scroll_delta();
+    terminal.start_selection(0, 0, SelectionKind::Simple);
+    terminal.extend_selection(0, 0);
+    terminal.complete_selection();
+
+    terminal_renderer
+        .update_terminal(&renderer, &mut terminal)
+        .expect("selection-only update should repaint highlighted cells");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let selected_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    terminal.cancel_selection();
+    terminal_renderer
+        .update_terminal(&renderer, &mut terminal)
+        .expect("selection-clear update should repaint previously selected cells");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let cleared_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    let unselected_color = pixel_at(&unselected_pixels, surface.size(), (1, 1));
+    let selected_color = pixel_at(&selected_pixels, surface.size(), (1, 1));
+    let re_cleared_color = pixel_at(&cleared_pixels, surface.size(), (1, 1));
+    let selected_background = crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
+    let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+
+    assert_eq!(
+        unselected_color, background,
+        "unselected terminal cells should render with the theme background color"
+    );
+    assert_eq!(
+        selected_color, selected_background,
+        "selection-only updates should swap selected cell background/foreground colors"
+    );
+    assert_eq!(
+        re_cleared_color, background,
+        "clearing selection should repaint selected cells back to the normal background"
     );
 }
 

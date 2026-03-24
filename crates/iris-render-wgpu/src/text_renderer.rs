@@ -6,8 +6,9 @@ use iris_core::grid::Grid;
 
 use crate::atlas::{AtlasConfig, AtlasSize};
 use crate::cell::{
-    cell_needs_rendering_with_blank_default_cells, encode_normalized_damage_instances_with_options,
-    normalized_damage_regions_into, CellInstance, TextBuffers, TextUniforms,
+    cell_needs_rendering_with_blank_default_cells,
+    encode_normalized_damage_instances_with_options_and_selection, normalized_damage_regions_into,
+    CellInstance, EncodeInstancesOptions, TextBuffers, TextUniforms,
 };
 use crate::cursor::{CursorBuffers, CursorInstance};
 use crate::error::Result;
@@ -156,7 +157,14 @@ impl TextRenderer {
     where
         F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
     {
-        self.prepare_grid_internal(renderer, grid, damage, &mut rasterize_glyph, false)
+        self.prepare_grid_internal(
+            renderer,
+            grid,
+            damage,
+            &mut rasterize_glyph,
+            false,
+            &never_selected,
+        )
     }
 
     /// Populates and prepares damaged grid cells using the built-in system font rasterizer.
@@ -167,12 +175,13 @@ impl TextRenderer {
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
     ) -> Result<()> {
-        self.prepare_grid_with_font_rasterizer_internal(
+        self.prepare_grid_with_font_rasterizer_with_selection(
             renderer,
             grid,
             damage,
             font_rasterizer,
             false,
+            never_selected,
         )
     }
 
@@ -185,12 +194,35 @@ impl TextRenderer {
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
     ) -> Result<()> {
-        self.prepare_grid_with_font_rasterizer_internal(
+        self.prepare_grid_with_font_rasterizer_with_selection(
             renderer,
             grid,
             damage,
             font_rasterizer,
             true,
+            never_selected,
+        )
+    }
+
+    pub(crate) fn prepare_grid_with_font_rasterizer_with_selection<S>(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        damage: &[DamageRegion],
+        font_rasterizer: &mut FontRasterizer,
+        include_blank_default_cells: bool,
+        is_selected: S,
+    ) -> Result<()>
+    where
+        S: Fn(usize, usize) -> bool,
+    {
+        self.prepare_grid_with_font_rasterizer_internal(
+            renderer,
+            grid,
+            damage,
+            font_rasterizer,
+            include_blank_default_cells,
+            &is_selected,
         )
     }
 
@@ -345,16 +377,18 @@ impl TextRenderer {
         Ok(())
     }
 
-    fn prepare_grid_internal<F>(
+    fn prepare_grid_internal<F, S>(
         &mut self,
         renderer: &Renderer,
         grid: &Grid,
         damage: &[DamageRegion],
         rasterize_glyph: &mut F,
         include_default_blank_cells: bool,
+        is_selected: &S,
     ) -> Result<()>
     where
         F: FnMut(Cell) -> Result<Option<RasterizedGlyph>>,
+        S: Fn(usize, usize) -> bool,
     {
         self.instances.clear();
         normalized_damage_regions_into(grid, damage, &mut self.normalized_damage);
@@ -364,26 +398,33 @@ impl TextRenderer {
         let theme = &self.theme;
         let normalized_damage = &self.normalized_damage;
         let glyph_cache = &self.glyph_cache;
-        encode_normalized_damage_instances_with_options(
+        encode_normalized_damage_instances_with_options_and_selection(
             &mut self.instances,
             grid,
             normalized_damage,
             atlas_size,
             theme,
             |cell| glyph_cache.get(glyph_key_for_cell(cell)).copied(),
-            include_default_blank_cells,
+            EncodeInstancesOptions {
+                include_default_blank_cells,
+                is_selected,
+            },
         )?;
         renderer.write_text_instances(&mut self.buffers, &self.instances)
     }
 
-    fn prepare_grid_with_font_rasterizer_internal(
+    fn prepare_grid_with_font_rasterizer_internal<S>(
         &mut self,
         renderer: &Renderer,
         grid: &Grid,
         damage: &[DamageRegion],
         font_rasterizer: &mut FontRasterizer,
         include_blank_default_cells: bool,
-    ) -> Result<()> {
+        is_selected: &S,
+    ) -> Result<()>
+    where
+        S: Fn(usize, usize) -> bool,
+    {
         let mut ligature_damage = std::mem::take(&mut self.ligature_damage);
         ligature_damage.clear();
         ligature_damage.reserve(damage.len());
@@ -395,12 +436,17 @@ impl TextRenderer {
             &ligature_damage,
             &mut |cell| font_rasterizer.rasterize_cell(cell),
             include_blank_default_cells,
+            is_selected,
         );
         self.ligature_damage = ligature_damage;
 
         prepare_result?;
-        self.apply_operator_ligatures(renderer, grid, font_rasterizer)
+        self.apply_operator_ligatures(renderer, grid, font_rasterizer, is_selected)
     }
+}
+
+const fn never_selected(_: usize, _: usize) -> bool {
+    false
 }
 
 #[cfg(test)]

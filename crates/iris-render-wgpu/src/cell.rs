@@ -147,6 +147,21 @@ impl CellInstance {
 ///
 /// Blank cells with default attributes, continuation cells, and cells without a
 /// cached glyph are skipped.
+pub(crate) struct EncodeInstancesOptions<S> {
+    pub include_default_blank_cells: bool,
+    pub is_selected: S,
+}
+
+impl EncodeInstancesOptions<fn(usize, usize) -> bool> {
+    #[must_use]
+    pub const fn no_selection(include_default_blank_cells: bool) -> Self {
+        Self {
+            include_default_blank_cells,
+            is_selected: never_selected,
+        }
+    }
+}
+
 pub fn encode_damage_instances<F>(
     instances: &mut Vec<CellInstance>,
     grid: &Grid,
@@ -158,54 +173,36 @@ pub fn encode_damage_instances<F>(
 where
     F: FnMut(Cell) -> Option<CachedGlyph>,
 {
-    encode_damage_instances_with_options(
-        instances,
-        grid,
-        damage,
-        atlas_size,
-        theme,
-        resolve_glyph,
-        false,
-    )
-}
-
-pub(crate) fn encode_damage_instances_with_options<F>(
-    instances: &mut Vec<CellInstance>,
-    grid: &Grid,
-    damage: &[DamageRegion],
-    atlas_size: AtlasSize,
-    theme: &Theme,
-    resolve_glyph: F,
-    include_default_blank_cells: bool,
-) -> Result<()>
-where
-    F: FnMut(Cell) -> Option<CachedGlyph>,
-{
     let mut normalized_damage = Vec::new();
     normalized_damage_regions_into(grid, damage, &mut normalized_damage);
-    encode_normalized_damage_instances_with_options(
+    encode_normalized_damage_instances_with_options_and_selection(
         instances,
         grid,
         &normalized_damage,
         atlas_size,
         theme,
         resolve_glyph,
-        include_default_blank_cells,
+        EncodeInstancesOptions::no_selection(false),
     )
 }
 
-pub(crate) fn encode_normalized_damage_instances_with_options<F>(
+pub(crate) fn encode_normalized_damage_instances_with_options_and_selection<F, S>(
     instances: &mut Vec<CellInstance>,
     grid: &Grid,
     normalized_damage: &[DamageRegion],
     atlas_size: AtlasSize,
     theme: &Theme,
     mut resolve_glyph: F,
-    include_default_blank_cells: bool,
+    options: EncodeInstancesOptions<S>,
 ) -> Result<()>
 where
     F: FnMut(Cell) -> Option<CachedGlyph>,
+    S: Fn(usize, usize) -> bool,
 {
+    let EncodeInstancesOptions {
+        include_default_blank_cells,
+        is_selected,
+    } = options;
     instances.clear();
     let mut skipped_missing_glyphs = 0usize;
 
@@ -240,7 +237,11 @@ where
                     row: row_index,
                     col: col_index,
                 })?;
-            let colors = theme.resolve_cell_colors(cell.attrs);
+            let colors = if is_selected(row_index, col_index) {
+                theme.resolve_selected_cell_colors(cell.attrs)
+            } else {
+                theme.resolve_cell_colors(cell.attrs)
+            };
 
             instances.push(CellInstance::from_cell(
                 cell, col_u32, row_u32, glyph, atlas_size, colors,
@@ -258,6 +259,10 @@ where
     }
 
     Ok(())
+}
+
+const fn never_selected(_: usize, _: usize) -> bool {
+    false
 }
 
 #[must_use]

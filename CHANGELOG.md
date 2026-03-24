@@ -10,6 +10,19 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-22` to present
 
+### 2026-03-24
+
+#### Added
+
+- Selection-highlight rendering integration in `iris-render-wgpu` by wiring `Terminal::selection_row_bounds` and `selection_row_span` into `TerminalRenderer::prepare_terminal` and `TerminalRenderer::update_terminal`.
+- Selection-aware color resolution helpers in `iris-render-wgpu` (`Theme::resolve_selected_cell_colors`) and selection-aware cell-instance encoding options for damaged-grid uploads.
+- Renderer coverage for selection highlighting in `crates/iris-render-wgpu/src/test/theme/tests.rs`, `crates/iris-render-wgpu/src/test/cell/tests.rs`, and `crates/iris-render-wgpu/src/test/terminal_renderer/tests.rs`, including selection-only incremental repaint behavior.
+
+#### Changed
+
+- `TerminalRenderer` retained-update behavior now tracks previous/current terminal selection snapshots and injects selection damage regions so highlight changes repaint even when grid damage, scroll delta, and cursor state are unchanged.
+- `TextRenderer` ligature rewrite paths now preserve selection-aware color resolution for substituted glyph instances so operator-ligature rendering matches non-ligature selection highlighting.
+
 ### 2026-03-23
 
 #### Added

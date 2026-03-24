@@ -10,12 +10,16 @@ pub(super) struct LigatureOverride {
 }
 
 impl TextRenderer {
-    pub(super) fn apply_operator_ligatures(
+    pub(super) fn apply_operator_ligatures<S>(
         &mut self,
         renderer: &Renderer,
         grid: &Grid,
         font_rasterizer: &mut FontRasterizer,
-    ) -> Result<()> {
+        is_selected: &S,
+    ) -> Result<()>
+    where
+        S: Fn(usize, usize) -> bool,
+    {
         if self.instances.is_empty() || self.normalized_damage.is_empty() {
             return Ok(());
         }
@@ -143,7 +147,11 @@ impl TextRenderer {
                 row_u32,
                 override_glyph.glyph,
                 atlas_size,
-                self.theme.resolve_cell_colors(cell.attrs),
+                if is_selected(row, col) {
+                    self.theme.resolve_selected_cell_colors(cell.attrs)
+                } else {
+                    self.theme.resolve_cell_colors(cell.attrs)
+                },
             )?;
             rewritten.cell_span = override_glyph.span as f32;
             self.rewritten_instances.push(rewritten);
