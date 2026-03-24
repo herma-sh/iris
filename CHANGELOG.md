@@ -42,6 +42,7 @@ Work window: `2026-03-22` to present
 - Standardized production-grade PR authoring requirements by adding `./.github/PULL_REQUEST_TEMPLATE.md`, documenting required section detail in `docs/pull-request-guidelines.md`, and updating review/agent rules to require the template for future PRs.
 - Updated `PlatformClipboard::default` to use compile-time `#[cfg(...)]` selection for Linux PRIMARY scaffold behavior instead of runtime `cfg!()` branching.
 - Updated testing guidance across agent and project docs to prefer concrete backend and real-data coverage, and to avoid adding mock-data tests when meaningful real-backend tests are expected soon.
+- Clamped `Terminal::selection_row_span` in `iris-core` to the visible grid row range so out-of-bounds spans cannot leak to renderer/integration callers, and added explicit out-of-bounds-column coverage for `Terminal::selection_contains` in `crates/iris-core/src/test/terminal/tests.rs`.
 
 ### 2026-03-22
 
