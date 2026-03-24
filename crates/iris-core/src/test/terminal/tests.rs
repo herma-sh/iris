@@ -750,3 +750,55 @@ fn terminal_alternate_screen_transitions_clear_selection_state() {
     assert!(!terminal.has_selection());
     assert_eq!(terminal.selection(), None);
 }
+
+#[test]
+fn terminal_selection_queries_require_completed_selection() {
+    let mut terminal = Terminal::new(1, 8).unwrap();
+    terminal.write_ascii_run(b"selection").unwrap();
+
+    terminal.start_selection(0, 1, SelectionKind::Simple);
+    terminal.extend_selection(0, 3);
+
+    assert!(!terminal.selection_contains(0, 2));
+    assert!(!terminal.selection_contains(0, 8));
+    assert_eq!(terminal.selection_row_bounds(0), None);
+    assert_eq!(terminal.selection_row_span(), None);
+
+    terminal.complete_selection();
+
+    assert!(terminal.selection_contains(0, 2));
+    assert_eq!(terminal.selection_row_bounds(0), Some((1, 3)));
+    assert_eq!(terminal.selection_row_span(), Some((0, 0)));
+}
+
+#[test]
+fn terminal_selection_queries_return_expected_linear_row_bounds() {
+    let mut terminal = Terminal::new(3, 5).unwrap();
+
+    terminal.start_selection(0, 3, SelectionKind::Simple);
+    terminal.extend_selection(2, 1);
+    terminal.complete_selection();
+
+    assert_eq!(terminal.selection_row_span(), Some((0, 2)));
+    assert_eq!(terminal.selection_row_bounds(0), Some((3, 4)));
+    assert_eq!(terminal.selection_row_bounds(1), Some((0, 4)));
+    assert_eq!(terminal.selection_row_bounds(2), Some((0, 1)));
+    assert_eq!(terminal.selection_row_bounds(3), None);
+}
+
+#[test]
+fn terminal_selection_queries_return_expected_block_bounds() {
+    let mut terminal = Terminal::new(3, 5).unwrap();
+
+    terminal.start_selection(0, 1, SelectionKind::Block);
+    terminal.extend_selection(2, 3);
+    terminal.complete_selection();
+
+    assert_eq!(terminal.selection_row_span(), Some((0, 2)));
+    assert_eq!(terminal.selection_row_bounds(0), Some((1, 3)));
+    assert_eq!(terminal.selection_row_bounds(1), Some((1, 3)));
+    assert_eq!(terminal.selection_row_bounds(2), Some((1, 3)));
+    assert!(terminal.selection_contains(1, 2));
+    assert!(!terminal.selection_contains(1, 4));
+    assert!(!terminal.selection_contains(4, 1));
+}

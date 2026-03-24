@@ -294,6 +294,38 @@ impl Terminal {
         self.selection.has_selection()
     }
 
+    /// Returns `true` when the provided visible grid position is selected.
+    #[must_use]
+    pub fn selection_contains(&self, row: usize, col: usize) -> bool {
+        if row >= self.grid.rows() || col >= self.grid.cols() {
+            return false;
+        }
+
+        self.selection.contains(row, col)
+    }
+
+    /// Returns selected visible column bounds for a row, if selected.
+    #[must_use]
+    pub fn selection_row_bounds(&self, row: usize) -> Option<(usize, usize)> {
+        if row >= self.grid.rows() {
+            return None;
+        }
+
+        self.selection.row_bounds(row, self.grid.cols())
+    }
+
+    /// Returns the inclusive selected visible row span when selected.
+    #[must_use]
+    pub fn selection_row_span(&self) -> Option<(usize, usize)> {
+        let (start, end) = self.selection.row_span()?;
+        let visible_start = 0usize;
+        let visible_end = self.grid.rows().checked_sub(1)?;
+        let clamped_start = start.max(visible_start);
+        let clamped_end = end.min(visible_end);
+
+        (clamped_start <= clamped_end).then_some((clamped_start, clamped_end))
+    }
+
     /// Starts a selection anchored to the provided grid position.
     pub fn start_selection(&mut self, row: usize, col: usize, kind: SelectionKind) {
         let Some((row, col)) = self.clamp_selection_position(row, col) else {
