@@ -17,6 +17,8 @@ Work window: `2026-03-22` to present
 - Selection-highlight rendering integration in `iris-render-wgpu` by wiring `Terminal::selection_row_bounds` and `selection_row_span` into `TerminalRenderer::prepare_terminal` and `TerminalRenderer::update_terminal`.
 - Selection-aware color resolution helpers in `iris-render-wgpu` (`Theme::resolve_selected_cell_colors`) and selection-aware cell-instance encoding options for damaged-grid uploads.
 - Renderer coverage for selection highlighting in `crates/iris-render-wgpu/src/test/theme/tests.rs`, `crates/iris-render-wgpu/src/test/cell/tests.rs`, and `crates/iris-render-wgpu/src/test/terminal_renderer/tests.rs`, including selection-only incremental repaint behavior.
+- Mouse-selection input foundation in `iris-core` (`SelectionInputState`, `SelectionInputEvent`, `MouseButton`, `MouseModifiers`) to map single-click drag, double-click word selection, triple-click line selection, and alt-drag block selection onto terminal selection APIs without UI-framework coupling.
+- Input-selection unit coverage in `crates/iris-core/src/test/input/tests.rs` for drag lifecycle behavior, double/triple click selection behavior, block selection behavior, and ignored non-left/non-active move cases.
 
 #### Changed
 
