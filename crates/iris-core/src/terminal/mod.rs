@@ -317,7 +317,13 @@ impl Terminal {
     /// Returns the inclusive selected visible row span when selected.
     #[must_use]
     pub fn selection_row_span(&self) -> Option<(usize, usize)> {
-        self.selection.row_span()
+        let (start, end) = self.selection.row_span()?;
+        let visible_start = 0usize;
+        let visible_end = self.grid.rows().checked_sub(1)?;
+        let clamped_start = start.max(visible_start);
+        let clamped_end = end.min(visible_end);
+
+        (clamped_start <= clamped_end).then_some((clamped_start, clamped_end))
     }
 
     /// Starts a selection anchored to the provided grid position.

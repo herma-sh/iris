@@ -760,6 +760,7 @@ fn terminal_selection_queries_require_completed_selection() {
     terminal.extend_selection(0, 3);
 
     assert!(!terminal.selection_contains(0, 2));
+    assert!(!terminal.selection_contains(0, 8));
     assert_eq!(terminal.selection_row_bounds(0), None);
     assert_eq!(terminal.selection_row_span(), None);
 
