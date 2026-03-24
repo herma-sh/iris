@@ -143,16 +143,21 @@ impl CellInstance {
     }
 }
 
-/// Encodes visible damaged cells into GPU instances using the provided glyph resolver.
+/// Options for damaged-cell instance encoding.
 ///
-/// Blank cells with default attributes, continuation cells, and cells without a
-/// cached glyph are skipped.
+/// - `include_default_blank_cells`: when `true`, blank cells with default
+///   attributes are still encoded so retained updates can repaint stale pixels
+///   back to the theme background.
+/// - `is_selected`: selection predicate with signature
+///   `fn(usize, usize) -> bool` (row, col). Returning `true` applies selected
+///   cell colors for that grid position.
 pub(crate) struct EncodeInstancesOptions<S> {
     pub include_default_blank_cells: bool,
     pub is_selected: S,
 }
 
 impl EncodeInstancesOptions<fn(usize, usize) -> bool> {
+    /// Creates options that disable selection-aware coloring.
     #[must_use]
     pub const fn no_selection(include_default_blank_cells: bool) -> Self {
         Self {
