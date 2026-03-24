@@ -33,6 +33,60 @@ pub struct TerminalRendererConfig {
     pub font_rasterizer: FontRasterizerConfig,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SelectionRowRange {
+    row: usize,
+    start_col: usize,
+    end_col: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SelectionSnapshot {
+    rows: Vec<SelectionRowRange>,
+}
+
+impl SelectionSnapshot {
+    fn from_terminal(terminal: &Terminal) -> Option<Self> {
+        let (start_row, end_row) = terminal.selection_row_span()?;
+        let mut rows = Vec::with_capacity(end_row.saturating_sub(start_row) + 1);
+        for row in start_row..=end_row {
+            let Some((start_col, end_col)) = terminal.selection_row_bounds(row) else {
+                continue;
+            };
+            rows.push(SelectionRowRange {
+                row,
+                start_col,
+                end_col,
+            });
+        }
+
+        if rows.is_empty() {
+            None
+        } else {
+            Some(Self { rows })
+        }
+    }
+
+    fn contains(&self, row: usize, col: usize) -> bool {
+        let Ok(index) = self.rows.binary_search_by_key(&row, |range| range.row) else {
+            return false;
+        };
+        let range = self.rows[index];
+        col >= range.start_col && col <= range.end_col
+    }
+
+    fn push_damage_regions(&self, damage: &mut Vec<DamageRegion>) {
+        for range in &self.rows {
+            damage.push(DamageRegion::new(
+                range.row,
+                range.row,
+                range.start_col,
+                range.end_col,
+            ));
+        }
+    }
+}
+
 /// Renderer-owned terminal draw state that prepares text and cursor output from
 /// `iris-core` terminal state into a cached frame surface.
 pub struct TerminalRenderer {
@@ -50,6 +104,7 @@ pub struct TerminalRenderer {
     present_uniform_bind_group: wgpu::BindGroup,
     full_redraw_damage: Vec<DamageRegion>,
     previous_cursor: Option<Cursor>,
+    previous_selection: Option<SelectionSnapshot>,
     frame_initialized: bool,
 }
 
@@ -95,6 +150,7 @@ impl TerminalRenderer {
             present_uniform_bind_group,
             full_redraw_damage: Vec::with_capacity(4),
             previous_cursor: None,
+            previous_selection: None,
             frame_initialized: false,
         };
         terminal_renderer.write_present_uniforms(renderer);
@@ -191,23 +247,43 @@ impl TerminalRenderer {
 
     /// Prepares a full visible terminal frame from `iris-core` terminal state.
     pub fn prepare_terminal(&mut self, renderer: &Renderer, terminal: &Terminal) -> Result<()> {
-        self.prepare_grid_and_cursor(renderer, &terminal.grid, terminal.cursor)
+        let selection = SelectionSnapshot::from_terminal(terminal);
+        self.prepare_grid_and_cursor_internal(
+            renderer,
+            &terminal.grid,
+            terminal.cursor,
+            selection.as_ref(),
+        )?;
+        self.previous_selection = selection;
+        Ok(())
     }
 
     /// Applies an incremental terminal update into the cached frame using the
     /// terminal's accumulated damage plus cursor old/new regions.
     pub fn update_terminal(&mut self, renderer: &Renderer, terminal: &mut Terminal) -> Result<()> {
+        let selection = SelectionSnapshot::from_terminal(terminal);
         if !self.frame_initialized {
-            let result = self.prepare_grid_and_cursor(renderer, &terminal.grid, terminal.cursor);
+            let result = self.prepare_grid_and_cursor_internal(
+                renderer,
+                &terminal.grid,
+                terminal.cursor,
+                selection.as_ref(),
+            );
             if result.is_ok() {
                 let _ = terminal.take_scroll_delta();
                 let _ = terminal.take_damage();
+                self.previous_selection = selection;
             }
             return result;
         }
 
         let scroll_delta = terminal.take_scroll_delta();
         let mut damage = terminal.take_damage();
+        self.push_selection_damage_pair(
+            &mut damage,
+            self.previous_selection.as_ref(),
+            selection.as_ref(),
+        );
         let original_damage_len = damage.len();
         let result = self.update_grid_and_cursor_internal(
             renderer,
@@ -215,11 +291,15 @@ impl TerminalRenderer {
             &mut damage,
             scroll_delta,
             terminal.cursor,
+            selection.as_ref(),
         );
         self.full_redraw_damage = damage;
 
         match result {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                self.previous_selection = selection;
+                Ok(())
+            }
             Err(error) => {
                 self.invalidate_cached_frame();
                 terminal.restore_scroll_delta(scroll_delta);
@@ -236,18 +316,8 @@ impl TerminalRenderer {
         grid: &Grid,
         cursor: Cursor,
     ) -> Result<()> {
-        self.rebuild_full_redraw_damage(grid);
-        self.text_renderer.prepare_grid_with_font_rasterizer(
-            renderer,
-            grid,
-            &self.full_redraw_damage,
-            &mut self.font_rasterizer,
-        )?;
-        self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
-        self.text_renderer
-            .render_to_texture_surface(renderer, &self.frame_surface);
-        self.previous_cursor = Some(cursor);
-        self.frame_initialized = true;
+        self.prepare_grid_and_cursor_internal(renderer, grid, cursor, None)?;
+        self.previous_selection = None;
         Ok(())
     }
 
@@ -273,9 +343,41 @@ impl TerminalRenderer {
             &mut full_redraw_damage,
             scroll_delta,
             cursor,
+            None,
         );
         self.full_redraw_damage = full_redraw_damage;
+        if result.is_ok() {
+            self.previous_selection = None;
+        }
         result
+    }
+
+    fn prepare_grid_and_cursor_internal(
+        &mut self,
+        renderer: &Renderer,
+        grid: &Grid,
+        cursor: Cursor,
+        selection: Option<&SelectionSnapshot>,
+    ) -> Result<()> {
+        self.rebuild_full_redraw_damage(grid);
+        let is_selected = |row: usize, col: usize| {
+            selection.is_some_and(|selection| selection.contains(row, col))
+        };
+        self.text_renderer
+            .prepare_grid_with_font_rasterizer_with_selection(
+                renderer,
+                grid,
+                &self.full_redraw_damage,
+                &mut self.font_rasterizer,
+                false,
+                is_selected,
+            )?;
+        self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
+        self.text_renderer
+            .render_to_texture_surface(renderer, &self.frame_surface);
+        self.previous_cursor = Some(cursor);
+        self.frame_initialized = true;
+        Ok(())
     }
 
     fn update_grid_and_cursor_internal(
@@ -285,6 +387,7 @@ impl TerminalRenderer {
         damage: &mut Vec<DamageRegion>,
         scroll_delta: Option<ScrollDelta>,
         cursor: Cursor,
+        selection: Option<&SelectionSnapshot>,
     ) -> Result<()> {
         let original_damage_len = damage.len();
         let cursor_changed = self.previous_cursor != Some(cursor);
@@ -321,12 +424,17 @@ impl TerminalRenderer {
             return Ok(());
         }
 
+        let is_selected = |row: usize, col: usize| {
+            selection.is_some_and(|selection| selection.contains(row, col))
+        };
         self.text_renderer
-            .prepare_grid_update_with_font_rasterizer(
+            .prepare_grid_with_font_rasterizer_with_selection(
                 renderer,
                 grid,
                 damage,
                 &mut self.font_rasterizer,
+                true,
+                is_selected,
             )?;
         if should_prepare_cursor {
             self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
@@ -417,6 +525,24 @@ impl TerminalRenderer {
         }
     }
 
+    fn push_selection_damage_pair(
+        &self,
+        damage: &mut Vec<DamageRegion>,
+        previous_selection: Option<&SelectionSnapshot>,
+        current_selection: Option<&SelectionSnapshot>,
+    ) {
+        if previous_selection == current_selection {
+            return;
+        }
+
+        if let Some(selection) = previous_selection {
+            selection.push_damage_regions(damage);
+        }
+        if let Some(selection) = current_selection {
+            selection.push_damage_regions(damage);
+        }
+    }
+
     fn cursor_damage_region(&self, grid: &Grid, cursor: Option<Cursor>) -> Option<DamageRegion> {
         crate::cursor::cursor_damage_region(cursor?, grid)
     }
@@ -459,6 +585,7 @@ impl TerminalRenderer {
     fn invalidate_cached_frame(&mut self) {
         self.frame_initialized = false;
         self.previous_cursor = None;
+        self.previous_selection = None;
     }
 }
 

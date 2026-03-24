@@ -5,8 +5,9 @@ use iris_core::damage::DamageRegion;
 use iris_core::grid::{Grid, GridSize};
 
 use super::{
-    cell_instances_as_bytes, encode_damage_instances, normalized_damage_regions, CellColors,
-    CellInstance, TextBuffers, TextUniforms,
+    cell_instances_as_bytes, encode_damage_instances,
+    encode_normalized_damage_instances_with_options_and_selection, normalized_damage_regions,
+    CellColors, CellInstance, EncodeInstancesOptions, TextBuffers, TextUniforms,
 };
 use crate::atlas::{AtlasRegion, AtlasSize};
 use crate::error::Error;
@@ -395,6 +396,51 @@ fn encode_damage_instances_collects_the_requested_cells() {
         instances[1].bg_color,
         Theme::default().ansi[4].to_f32_array()
     );
+}
+
+#[test]
+fn encode_damage_instances_swaps_colors_for_selected_cells() {
+    let attrs = CellAttrs {
+        fg: iris_core::cell::Color::Ansi(2),
+        bg: iris_core::cell::Color::Ansi(4),
+        flags: CellFlags::BOLD,
+    };
+    let mut grid = Grid::new(GridSize { rows: 1, cols: 2 }).expect("grid should be created");
+    grid.write(0, 0, Cell::with_attrs('a', attrs))
+        .expect("first cell should be written");
+    grid.write(0, 1, Cell::with_attrs('b', attrs))
+        .expect("second cell should be written");
+
+    let theme = Theme::default();
+    let regular = theme.resolve_cell_colors(attrs);
+    let selected = theme.resolve_selected_cell_colors(attrs);
+    let mut instances = Vec::new();
+    encode_normalized_damage_instances_with_options_and_selection(
+        &mut instances,
+        &grid,
+        &[DamageRegion::new(0, 0, 0, 1)],
+        AtlasSize::new(64, 64).expect("atlas size is valid"),
+        &theme,
+        |_| {
+            Some(CachedGlyph::new(AtlasRegion {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 16,
+            }))
+        },
+        EncodeInstancesOptions {
+            include_default_blank_cells: false,
+            is_selected: |row, col| row == 0 && col == 1,
+        },
+    )
+    .expect("selected damage should encode");
+
+    assert_eq!(instances.len(), 2);
+    assert_eq!(instances[0].fg_color, regular.fg);
+    assert_eq!(instances[0].bg_color, regular.bg);
+    assert_eq!(instances[1].fg_color, selected.fg);
+    assert_eq!(instances[1].bg_color, selected.bg);
 }
 
 #[test]

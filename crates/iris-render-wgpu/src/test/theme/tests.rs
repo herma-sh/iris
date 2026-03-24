@@ -191,6 +191,26 @@ fn theme_resolve_cell_colors_prioritizes_hidden_over_dim() {
 }
 
 #[test]
+fn theme_resolve_selected_cell_colors_swaps_resolved_foreground_and_background() {
+    let theme = Theme::default();
+    let attrs = CellAttrs {
+        fg: Color::Rgb {
+            r: 0x80,
+            g: 0x40,
+            b: 0x20,
+        },
+        bg: Color::Ansi(4),
+        flags: CellFlags::DIM,
+    };
+
+    let regular = theme.resolve_cell_colors(attrs);
+    let selected = theme.resolve_selected_cell_colors(attrs);
+
+    assert_eq!(selected.fg, regular.bg);
+    assert_eq!(selected.bg, regular.fg);
+}
+
+#[test]
 fn theme_color_converts_to_normalized_channels() {
     let color = ThemeColor::rgba(0x80, 0x40, 0x20, 0xff);
 
