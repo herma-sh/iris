@@ -2,10 +2,11 @@ use crate::clipboard::{
     copy_selection_to_clipboard, copy_terminal_selection_to_clipboard, encode_paste_input,
     paste_bytes_from_clipboard, paste_bytes_from_source, paste_from_clipboard, paste_from_source,
     paste_terminal_bytes_from_clipboard, paste_terminal_bytes_from_source, Clipboard,
-    ClipboardSelection, NoopClipboard, PasteSource, BRACKETED_PASTE_END, BRACKETED_PASTE_START,
+    ClipboardSelection, NoopClipboard, PasteSource, SelectionClipboardController,
+    BRACKETED_PASTE_END, BRACKETED_PASTE_START,
 };
 use crate::error::{ClipboardError, Error, Result};
-use iris_core::{Action, Terminal};
+use iris_core::{Action, MouseButton, MouseModifiers, SelectionInputEvent, Terminal};
 
 #[derive(Debug, Default)]
 struct MockClipboard {
@@ -328,5 +329,75 @@ fn paste_terminal_bytes_from_source_primary_then_clipboard_falls_back_when_prima
             .expect("fallback clipboard should produce a payload");
 
     let expected = format!("{BRACKETED_PASTE_START}clipboard-fallback{BRACKETED_PASTE_END}");
+    assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn selection_clipboard_controller_applies_drag_and_copies_selection() {
+    let mut terminal = Terminal::new(1, 10).unwrap();
+    terminal.write_ascii_run(b"abcdefghi").unwrap();
+    let mut clipboard = NoopClipboard::new();
+    let mut controller = SelectionClipboardController::new(
+        ClipboardSelection::Clipboard,
+        PasteSource::PrimaryThenClipboard,
+    );
+
+    assert!(controller.handle_selection_input_event(
+        &mut terminal,
+        SelectionInputEvent::Press {
+            row: 0,
+            col: 1,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+            click_count: 1,
+        }
+    ));
+    assert!(controller.handle_selection_input_event(
+        &mut terminal,
+        SelectionInputEvent::Move {
+            row: 0,
+            col: 3,
+            modifiers: MouseModifiers::default(),
+        }
+    ));
+    assert!(controller.handle_selection_input_event(
+        &mut terminal,
+        SelectionInputEvent::Release {
+            row: 0,
+            col: 3,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+        }
+    ));
+
+    assert!(controller
+        .copy_selection(&terminal, &mut clipboard)
+        .unwrap());
+    assert_eq!(clipboard.get_text().unwrap().as_deref(), Some("bcd"));
+}
+
+#[test]
+fn selection_clipboard_controller_pastes_terminal_bytes_from_configured_source() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_primary("").unwrap();
+    clipboard.set_text("fallback-paste").unwrap();
+    let controller = SelectionClipboardController::new(
+        ClipboardSelection::Clipboard,
+        PasteSource::PrimaryThenClipboard,
+    );
+
+    let payload = controller
+        .paste_terminal_bytes(&terminal, &clipboard)
+        .unwrap()
+        .expect("configured paste source should produce payload bytes");
+    let expected = format!("{BRACKETED_PASTE_START}fallback-paste{BRACKETED_PASTE_END}");
     assert_eq!(payload, expected.into_bytes());
 }

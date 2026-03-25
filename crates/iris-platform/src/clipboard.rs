@@ -1,5 +1,5 @@
 use crate::error::{ClipboardError, Error, Result};
-use iris_core::Terminal;
+use iris_core::{SelectionInputEvent, SelectionInputState, Terminal};
 
 /// Clipboard buffer target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,6 +26,80 @@ pub enum PasteSource {
 pub const BRACKETED_PASTE_START: &str = "\u{1b}[200~";
 /// Bracketed paste end sequence.
 pub const BRACKETED_PASTE_END: &str = "\u{1b}[201~";
+
+/// Selection and clipboard flow controller.
+///
+/// This bridges input-driven selection updates (`SelectionInputEvent`) with
+/// copy/paste clipboard operations against a terminal instance.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectionClipboardController {
+    selection_input: SelectionInputState,
+    copy_target: ClipboardSelection,
+    paste_source: PasteSource,
+}
+
+impl SelectionClipboardController {
+    /// Creates a controller with explicit copy target and paste source.
+    #[must_use]
+    pub const fn new(copy_target: ClipboardSelection, paste_source: PasteSource) -> Self {
+        Self {
+            selection_input: SelectionInputState::new(),
+            copy_target,
+            paste_source,
+        }
+    }
+
+    /// Returns the configured copy target.
+    #[must_use]
+    pub const fn copy_target(&self) -> ClipboardSelection {
+        self.copy_target
+    }
+
+    /// Returns the configured paste source.
+    #[must_use]
+    pub const fn paste_source(&self) -> PasteSource {
+        self.paste_source
+    }
+
+    /// Applies a selection input event to terminal selection state.
+    ///
+    /// Returns `true` when the event was consumed by selection handling.
+    pub fn handle_selection_input_event(
+        &mut self,
+        terminal: &mut Terminal,
+        event: SelectionInputEvent,
+    ) -> bool {
+        self.selection_input.handle_event(terminal, event)
+    }
+
+    /// Copies the terminal selection to the configured clipboard target.
+    pub fn copy_selection(
+        &self,
+        terminal: &Terminal,
+        clipboard: &mut impl Clipboard,
+    ) -> Result<bool> {
+        copy_terminal_selection_to_clipboard(terminal, clipboard, self.copy_target)
+    }
+
+    /// Reads and encodes paste bytes from the configured paste source according
+    /// to terminal bracketed-paste mode.
+    pub fn paste_terminal_bytes(
+        &self,
+        terminal: &Terminal,
+        clipboard: &impl Clipboard,
+    ) -> Result<Option<Vec<u8>>> {
+        paste_terminal_bytes_from_source(terminal, clipboard, self.paste_source)
+    }
+}
+
+impl Default for SelectionClipboardController {
+    fn default() -> Self {
+        Self::new(
+            ClipboardSelection::Clipboard,
+            PasteSource::PrimaryThenClipboard,
+        )
+    }
+}
 
 /// Clipboard access abstraction.
 pub trait Clipboard {

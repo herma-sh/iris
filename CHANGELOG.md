@@ -10,6 +10,13 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-22` to present
 
+### 2026-03-25
+
+#### Added
+
+- Selection/clipboard flow orchestration in `iris-platform` via `SelectionClipboardController`, wiring `iris-core::SelectionInputEvent` handling to terminal selection state and configured clipboard copy/paste operations.
+- Clipboard integration coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for controller-driven drag selection copy behavior and configured primary-first terminal paste fallback behavior.
+
 ### 2026-03-24
 
 #### Added
