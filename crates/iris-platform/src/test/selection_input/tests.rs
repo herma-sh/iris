@@ -54,6 +54,13 @@ fn mouse_adapter_counts_double_and_triple_clicks_within_interval() {
         modifiers: MouseModifiers::default(),
         timestamp_ms: 2350,
     });
+    let fourth = adapter.translate(SelectionMouseEvent::Press {
+        row: 1,
+        col: 1,
+        button: MouseButton::Left,
+        modifiers: MouseModifiers::default(),
+        timestamp_ms: 2390,
+    });
 
     assert_eq!(
         first,
@@ -77,6 +84,16 @@ fn mouse_adapter_counts_double_and_triple_clicks_within_interval() {
     );
     assert_eq!(
         third,
+        SelectionInputEvent::Press {
+            row: 1,
+            col: 1,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+            click_count: 3,
+        }
+    );
+    assert_eq!(
+        fourth,
         SelectionInputEvent::Press {
             row: 1,
             col: 1,
