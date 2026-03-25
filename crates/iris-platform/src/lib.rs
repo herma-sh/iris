@@ -6,6 +6,7 @@ pub mod fonts;
 pub mod ime;
 pub mod platform;
 pub mod pty;
+pub mod selection_input;
 
 pub use clipboard::{
     copy_selection_to_clipboard, copy_terminal_selection_to_clipboard, encode_paste_input,
@@ -18,3 +19,6 @@ pub use error::{ClipboardError, Error, FontError, ImeError, PtyError, Result};
 pub use fonts::{FontInfo, FontProvider, NoopFontProvider};
 pub use ime::{ImeHandler, ImePosition, NoopImeHandler};
 pub use pty::{PortablePtyBackend, PtyBackend, PtyConfig};
+pub use selection_input::{
+    SelectionMouseEvent, SelectionMouseEventAdapter, SelectionMouseEventAdapterConfig,
+};

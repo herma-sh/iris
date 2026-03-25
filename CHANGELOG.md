@@ -16,6 +16,8 @@ Work window: `2026-03-22` to present
 
 - Selection/clipboard flow orchestration in `iris-platform` via `SelectionClipboardController`, wiring `iris-core::SelectionInputEvent` handling to terminal selection state and configured clipboard copy/paste operations.
 - Clipboard integration coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for controller-driven drag selection copy behavior and configured primary-first terminal paste fallback behavior.
+- Raw mouse-selection event adaptation in `iris-platform` (`SelectionMouseEventAdapter`) to translate press/move/release input with timestamp-based single/double/triple-click classification into `iris-core::SelectionInputEvent` values.
+- Mouse-selection adapter coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for click counting, interval/position reset behavior, move/release passthrough, and non-left click sequence reset behavior.
 
 ### 2026-03-24
 
