@@ -20,6 +20,10 @@ Work window: `2026-03-22` to present
 - Clipboard backend coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for native error mapping and `PlatformClipboard` native-init fallback behavior.
 - Window-space selection input integration in `iris-platform` via `SelectionWindowMouseEvent`, `SelectionWindowGeometry`, `SelectionWindowMouseEventAdapter`, and `SelectionEventFlow::handle_window_mouse_event` to route pixel-coordinates from UI event loops into terminal-cell selection flow.
 - Selection-input unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for window-to-cell translation, clamp vs drop behavior for out-of-bounds pointer events, invalid geometry rejection, and end-to-end window-event selection copy flow.
+- Keyboard selection integration in `iris-platform` via `SelectionDirection`, `SelectionKeyboardEvent`, and `SelectionEventFlow::handle_keyboard_event` for `Shift+Arrow` driven selection extension.
+- Linux middle-click PRIMARY paste integration helpers in `iris-platform` via `SelectionEventFlow::paste_primary_on_middle_click` and `SelectionEventFlow::paste_primary_on_window_middle_click`.
+- Selection-input unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for keyboard selection handling, middle-click PRIMARY paste behavior, and window-path selection across wide/emoji and wrapped-line content.
+- Phase 3 selection throughput benchmark harness in `iris-core` at `crates/iris-core/benches/selection_throughput.rs` for 1M-row selection scan timing.
 
 #### Changed
 
@@ -30,7 +34,7 @@ Work window: `2026-03-22` to present
 - Now uses saturating float-to-`isize` conversion in `SelectionWindowMouseEventAdapter::window_point_to_cell` before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
 - Now rejects `rows`/`cols` values above `isize::MAX` in `SelectionWindowGeometry::is_valid` so grid dimension casts in window-event translation cannot wrap to negative values.
 - `SelectionEventFlowConfig` now keeps `window_mouse` as a private field with `with_window_mouse(...)` and `window_mouse()` APIs to avoid downstream exhaustive struct-literal breakage from future config evolution.
-- Updated `docs/phases/03.md` with a closure-oriented test coverage checklist and acceptance status table that maps implemented behavior to concrete tests and marks deferred criteria explicitly.
+- Updated `docs/phases/03.md` with a closure-oriented test coverage checklist and acceptance status table that maps implemented behavior to concrete tests and records current completion status for all Phase 3 acceptance criteria.
 
 ### 2026-03-25
 

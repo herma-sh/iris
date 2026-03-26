@@ -20,8 +20,8 @@ pub use fonts::{FontInfo, FontProvider, NoopFontProvider};
 pub use ime::{ImeHandler, ImePosition, NoopImeHandler};
 pub use pty::{PortablePtyBackend, PtyBackend, PtyConfig};
 pub use selection_input::{
-    SelectionEventFlow, SelectionEventFlowConfig, SelectionEventFlowOutcome, SelectionMouseEvent,
-    SelectionMouseEventAdapter, SelectionMouseEventAdapterConfig, SelectionWindowGeometry,
-    SelectionWindowMouseEvent, SelectionWindowMouseEventAdapter,
-    SelectionWindowMouseEventAdapterConfig,
+    SelectionDirection, SelectionEventFlow, SelectionEventFlowConfig, SelectionEventFlowOutcome,
+    SelectionKeyboardEvent, SelectionMouseEvent, SelectionMouseEventAdapter,
+    SelectionMouseEventAdapterConfig, SelectionWindowGeometry, SelectionWindowMouseEvent,
+    SelectionWindowMouseEventAdapter, SelectionWindowMouseEventAdapterConfig,
 };
