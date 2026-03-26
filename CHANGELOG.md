@@ -10,6 +10,13 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-22` to present
 
+### 2026-03-26
+
+#### Added
+
+- End-to-end selection event flow wiring in `iris-platform` via `SelectionEventFlow`, composing raw `SelectionMouseEvent` translation, terminal selection handling, and configured clipboard copy/paste helpers for window/event-loop integration.
+- Selection-event flow unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for drag release copy, double-click word copy, disabled auto-copy behavior, and configured paste-source delegation.
+
 ### 2026-03-25
 
 #### Added
