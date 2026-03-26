@@ -16,3 +16,7 @@ pretty_assertions = "1.4"
 [[bench]]
 name = "parser_throughput"
 harness = false
+
+[[bench]]
+name = "selection_throughput"
+harness = false

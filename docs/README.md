@@ -39,6 +39,7 @@ The current repository is organized as a Rust workspace:
 | [implementation.md](./implementation.md) | Core components, code patterns, technical details |
 | [phases.md](./phases.md) | Development phases and timeline |
 | [code-style.md](./code-style.md) | Coding standards: minimal, fast, maintainable, readable |
+| [pull-request-guidelines.md](./pull-request-guidelines.md) | Required production-grade PR description format and detail level |
 | [rust-best-practices.md](./rust-best-practices.md) | Iris-specific Rust standards derived from Canonical Rust best practices |
 | [rust-api-guidelines.md](./rust-api-guidelines.md) | Iris-specific Rust API design standards derived from the Rust API Guidelines |
 | [innovation.md](./innovation.md) | Emerging features and unique differentiators |

@@ -48,13 +48,20 @@ pub enum PtyError {
 
 /// Clipboard-specific failures.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ClipboardError {
+    /// Clipboard backend initialization failed.
+    #[error("clipboard initialization failed")]
+    InitializationFailed,
     /// Clipboard reads are unavailable.
     #[error("clipboard read is not available")]
     ReadUnavailable,
     /// Clipboard writes are unavailable.
     #[error("clipboard write is not available")]
     WriteUnavailable,
+    /// Linux/X11 primary selection is unavailable.
+    #[error("primary selection clipboard is not available")]
+    PrimarySelectionUnavailable,
 }
 
 /// Font-related failures.

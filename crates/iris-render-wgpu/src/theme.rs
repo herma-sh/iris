@@ -243,6 +243,14 @@ impl Theme {
         CellColors::new(fg.to_f32_array(), bg.to_f32_array())
     }
 
+    /// Resolves selected cell colors by swapping resolved foreground/background.
+    #[must_use]
+    pub fn resolve_selected_cell_colors(&self, attrs: CellAttrs) -> CellColors {
+        let mut colors = self.resolve_cell_colors(attrs);
+        std::mem::swap(&mut colors.fg, &mut colors.bg);
+        colors
+    }
+
     /// Resolves a terminal color value against the theme foreground defaults.
     #[must_use]
     pub fn resolve_foreground(&self, color: Color) -> ThemeColor {

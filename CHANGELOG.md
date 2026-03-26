@@ -4,28 +4,107 @@ All notable changes to Iris should be recorded in this file.
 
 This project uses a phase-based versioning scheme:
 
-| Phase | Version |
-|-------|---------|
-| 0 | `0.0.1` |
-| 1 | `0.1.0` |
-| 2 | `0.2.0` |
-| 3 | `0.3.0` |
-| 4 | `0.4.0` |
-| 5 | `0.5.0` |
-| 6 | `0.6.0` |
-| 7 | `0.7.0` |
-| 8 | `0.8.0` |
-| 9 | `0.9.0` |
-| 10 | `0.10.0` |
-| 11 | `0.11.0` |
-| 12 | `0.12.0` |
-| 13 | `0.13.0` |
-| 14 | `0.14.0` |
-| 15 | `0.15.0` |
+Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N.0`.
 
-## Unreleased
+## 0.3.0 (In Progress)
 
-Target release: `0.2.0`
+Work window: `2026-03-22` to present
+
+### 2026-03-26
+
+#### Added
+
+- End-to-end selection event flow wiring in `iris-platform` via `SelectionEventFlow`, composing raw `SelectionMouseEvent` translation, terminal selection handling, and configured clipboard copy/paste helpers for window/event-loop integration.
+- Selection-event flow unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for drag release copy, double-click word copy, disabled auto-copy behavior, and configured paste-source delegation.
+- Native clipboard backend integration in `iris-platform` via `NativeClipboard` (`arboard`) for real system clipboard read/write/clear behavior, including Linux PRIMARY selection handling.
+- Clipboard backend coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for native error mapping and `PlatformClipboard` native-init fallback behavior.
+- Window-space selection input integration in `iris-platform` via `SelectionWindowMouseEvent`, `SelectionWindowGeometry`, `SelectionWindowMouseEventAdapter`, and `SelectionEventFlow::handle_window_mouse_event` to route pixel-coordinates from UI event loops into terminal-cell selection flow.
+- Selection-input unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for window-to-cell translation, clamp vs drop behavior for out-of-bounds pointer events, invalid geometry rejection, and end-to-end window-event selection copy flow.
+- Keyboard selection integration in `iris-platform` via `SelectionDirection`, `SelectionKeyboardEvent`, and `SelectionEventFlow::handle_keyboard_event` for `Shift+Arrow` driven selection extension.
+- Linux middle-click PRIMARY paste integration helpers in `iris-platform` via `SelectionEventFlow::paste_primary_on_middle_click` and `SelectionEventFlow::paste_primary_on_window_middle_click`.
+- Selection-input unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for keyboard selection handling, middle-click PRIMARY paste behavior, and window-path selection across wide/emoji and wrapped-line content.
+- Phase 3 selection throughput benchmark harness in `iris-core` at `crates/iris-core/benches/selection_throughput.rs` for 1M-row selection scan timing.
+
+#### Changed
+
+- Native clipboard error handling in `iris-platform` now maps backend creation failures to `ClipboardError::InitializationFailed` and emits debug-level tracing for native clipboard read/write failures before preserving existing public error mappings.
+- `NativeClipboard::map_read_text` now treats `arboard::Error::ContentNotAvailable` as an expected empty-read path without failure logging, and `PlatformClipboard::from_native_or_fallback` now only falls back to noop on `ClipboardError::InitializationFailed` while propagating other native-init error variants.
+- Linux primary clipboard error mapping in `NativeClipboard` now emits debug-level tracing for non-`ClipboardNotSupported` primary read/write failures before mapping them to `ClipboardError::ReadUnavailable`/`ClipboardError::WriteUnavailable`.
+- `PlatformClipboard::default` now logs non-initialization native clipboard setup fallback events at warning level so unexpected fallback paths are visible in production diagnostics.
+- Now uses saturating float-to-`isize` conversion in `SelectionWindowMouseEventAdapter::window_point_to_cell` before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
+- Now rejects `rows`/`cols` values above `isize::MAX` in `SelectionWindowGeometry::is_valid` so grid dimension casts in window-event translation cannot wrap to negative values.
+- `SelectionEventFlowConfig` now keeps `window_mouse` as a private field with `with_window_mouse(...)` and `window_mouse()` APIs to avoid downstream exhaustive struct-literal breakage from future config evolution.
+- Updated `docs/phases/03.md` with a closure-oriented test coverage checklist and acceptance status table that maps implemented behavior to concrete tests and records current completion status for all Phase 3 acceptance criteria.
+
+### 2026-03-25
+
+#### Added
+
+- Selection/clipboard flow orchestration in `iris-platform` via `SelectionClipboardController`, wiring `iris-core::SelectionInputEvent` handling to terminal selection state and configured clipboard copy/paste operations.
+- Clipboard integration coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for controller-driven drag selection copy behavior and configured primary-first terminal paste fallback behavior.
+- Raw mouse-selection event adaptation in `iris-platform` (`SelectionMouseEventAdapter`) to translate press/move/release input with timestamp-based single/double/triple-click classification into `iris-core::SelectionInputEvent` values.
+- Mouse-selection adapter coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for click counting, interval/position reset behavior, move/release passthrough, and non-left click sequence reset behavior.
+
+### 2026-03-24
+
+#### Added
+
+- Selection-highlight rendering integration in `iris-render-wgpu` by wiring `Terminal::selection_row_bounds` and `selection_row_span` into `TerminalRenderer::prepare_terminal` and `TerminalRenderer::update_terminal`.
+- Selection-aware color resolution helpers in `iris-render-wgpu` (`Theme::resolve_selected_cell_colors`) and selection-aware cell-instance encoding options for damaged-grid uploads.
+- Renderer coverage for selection highlighting in `crates/iris-render-wgpu/src/test/theme/tests.rs`, `crates/iris-render-wgpu/src/test/cell/tests.rs`, and `crates/iris-render-wgpu/src/test/terminal_renderer/tests.rs`, including selection-only incremental repaint behavior.
+- Mouse-selection input foundation in `iris-core` (`SelectionInputState`, `SelectionInputEvent`, `MouseButton`, `MouseModifiers`) to map single-click drag, double-click word selection, triple-click line selection, and alt-drag block selection onto terminal selection APIs without UI-framework coupling.
+- Input-selection unit coverage in `crates/iris-core/src/test/input/tests.rs` for drag lifecycle behavior, double/triple click selection behavior, block selection behavior, and ignored non-left/non-active move cases.
+
+#### Changed
+
+- `TerminalRenderer` retained-update behavior now tracks previous/current terminal selection snapshots and injects selection damage regions so highlight changes repaint even when grid damage, scroll delta, and cursor state are unchanged.
+- `TextRenderer` ligature rewrite paths now preserve selection-aware color resolution for substituted glyph instances so operator-ligature rendering matches non-ligature selection highlighting.
+
+### 2026-03-23
+
+#### Added
+
+- `ClipboardSelection` buffer targeting in `iris-platform` so callers can explicitly route operations to the standard clipboard or Linux/X11 PRIMARY selection, plus minimal selection copy/paste helpers (`copy_selection_to_clipboard`, `paste_from_clipboard`).
+- Primary-selection methods on the `iris-platform::Clipboard` trait (`get_primary`, `set_primary`, `clear_primary`) to expose Linux/X11 PRIMARY clipboard behavior.
+- `ClipboardError::PrimarySelectionUnavailable` as the explicit fallback/error path for unsupported PRIMARY clipboard operations.
+- A concrete `PlatformClipboard` scaffold in `iris-platform` that composes `NoopClipboard` and enables PRIMARY selection support when built for Linux targets.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for standard/primary buffer behavior and copy/paste flow helper behavior with mocked clipboard state.
+- `SelectionEngine::copy_text` in `iris-core` to expose copy-oriented selection text, including trailing newline behavior for line selections while keeping `selected_text` unchanged.
+- Selection unit coverage in `crates/iris-core/src/test/selection/tests.rs` for line-copy trailing-newline behavior and non-line-selection copy behavior.
+- Bracketed paste encoding helpers in `iris-platform` (`BRACKETED_PASTE_START`, `BRACKETED_PASTE_END`, `encode_paste_input`) plus `paste_bytes_from_clipboard` for clipboard-to-PTY paste payload preparation.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for raw vs bracketed paste encoding and primary-selection paste payload generation.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for non-bracketed `paste_bytes_from_clipboard` payload behavior (`bracketed_paste_mode=false`).
+- `PasteSource` strategy helpers in `iris-platform` (`paste_from_source`, `paste_bytes_from_source`) to support primary-first paste behavior with clipboard fallback when PRIMARY is unavailable or empty.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for `PasteSource::PrimaryThenClipboard` behavior across primary-hit, primary-unavailable fallback, primary-empty fallback, and bracketed fallback payload encoding.
+- `PasteSource::PrimaryThenClipboard` fallback handling in `iris-platform` now treats `Some(\"\")` PRIMARY text as a miss and falls back to standard clipboard content.
+- Terminal-aware clipboard flow helpers in `iris-platform` (`copy_terminal_selection_to_clipboard`, `paste_terminal_bytes_from_clipboard`, `paste_terminal_bytes_from_source`) to bridge `iris-core::Terminal` selection/copy/paste mode behavior with clipboard sources.
+- Clipboard unit coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for terminal-aware copy/paste helper behavior, including empty-selection no-op, line-selection copy formatting, bracketed-paste mode forwarding, and primary-empty fallback.
+- `Terminal::paste_bytes` in `iris-core` to encode clipboard paste payloads according to active bracketed-paste mode, wrapping with `ESC[200~`/`ESC[201~` when enabled.
+- Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for raw vs bracketed `Terminal::paste_bytes` payload behavior.
+- Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for exact multibyte UTF-8 paste payload bytes with bracketed paste disabled and enabled.
+- Terminal-level selection flow methods in `iris-core` (`Terminal::selection`, `is_selecting`, `has_selection`, `start_selection`, `extend_selection`, `complete_selection`, `cancel_selection`, `select_word`, `select_line`, `selected_text`, `copy_selection_text`) to wire `SelectionEngine` into the terminal API surface for copy/paste integration.
+- Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for terminal selection lifecycle behavior, word/line selection wrappers, and selection invalidation across resize, reset, and alternate-screen transitions.
+- Selection query APIs in `iris-core` (`Terminal::selection_contains`, `selection_row_bounds`, `selection_row_span`) for renderer/integration layers to read completed selection geometry without UI/input coupling.
+- Terminal unit coverage in `crates/iris-core/src/test/terminal/tests.rs` for selection query behavior across in-progress vs completed selection states plus linear and block selection row-bound calculations.
+
+#### Changed
+
+- Standardized production-grade PR authoring requirements by adding `./.github/PULL_REQUEST_TEMPLATE.md`, documenting required section detail in `docs/pull-request-guidelines.md`, and updating review/agent rules to require the template for future PRs.
+- Updated `PlatformClipboard::default` to use compile-time `#[cfg(...)]` selection for Linux PRIMARY scaffold behavior instead of runtime `cfg!()` branching.
+- Updated testing guidance across agent and project docs to prefer concrete backend and real-data coverage, and to avoid adding mock-data tests when meaningful real-backend tests are expected soon.
+- Clamped `Terminal::selection_row_span` in `iris-core` to the visible grid row range so out-of-bounds spans cannot leak to renderer/integration callers, and added explicit out-of-bounds-column coverage for `Terminal::selection_contains` in `crates/iris-core/src/test/terminal/tests.rs`.
+
+### 2026-03-22
+
+#### Added
+
+- Added an initial `iris-core::selection` foundation with `SelectionKind`, `SelectionState`, `Anchor`, and `Selection` range helpers for linear and block selection behavior.
+- Added a stateful `SelectionEngine` in `iris-core` covering selection lifecycle (`start`, `extend`, `complete`, `cancel`), word/line selection helpers, and selected-text extraction from `Grid`.
+- Added focused unit coverage for selection containment, row-bound clamping, selection lifecycle transitions, word/line selection, and block-selection text extraction.
+
+## 0.2.0 - 2026-03-22
+
+Work window: `2026-03-19` to `2026-03-22`
 
 ### 2026-03-21
 
@@ -110,18 +189,6 @@ Target release: `0.2.0`
 
 #### Added
 
-- Added a bootstrap atlas-backed text render pipeline and WGSL shader in `iris-render-wgpu`, including uniform bind-group creation and smoke coverage for off-screen text draw submission.
-
-#### Changed
-
-- Expanded text-pipeline coverage with GPU readback assertions for populated and zero-instance off-screen draws so the tests verify rendered output instead of only checking submission succeeds.
-
-## 0.2.0 (In Progress)
-
-Work window: `2026-03-19` to `2026-03-20`
-
-### Added
-
 - Began the renderer bootstrap in `iris-render-wgpu` with concrete `wgpu` instance/adapter/device initialization, validated off-screen texture render targets, and smoke coverage for clear-pass submission.
 - Added renderer surface creation and configuration types in `iris-render-wgpu`, including validated surface sizing, capability-based format selection, and resize support for window-backed presentation targets.
 - Added a bootstrap fullscreen render pipeline and WGSL shader in `iris-render-wgpu` so off-screen draw submission can be exercised before cell, glyph, and atlas rendering are implemented.
@@ -129,15 +196,16 @@ Work window: `2026-03-19` to `2026-03-20`
 - Added a CPU-side glyph cache in `iris-render-wgpu` with typed cache keys, atlas-backed glyph entries, idempotent cache insertion, and a renderer helper for caching uploaded glyph masks.
 - Added GPU-ready text uniforms and per-cell instance encoding in `iris-render-wgpu`, including atlas UV generation, style-flag packing, continuation-cell rejection, and raw instance-byte conversion for later buffer uploads.
 - Added resizable text uniform and instance buffer helpers in `iris-render-wgpu`, including `CellInstance` vertex-layout metadata and renderer helpers for uploading text uniforms and instance data.
-- Added a renderer theme bootstrap in `iris-render-wgpu` with default terminal colors, ANSI and indexed color resolution, and cell-attribute mapping into render-ready foreground and background RGBA values.
+- Added a bootstrap atlas-backed text render pipeline and WGSL shader in `iris-render-wgpu`, including uniform bind-group creation and smoke coverage for off-screen text draw submission.
 
-### Changed
+#### Changed
 
 - Hardened glyph-cache insertion to validate atlas upload sizing before allocation so failed uploads do not leak atlas space, and expanded glyph-cache edge-case coverage for invalid upload sizes, zero-sized bitmaps, and full-atlas behavior.
 - Hardened glyph-atlas allocation bounds checks with checked arithmetic and expanded atlas allocator edge-case coverage for row-height tracking, zero-sized allocations, and exact-fill behavior.
 - Expanded renderer surface coverage with direct tests for surface-state resize behavior and stored surface configuration metadata.
 - Hardened renderer texture-surface creation so configs that omit `RENDER_ATTACHMENT` are rejected before allocating invalid render targets.
 - Replaced the renderer trait stub with a concrete renderer bootstrap API so follow-up PRs can add real surfaces, pipelines, glyph caches, and damage-driven cell rendering without reworking crate boundaries again.
+- Expanded text-pipeline coverage with GPU readback assertions for populated and zero-instance off-screen draws so the tests verify rendered output instead of only checking submission succeeds.
 
 ## 0.1.0 - 2026-03-18
 
