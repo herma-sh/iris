@@ -2,8 +2,8 @@ use crate::clipboard::{
     copy_selection_to_clipboard, copy_terminal_selection_to_clipboard, encode_paste_input,
     paste_bytes_from_clipboard, paste_bytes_from_source, paste_from_clipboard, paste_from_source,
     paste_terminal_bytes_from_clipboard, paste_terminal_bytes_from_source, Clipboard,
-    ClipboardSelection, NoopClipboard, PasteSource, SelectionClipboardController,
-    BRACKETED_PASTE_END, BRACKETED_PASTE_START,
+    ClipboardSelection, NativeClipboard, NoopClipboard, PasteSource, PlatformClipboard,
+    SelectionClipboardController, BRACKETED_PASTE_END, BRACKETED_PASTE_START,
 };
 use crate::error::{ClipboardError, Error, Result};
 use iris_core::{Action, MouseButton, MouseModifiers, SelectionInputEvent, Terminal};
@@ -400,4 +400,67 @@ fn selection_clipboard_controller_pastes_terminal_bytes_from_configured_source()
         .expect("configured paste source should produce payload bytes");
     let expected = format!("{BRACKETED_PASTE_START}fallback-paste{BRACKETED_PASTE_END}");
     assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn native_clipboard_maps_content_not_available_to_none() {
+    let result = NativeClipboard::map_read_text(Err(arboard::Error::ContentNotAvailable)).unwrap();
+    assert_eq!(result, None);
+}
+
+#[test]
+fn native_clipboard_maps_unknown_read_errors_to_read_unavailable() {
+    let result = NativeClipboard::map_read_text(Err(arboard::Error::ClipboardOccupied));
+    assert!(matches!(
+        result,
+        Err(Error::Clipboard(ClipboardError::ReadUnavailable))
+    ));
+}
+
+#[test]
+fn native_clipboard_maps_write_errors_to_write_unavailable() {
+    let result = NativeClipboard::map_write_result(Err(arboard::Error::ClipboardOccupied));
+    assert!(matches!(
+        result,
+        Err(Error::Clipboard(ClipboardError::WriteUnavailable))
+    ));
+}
+
+#[test]
+fn platform_clipboard_falls_back_to_noop_when_native_init_fails() {
+    let mut clipboard =
+        PlatformClipboard::from_native_or_fallback(Err(ClipboardError::InitializationFailed))
+            .unwrap();
+    clipboard.set_text("fallback").unwrap();
+
+    assert_eq!(clipboard.get_text().unwrap().as_deref(), Some("fallback"));
+}
+
+#[test]
+fn platform_clipboard_fallback_primary_behavior_matches_target() {
+    let mut clipboard =
+        PlatformClipboard::from_native_or_fallback(Err(ClipboardError::InitializationFailed))
+            .unwrap();
+
+    #[cfg(target_os = "linux")]
+    {
+        clipboard.set_primary("primary").unwrap();
+        assert_eq!(clipboard.get_primary().unwrap().as_deref(), Some("primary"));
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert!(matches!(
+            clipboard.set_primary("primary"),
+            Err(Error::Clipboard(
+                ClipboardError::PrimarySelectionUnavailable
+            ))
+        ));
+    }
+}
+
+#[test]
+fn platform_clipboard_propagates_non_init_native_errors() {
+    let result = PlatformClipboard::from_native_or_fallback(Err(ClipboardError::ReadUnavailable));
+    assert!(matches!(result, Err(ClipboardError::ReadUnavailable)));
 }

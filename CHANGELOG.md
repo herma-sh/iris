@@ -16,6 +16,15 @@ Work window: `2026-03-22` to present
 
 - End-to-end selection event flow wiring in `iris-platform` via `SelectionEventFlow`, composing raw `SelectionMouseEvent` translation, terminal selection handling, and configured clipboard copy/paste helpers for window/event-loop integration.
 - Selection-event flow unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for drag release copy, double-click word copy, disabled auto-copy behavior, and configured paste-source delegation.
+- Native clipboard backend integration in `iris-platform` via `NativeClipboard` (`arboard`) for real system clipboard read/write/clear behavior, including Linux PRIMARY selection handling.
+- Clipboard backend coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for native error mapping and `PlatformClipboard` native-init fallback behavior.
+
+#### Changed
+
+- Native clipboard error handling in `iris-platform` now maps backend creation failures to `ClipboardError::InitializationFailed` and emits debug-level tracing for native clipboard read/write failures before preserving existing public error mappings.
+- `NativeClipboard::map_read_text` now treats `arboard::Error::ContentNotAvailable` as an expected empty-read path without failure logging, and `PlatformClipboard::from_native_or_fallback` now only falls back to noop on `ClipboardError::InitializationFailed` while propagating other native-init error variants.
+- Linux primary clipboard error mapping in `NativeClipboard` now emits debug-level tracing for non-`ClipboardNotSupported` primary read/write failures before mapping them to `ClipboardError::ReadUnavailable`/`ClipboardError::WriteUnavailable`.
+- `PlatformClipboard::default` now logs non-initialization native clipboard setup fallback events at warning level so unexpected fallback paths are visible in production diagnostics.
 
 ### 2026-03-25
 
