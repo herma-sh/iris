@@ -27,6 +27,7 @@ Work window: `2026-03-22` to present
 - `NativeClipboard::map_read_text` now treats `arboard::Error::ContentNotAvailable` as an expected empty-read path without failure logging, and `PlatformClipboard::from_native_or_fallback` now only falls back to noop on `ClipboardError::InitializationFailed` while propagating other native-init error variants.
 - Linux primary clipboard error mapping in `NativeClipboard` now emits debug-level tracing for non-`ClipboardNotSupported` primary read/write failures before mapping them to `ClipboardError::ReadUnavailable`/`ClipboardError::WriteUnavailable`.
 - `PlatformClipboard::default` now logs non-initialization native clipboard setup fallback events at warning level so unexpected fallback paths are visible in production diagnostics.
+- `SelectionWindowMouseEventAdapter::window_point_to_cell` now uses saturating float-to-`isize` conversion before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
 
 ### 2026-03-25
 

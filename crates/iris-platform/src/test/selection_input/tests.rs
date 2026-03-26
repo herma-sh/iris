@@ -344,6 +344,36 @@ fn window_mouse_adapter_rejects_invalid_geometry() {
 }
 
 #[test]
+fn window_mouse_adapter_clamps_extreme_window_coordinates_without_overflow() {
+    let adapter = SelectionWindowMouseEventAdapter::new(SelectionWindowMouseEventAdapterConfig {
+        clamp_to_visible_grid: true,
+    });
+    let event = SelectionWindowMouseEvent::Move {
+        x_px: f32::MAX,
+        y_px: -f32::MAX,
+        modifiers: MouseModifiers::default(),
+    };
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: 3,
+    };
+
+    let translated = adapter.translate(event, geometry);
+    assert_eq!(
+        translated,
+        Some(SelectionMouseEvent::Move {
+            row: 0,
+            col: 2,
+            modifiers: MouseModifiers::default(),
+        })
+    );
+}
+
+#[test]
 fn selection_event_flow_auto_copies_drag_selection_on_left_release() {
     let mut terminal = Terminal::new(1, 10).unwrap();
     terminal.write_ascii_run(b"abcdefghi").unwrap();

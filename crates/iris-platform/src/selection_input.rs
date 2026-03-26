@@ -177,8 +177,10 @@ impl SelectionWindowMouseEventAdapter {
 
         let rel_x = x_px - geometry.origin_x_px;
         let rel_y = y_px - geometry.origin_y_px;
-        let mut col = (rel_x / geometry.cell_width_px).floor() as isize;
-        let mut row = (rel_y / geometry.cell_height_px).floor() as isize;
+        let col_f = (rel_x / geometry.cell_width_px).floor();
+        let row_f = (rel_y / geometry.cell_height_px).floor();
+        let mut col = Self::floor_to_isize_saturating(col_f);
+        let mut row = Self::floor_to_isize_saturating(row_f);
         let max_col = geometry.cols as isize - 1;
         let max_row = geometry.rows as isize - 1;
 
@@ -190,6 +192,16 @@ impl SelectionWindowMouseEventAdapter {
         }
 
         Some((row as usize, col as usize))
+    }
+
+    fn floor_to_isize_saturating(value: f32) -> isize {
+        if value >= isize::MAX as f32 {
+            isize::MAX
+        } else if value <= isize::MIN as f32 {
+            isize::MIN
+        } else {
+            value as isize
+        }
     }
 }
 
