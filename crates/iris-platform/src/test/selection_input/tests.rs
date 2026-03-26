@@ -344,6 +344,43 @@ fn window_mouse_adapter_rejects_invalid_geometry() {
 }
 
 #[test]
+fn window_mouse_adapter_rejects_non_finite_coordinates() {
+    let adapter = SelectionWindowMouseEventAdapter::default();
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: 3,
+    };
+    let events = [
+        SelectionWindowMouseEvent::Move {
+            x_px: f32::NAN,
+            y_px: 1.0,
+            modifiers: MouseModifiers::default(),
+        },
+        SelectionWindowMouseEvent::Press {
+            x_px: f32::INFINITY,
+            y_px: 1.0,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+            timestamp_ms: 1,
+        },
+        SelectionWindowMouseEvent::Release {
+            x_px: 1.0,
+            y_px: f32::NEG_INFINITY,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+        },
+    ];
+
+    for event in events {
+        assert_eq!(adapter.translate(event, geometry), None);
+    }
+}
+
+#[test]
 fn window_mouse_adapter_rejects_geometry_dimensions_above_isize_max() {
     let adapter = SelectionWindowMouseEventAdapter::default();
     let event = SelectionWindowMouseEvent::Move {

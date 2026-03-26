@@ -27,8 +27,8 @@ Work window: `2026-03-22` to present
 - `NativeClipboard::map_read_text` now treats `arboard::Error::ContentNotAvailable` as an expected empty-read path without failure logging, and `PlatformClipboard::from_native_or_fallback` now only falls back to noop on `ClipboardError::InitializationFailed` while propagating other native-init error variants.
 - Linux primary clipboard error mapping in `NativeClipboard` now emits debug-level tracing for non-`ClipboardNotSupported` primary read/write failures before mapping them to `ClipboardError::ReadUnavailable`/`ClipboardError::WriteUnavailable`.
 - `PlatformClipboard::default` now logs non-initialization native clipboard setup fallback events at warning level so unexpected fallback paths are visible in production diagnostics.
-- `SelectionWindowMouseEventAdapter::window_point_to_cell` now uses saturating float-to-`isize` conversion before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
-- `SelectionWindowGeometry::is_valid` now rejects `rows`/`cols` values above `isize::MAX` so grid dimension casts in window-event translation cannot wrap to negative values.
+- Now uses saturating float-to-`isize` conversion in `SelectionWindowMouseEventAdapter::window_point_to_cell` before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
+- Now rejects `rows`/`cols` values above `isize::MAX` in `SelectionWindowGeometry::is_valid` so grid dimension casts in window-event translation cannot wrap to negative values.
 - `SelectionEventFlowConfig` now keeps `window_mouse` as a private field with `with_window_mouse(...)` and `window_mouse()` APIs to avoid downstream exhaustive struct-literal breakage from future config evolution.
 
 ### 2026-03-25
