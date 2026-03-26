@@ -404,6 +404,22 @@ fn window_mouse_adapter_clamps_extreme_window_coordinates_without_overflow() {
 }
 
 #[test]
+fn selection_event_flow_config_window_mouse_builder_sets_private_field() {
+    let config = SelectionEventFlowConfig::default().with_window_mouse(
+        SelectionWindowMouseEventAdapterConfig {
+            clamp_to_visible_grid: false,
+        },
+    );
+
+    assert_eq!(
+        config.window_mouse(),
+        &SelectionWindowMouseEventAdapterConfig {
+            clamp_to_visible_grid: false,
+        }
+    );
+}
+
+#[test]
 fn selection_event_flow_auto_copies_drag_selection_on_left_release() {
     let mut terminal = Terminal::new(1, 10).unwrap();
     terminal.write_ascii_run(b"abcdefghi").unwrap();
@@ -651,13 +667,14 @@ fn selection_event_flow_handles_window_mouse_events_end_to_end() {
 fn selection_event_flow_ignores_window_events_that_do_not_map_to_cells() {
     let mut terminal = Terminal::new(1, 10).unwrap();
     let mut clipboard = NoopClipboard::new();
-    let mut flow = SelectionEventFlow::new(SelectionEventFlowConfig {
-        window_mouse: SelectionWindowMouseEventAdapterConfig {
-            clamp_to_visible_grid: false,
-        },
+    let config = SelectionEventFlowConfig {
         auto_copy_on_select: true,
         ..SelectionEventFlowConfig::default()
+    }
+    .with_window_mouse(SelectionWindowMouseEventAdapterConfig {
+        clamp_to_visible_grid: false,
     });
+    let mut flow = SelectionEventFlow::new(config);
     let geometry = SelectionWindowGeometry {
         origin_x_px: 0.0,
         origin_y_px: 0.0,

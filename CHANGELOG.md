@@ -29,6 +29,7 @@ Work window: `2026-03-22` to present
 - `PlatformClipboard::default` now logs non-initialization native clipboard setup fallback events at warning level so unexpected fallback paths are visible in production diagnostics.
 - `SelectionWindowMouseEventAdapter::window_point_to_cell` now uses saturating float-to-`isize` conversion before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
 - `SelectionWindowGeometry::is_valid` now rejects `rows`/`cols` values above `isize::MAX` so grid dimension casts in window-event translation cannot wrap to negative values.
+- `SelectionEventFlowConfig` now keeps `window_mouse` as a private field with `with_window_mouse(...)` and `window_mouse()` APIs to avoid downstream exhaustive struct-literal breakage from future config evolution.
 
 ### 2026-03-25
 

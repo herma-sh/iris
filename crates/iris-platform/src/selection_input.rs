@@ -343,7 +343,7 @@ pub struct SelectionEventFlowConfig {
     /// Multi-click adapter settings for raw mouse press classification.
     pub mouse: SelectionMouseEventAdapterConfig,
     /// Window-space adapter settings for pixel-to-cell translation.
-    pub window_mouse: SelectionWindowMouseEventAdapterConfig,
+    window_mouse: SelectionWindowMouseEventAdapterConfig,
     /// Clipboard target for copy operations.
     pub copy_target: ClipboardSelection,
     /// Clipboard source strategy for paste operations.
@@ -361,6 +361,24 @@ impl Default for SelectionEventFlowConfig {
             paste_source: PasteSource::PrimaryThenClipboard,
             auto_copy_on_select: false,
         }
+    }
+}
+
+impl SelectionEventFlowConfig {
+    /// Sets window-space adapter settings for pixel-to-cell translation.
+    #[must_use]
+    pub const fn with_window_mouse(
+        mut self,
+        config: SelectionWindowMouseEventAdapterConfig,
+    ) -> Self {
+        self.window_mouse = config;
+        self
+    }
+
+    /// Returns window-space adapter settings for pixel-to-cell translation.
+    #[must_use]
+    pub const fn window_mouse(&self) -> &SelectionWindowMouseEventAdapterConfig {
+        &self.window_mouse
     }
 }
 
