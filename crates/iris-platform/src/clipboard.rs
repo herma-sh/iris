@@ -1,5 +1,9 @@
 use crate::error::{ClipboardError, Error, Result};
 use iris_core::{SelectionInputEvent, SelectionInputState, Terminal};
+use std::sync::Mutex;
+
+#[cfg(target_os = "linux")]
+use arboard::{ClearExtLinux, GetExtLinux, LinuxClipboardKind, SetExtLinux};
 
 /// Clipboard buffer target.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -283,7 +287,155 @@ pub fn paste_terminal_bytes_from_source(
     Ok(Some(terminal.paste_bytes(&text)))
 }
 
-/// Fallback clipboard implementation used until platform integration lands.
+/// Native system clipboard implementation.
+///
+/// This uses `arboard` for cross-platform clipboard access and keeps one
+/// clipboard context alive for Linux selection ownership behavior.
+pub struct NativeClipboard {
+    inner: Mutex<arboard::Clipboard>,
+}
+
+impl NativeClipboard {
+    /// Creates a native clipboard backend.
+    pub fn new() -> Result<Self> {
+        let clipboard = arboard::Clipboard::new()
+            .map_err(|_| Error::Clipboard(ClipboardError::ReadUnavailable))?;
+        Ok(Self {
+            inner: Mutex::new(clipboard),
+        })
+    }
+
+    fn lock_for_read(&self) -> Result<std::sync::MutexGuard<'_, arboard::Clipboard>> {
+        self.inner
+            .lock()
+            .map_err(|_| Error::Clipboard(ClipboardError::ReadUnavailable))
+    }
+
+    fn lock_for_write(&self) -> Result<std::sync::MutexGuard<'_, arboard::Clipboard>> {
+        self.inner
+            .lock()
+            .map_err(|_| Error::Clipboard(ClipboardError::WriteUnavailable))
+    }
+
+    fn map_read_text(
+        result: std::result::Result<String, arboard::Error>,
+    ) -> Result<Option<String>> {
+        match result {
+            Ok(text) => Ok(Some(text)),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(_) => Err(ClipboardError::ReadUnavailable.into()),
+        }
+    }
+
+    fn map_write_result(result: std::result::Result<(), arboard::Error>) -> Result<()> {
+        result.map_err(|_| ClipboardError::WriteUnavailable.into())
+    }
+
+    #[cfg(target_os = "linux")]
+    fn map_primary_read_text(
+        result: std::result::Result<String, arboard::Error>,
+    ) -> Result<Option<String>> {
+        match result {
+            Ok(text) => Ok(Some(text)),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
+            Err(arboard::Error::ClipboardNotSupported) => {
+                Err(ClipboardError::PrimarySelectionUnavailable.into())
+            }
+            Err(_) => Err(ClipboardError::ReadUnavailable.into()),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn map_primary_write_result(result: std::result::Result<(), arboard::Error>) -> Result<()> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(arboard::Error::ClipboardNotSupported) => {
+                Err(ClipboardError::PrimarySelectionUnavailable.into())
+            }
+            Err(_) => Err(ClipboardError::WriteUnavailable.into()),
+        }
+    }
+}
+
+impl std::fmt::Debug for NativeClipboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("NativeClipboard { ... }")
+    }
+}
+
+impl Clipboard for NativeClipboard {
+    fn get_text(&self) -> Result<Option<String>> {
+        let mut clipboard = self.lock_for_read()?;
+        Self::map_read_text(clipboard.get_text())
+    }
+
+    fn set_text(&mut self, text: &str) -> Result<()> {
+        let mut clipboard = self.lock_for_write()?;
+        Self::map_write_result(clipboard.set_text(text.to_string()))
+    }
+
+    fn clear(&mut self) -> Result<()> {
+        let mut clipboard = self.lock_for_write()?;
+        Self::map_write_result(clipboard.clear())
+    }
+
+    fn get_primary(&self) -> Result<Option<String>> {
+        #[cfg(target_os = "linux")]
+        {
+            let mut clipboard = self.lock_for_read()?;
+            return Self::map_primary_read_text(
+                clipboard
+                    .get()
+                    .clipboard(LinuxClipboardKind::Primary)
+                    .text(),
+            );
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            Err(ClipboardError::PrimarySelectionUnavailable.into())
+        }
+    }
+
+    fn set_primary(&mut self, text: &str) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            let mut clipboard = self.lock_for_write()?;
+            return Self::map_primary_write_result(
+                clipboard
+                    .set()
+                    .clipboard(LinuxClipboardKind::Primary)
+                    .text(text.to_string()),
+            );
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = text;
+            Err(ClipboardError::PrimarySelectionUnavailable.into())
+        }
+    }
+
+    fn clear_primary(&mut self) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            let mut clipboard = self.lock_for_write()?;
+            return Self::map_primary_write_result(
+                clipboard
+                    .clear_with()
+                    .clipboard(LinuxClipboardKind::Primary),
+            );
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            Err(ClipboardError::PrimarySelectionUnavailable.into())
+        }
+    }
+}
+
+/// Fallback clipboard implementation used when native clipboard
+/// initialization is unavailable.
 #[derive(Debug, Default)]
 pub struct NoopClipboard {
     text: Option<String>,
@@ -354,56 +506,94 @@ impl Clipboard for NoopClipboard {
     }
 }
 
-/// Concrete scaffold clipboard used by platform composition until native
-/// backends are connected.
+#[derive(Debug)]
+enum PlatformClipboardBackend {
+    Native(NativeClipboard),
+    Noop(NoopClipboard),
+}
+
+/// Platform clipboard facade using native backend with deterministic fallback.
 #[derive(Debug)]
 pub struct PlatformClipboard {
-    inner: NoopClipboard,
+    inner: PlatformClipboardBackend,
 }
 
 impl PlatformClipboard {
-    /// Creates a platform scaffold clipboard.
+    /// Creates a platform clipboard backend.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-impl Default for PlatformClipboard {
-    fn default() -> Self {
+    fn fallback_noop() -> NoopClipboard {
         #[cfg(target_os = "linux")]
-        let inner = NoopClipboard::with_primary_selection();
+        {
+            NoopClipboard::with_primary_selection()
+        }
 
         #[cfg(not(target_os = "linux"))]
-        let inner = NoopClipboard::new();
+        {
+            NoopClipboard::new()
+        }
+    }
+
+    fn from_native_or_fallback(native: Result<NativeClipboard>) -> Self {
+        let inner = match native {
+            Ok(native) => PlatformClipboardBackend::Native(native),
+            Err(_) => PlatformClipboardBackend::Noop(Self::fallback_noop()),
+        };
 
         Self { inner }
     }
 }
 
+impl Default for PlatformClipboard {
+    fn default() -> Self {
+        Self::from_native_or_fallback(NativeClipboard::new())
+    }
+}
+
 impl Clipboard for PlatformClipboard {
     fn get_text(&self) -> Result<Option<String>> {
-        self.inner.get_text()
+        match &self.inner {
+            PlatformClipboardBackend::Native(native) => native.get_text(),
+            PlatformClipboardBackend::Noop(noop) => noop.get_text(),
+        }
     }
 
     fn set_text(&mut self, text: &str) -> Result<()> {
-        self.inner.set_text(text)
+        match &mut self.inner {
+            PlatformClipboardBackend::Native(native) => native.set_text(text),
+            PlatformClipboardBackend::Noop(noop) => noop.set_text(text),
+        }
     }
 
     fn clear(&mut self) -> Result<()> {
-        self.inner.clear()
+        match &mut self.inner {
+            PlatformClipboardBackend::Native(native) => native.clear(),
+            PlatformClipboardBackend::Noop(noop) => noop.clear(),
+        }
     }
 
     fn get_primary(&self) -> Result<Option<String>> {
-        self.inner.get_primary()
+        match &self.inner {
+            PlatformClipboardBackend::Native(native) => native.get_primary(),
+            PlatformClipboardBackend::Noop(noop) => noop.get_primary(),
+        }
     }
 
     fn set_primary(&mut self, text: &str) -> Result<()> {
-        self.inner.set_primary(text)
+        match &mut self.inner {
+            PlatformClipboardBackend::Native(native) => native.set_primary(text),
+            PlatformClipboardBackend::Noop(noop) => noop.set_primary(text),
+        }
     }
 
     fn clear_primary(&mut self) -> Result<()> {
-        self.inner.clear_primary()
+        match &mut self.inner {
+            PlatformClipboardBackend::Native(native) => native.clear_primary(),
+            PlatformClipboardBackend::Noop(noop) => noop.clear_primary(),
+        }
     }
 }
 

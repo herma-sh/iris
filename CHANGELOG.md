@@ -16,6 +16,8 @@ Work window: `2026-03-22` to present
 
 - End-to-end selection event flow wiring in `iris-platform` via `SelectionEventFlow`, composing raw `SelectionMouseEvent` translation, terminal selection handling, and configured clipboard copy/paste helpers for window/event-loop integration.
 - Selection-event flow unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for drag release copy, double-click word copy, disabled auto-copy behavior, and configured paste-source delegation.
+- Native clipboard backend integration in `iris-platform` via `NativeClipboard` (`arboard`) for real system clipboard read/write/clear behavior, including Linux PRIMARY selection handling.
+- Clipboard backend coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for native error mapping and `PlatformClipboard` native-init fallback behavior.
 
 ### 2026-03-25
 

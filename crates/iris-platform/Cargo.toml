@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 iris-core = { path = "../iris-core" }
+arboard = { version = "3.6.1", default-features = false }
 portable-pty = "0.9.0"
 thiserror = "1.0"
 
