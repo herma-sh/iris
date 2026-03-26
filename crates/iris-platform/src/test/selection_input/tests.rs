@@ -4,7 +4,8 @@ use crate::clipboard::{
 };
 use crate::selection_input::{
     SelectionEventFlow, SelectionEventFlowConfig, SelectionMouseEvent, SelectionMouseEventAdapter,
-    SelectionMouseEventAdapterConfig,
+    SelectionMouseEventAdapterConfig, SelectionWindowGeometry, SelectionWindowMouseEvent,
+    SelectionWindowMouseEventAdapter, SelectionWindowMouseEventAdapterConfig,
 };
 use iris_core::{Action, MouseButton, MouseModifiers, SelectionInputEvent, Terminal};
 
@@ -237,6 +238,225 @@ fn mouse_adapter_resets_left_click_sequence_after_non_left_press() {
 }
 
 #[test]
+fn window_mouse_adapter_translates_window_pixels_into_cell_coordinates() {
+    let adapter = SelectionWindowMouseEventAdapter::default();
+    let event = SelectionWindowMouseEvent::Press {
+        x_px: 18.0,
+        y_px: 37.0,
+        button: MouseButton::Left,
+        modifiers: MouseModifiers::default(),
+        timestamp_ms: 1000,
+    };
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 10.0,
+        origin_y_px: 20.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 3,
+        cols: 4,
+    };
+
+    let translated = adapter.translate(event, geometry);
+    assert_eq!(
+        translated,
+        Some(SelectionMouseEvent::Press {
+            row: 1,
+            col: 1,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+            timestamp_ms: 1000,
+        })
+    );
+}
+
+#[test]
+fn window_mouse_adapter_returns_none_for_out_of_bounds_when_clamp_is_disabled() {
+    let adapter = SelectionWindowMouseEventAdapter::new(SelectionWindowMouseEventAdapterConfig {
+        clamp_to_visible_grid: false,
+    });
+    let event = SelectionWindowMouseEvent::Move {
+        x_px: -5.0,
+        y_px: 12.0,
+        modifiers: MouseModifiers::default(),
+    };
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: 2,
+    };
+
+    assert_eq!(adapter.translate(event, geometry), None);
+}
+
+#[test]
+fn window_mouse_adapter_clamps_out_of_bounds_points_when_enabled() {
+    let adapter = SelectionWindowMouseEventAdapter::new(SelectionWindowMouseEventAdapterConfig {
+        clamp_to_visible_grid: true,
+    });
+    let event = SelectionWindowMouseEvent::Release {
+        x_px: -10.0,
+        y_px: 99.0,
+        button: MouseButton::Left,
+        modifiers: MouseModifiers::default(),
+    };
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 10.0,
+        cell_height_px: 10.0,
+        rows: 3,
+        cols: 4,
+    };
+
+    let translated = adapter.translate(event, geometry);
+    assert_eq!(
+        translated,
+        Some(SelectionMouseEvent::Release {
+            row: 2,
+            col: 0,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+        })
+    );
+}
+
+#[test]
+fn window_mouse_adapter_rejects_invalid_geometry() {
+    let adapter = SelectionWindowMouseEventAdapter::default();
+    let event = SelectionWindowMouseEvent::Move {
+        x_px: 8.0,
+        y_px: 8.0,
+        modifiers: MouseModifiers::default(),
+    };
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 0.0,
+        cell_height_px: 10.0,
+        rows: 2,
+        cols: 2,
+    };
+
+    assert_eq!(adapter.translate(event, geometry), None);
+}
+
+#[test]
+fn window_mouse_adapter_rejects_non_finite_coordinates() {
+    let adapter = SelectionWindowMouseEventAdapter::default();
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: 3,
+    };
+    let events = [
+        SelectionWindowMouseEvent::Move {
+            x_px: f32::NAN,
+            y_px: 1.0,
+            modifiers: MouseModifiers::default(),
+        },
+        SelectionWindowMouseEvent::Press {
+            x_px: f32::INFINITY,
+            y_px: 1.0,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+            timestamp_ms: 1,
+        },
+        SelectionWindowMouseEvent::Release {
+            x_px: 1.0,
+            y_px: f32::NEG_INFINITY,
+            button: MouseButton::Left,
+            modifiers: MouseModifiers::default(),
+        },
+    ];
+
+    for event in events {
+        assert_eq!(adapter.translate(event, geometry), None);
+    }
+}
+
+#[test]
+fn window_mouse_adapter_rejects_geometry_dimensions_above_isize_max() {
+    let adapter = SelectionWindowMouseEventAdapter::default();
+    let event = SelectionWindowMouseEvent::Move {
+        x_px: 8.0,
+        y_px: 8.0,
+        modifiers: MouseModifiers::default(),
+    };
+    let too_large = (isize::MAX as usize) + 1;
+    let invalid_rows = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: too_large,
+        cols: 2,
+    };
+    let invalid_cols = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: too_large,
+    };
+
+    assert_eq!(adapter.translate(event, invalid_rows), None);
+    assert_eq!(adapter.translate(event, invalid_cols), None);
+}
+
+#[test]
+fn window_mouse_adapter_clamps_extreme_window_coordinates_without_overflow() {
+    let adapter = SelectionWindowMouseEventAdapter::new(SelectionWindowMouseEventAdapterConfig {
+        clamp_to_visible_grid: true,
+    });
+    let event = SelectionWindowMouseEvent::Move {
+        x_px: f32::MAX,
+        y_px: -f32::MAX,
+        modifiers: MouseModifiers::default(),
+    };
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: 3,
+    };
+
+    let translated = adapter.translate(event, geometry);
+    assert_eq!(
+        translated,
+        Some(SelectionMouseEvent::Move {
+            row: 0,
+            col: 2,
+            modifiers: MouseModifiers::default(),
+        })
+    );
+}
+
+#[test]
+fn selection_event_flow_config_window_mouse_builder_sets_private_field() {
+    let config = SelectionEventFlowConfig::default().with_window_mouse(
+        SelectionWindowMouseEventAdapterConfig {
+            clamp_to_visible_grid: false,
+        },
+    );
+
+    assert_eq!(
+        config.window_mouse(),
+        &SelectionWindowMouseEventAdapterConfig {
+            clamp_to_visible_grid: false,
+        }
+    );
+}
+
+#[test]
 fn selection_event_flow_auto_copies_drag_selection_on_left_release() {
     let mut terminal = Terminal::new(1, 10).unwrap();
     terminal.write_ascii_run(b"abcdefghi").unwrap();
@@ -411,4 +631,111 @@ fn selection_event_flow_delegates_paste_to_configured_source() {
         .expect("paste source should produce bytes");
     let expected = format!("{BRACKETED_PASTE_START}fallback{BRACKETED_PASTE_END}");
     assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn selection_event_flow_handles_window_mouse_events_end_to_end() {
+    let mut terminal = Terminal::new(1, 10).unwrap();
+    terminal.write_ascii_run(b"abcdefghi").unwrap();
+    let mut clipboard = NoopClipboard::new();
+    let mut flow = SelectionEventFlow::new(SelectionEventFlowConfig {
+        auto_copy_on_select: true,
+        ..SelectionEventFlowConfig::default()
+    });
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 10.0,
+        cell_height_px: 20.0,
+        rows: 1,
+        cols: 10,
+    };
+
+    let press = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Press {
+                x_px: 15.0,
+                y_px: 10.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+                timestamp_ms: 1000,
+            },
+            geometry,
+        )
+        .unwrap();
+    let move_event = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Move {
+                x_px: 35.0,
+                y_px: 10.0,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+    let release = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Release {
+                x_px: 35.0,
+                y_px: 10.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+
+    assert!(press.consumed);
+    assert!(!press.copied);
+    assert!(move_event.consumed);
+    assert!(!move_event.copied);
+    assert!(release.consumed);
+    assert!(release.copied);
+    assert_eq!(clipboard.get_text().unwrap().as_deref(), Some("bcd"));
+}
+
+#[test]
+fn selection_event_flow_ignores_window_events_that_do_not_map_to_cells() {
+    let mut terminal = Terminal::new(1, 10).unwrap();
+    let mut clipboard = NoopClipboard::new();
+    let config = SelectionEventFlowConfig {
+        auto_copy_on_select: true,
+        ..SelectionEventFlowConfig::default()
+    }
+    .with_window_mouse(SelectionWindowMouseEventAdapterConfig {
+        clamp_to_visible_grid: false,
+    });
+    let mut flow = SelectionEventFlow::new(config);
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 10.0,
+        cell_height_px: 20.0,
+        rows: 1,
+        cols: 10,
+    };
+
+    let outcome = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Press {
+                x_px: -1.0,
+                y_px: 10.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+                timestamp_ms: 100,
+            },
+            geometry,
+        )
+        .unwrap();
+
+    assert!(!outcome.consumed);
+    assert!(!outcome.copied);
 }

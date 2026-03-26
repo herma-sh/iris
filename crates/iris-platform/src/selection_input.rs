@@ -28,6 +28,191 @@ pub enum SelectionMouseEvent {
     },
 }
 
+/// Mouse events expressed in window pixel coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SelectionWindowMouseEvent {
+    /// Mouse button press in window pixel coordinates.
+    Press {
+        x_px: f32,
+        y_px: f32,
+        button: MouseButton,
+        modifiers: MouseModifiers,
+        timestamp_ms: u64,
+    },
+    /// Mouse move in window pixel coordinates.
+    Move {
+        x_px: f32,
+        y_px: f32,
+        modifiers: MouseModifiers,
+    },
+    /// Mouse button release in window pixel coordinates.
+    Release {
+        x_px: f32,
+        y_px: f32,
+        button: MouseButton,
+        modifiers: MouseModifiers,
+    },
+}
+
+/// Terminal cell geometry used to map window pixels into cell coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelectionWindowGeometry {
+    /// Left pixel origin of the terminal grid inside the window.
+    pub origin_x_px: f32,
+    /// Top pixel origin of the terminal grid inside the window.
+    pub origin_y_px: f32,
+    /// Cell width in pixels.
+    pub cell_width_px: f32,
+    /// Cell height in pixels.
+    pub cell_height_px: f32,
+    /// Number of visible terminal rows.
+    pub rows: usize,
+    /// Number of visible terminal columns.
+    pub cols: usize,
+}
+
+impl SelectionWindowGeometry {
+    fn is_valid(self) -> bool {
+        self.origin_x_px.is_finite()
+            && self.origin_y_px.is_finite()
+            && self.cell_width_px.is_finite()
+            && self.cell_width_px > 0.0
+            && self.cell_height_px.is_finite()
+            && self.cell_height_px > 0.0
+            && self.rows > 0
+            && self.rows <= isize::MAX as usize
+            && self.cols > 0
+            && self.cols <= isize::MAX as usize
+    }
+}
+
+/// Configuration for window-to-cell selection event adaptation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionWindowMouseEventAdapterConfig {
+    /// Clamps out-of-bounds points to the nearest visible cell when true.
+    pub clamp_to_visible_grid: bool,
+}
+
+impl Default for SelectionWindowMouseEventAdapterConfig {
+    fn default() -> Self {
+        Self {
+            clamp_to_visible_grid: true,
+        }
+    }
+}
+
+/// Adapter that maps window pixel mouse events to terminal cell events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionWindowMouseEventAdapter {
+    config: SelectionWindowMouseEventAdapterConfig,
+}
+
+impl SelectionWindowMouseEventAdapter {
+    /// Creates a new window-mouse event adapter.
+    #[must_use]
+    pub const fn new(config: SelectionWindowMouseEventAdapterConfig) -> Self {
+        Self { config }
+    }
+
+    /// Translates a window-space mouse event into a cell-space selection event.
+    #[must_use]
+    pub fn translate(
+        &self,
+        event: SelectionWindowMouseEvent,
+        geometry: SelectionWindowGeometry,
+    ) -> Option<SelectionMouseEvent> {
+        match event {
+            SelectionWindowMouseEvent::Press {
+                x_px,
+                y_px,
+                button,
+                modifiers,
+                timestamp_ms,
+            } => {
+                let (row, col) = self.window_point_to_cell(x_px, y_px, geometry)?;
+                Some(SelectionMouseEvent::Press {
+                    row,
+                    col,
+                    button,
+                    modifiers,
+                    timestamp_ms,
+                })
+            }
+            SelectionWindowMouseEvent::Move {
+                x_px,
+                y_px,
+                modifiers,
+            } => {
+                let (row, col) = self.window_point_to_cell(x_px, y_px, geometry)?;
+                Some(SelectionMouseEvent::Move {
+                    row,
+                    col,
+                    modifiers,
+                })
+            }
+            SelectionWindowMouseEvent::Release {
+                x_px,
+                y_px,
+                button,
+                modifiers,
+            } => {
+                let (row, col) = self.window_point_to_cell(x_px, y_px, geometry)?;
+                Some(SelectionMouseEvent::Release {
+                    row,
+                    col,
+                    button,
+                    modifiers,
+                })
+            }
+        }
+    }
+
+    fn window_point_to_cell(
+        &self,
+        x_px: f32,
+        y_px: f32,
+        geometry: SelectionWindowGeometry,
+    ) -> Option<(usize, usize)> {
+        if !geometry.is_valid() || !x_px.is_finite() || !y_px.is_finite() {
+            return None;
+        }
+
+        let rel_x = x_px - geometry.origin_x_px;
+        let rel_y = y_px - geometry.origin_y_px;
+        let col_f = (rel_x / geometry.cell_width_px).floor();
+        let row_f = (rel_y / geometry.cell_height_px).floor();
+        let mut col = Self::floor_to_isize_saturating(col_f);
+        let mut row = Self::floor_to_isize_saturating(row_f);
+        let max_col = geometry.cols as isize - 1;
+        let max_row = geometry.rows as isize - 1;
+
+        if self.config.clamp_to_visible_grid {
+            col = col.clamp(0, max_col);
+            row = row.clamp(0, max_row);
+        } else if col < 0 || row < 0 || col > max_col || row > max_row {
+            return None;
+        }
+
+        Some((row as usize, col as usize))
+    }
+
+    fn floor_to_isize_saturating(value: f32) -> isize {
+        if value >= isize::MAX as f32 {
+            isize::MAX
+        } else if value <= isize::MIN as f32 {
+            isize::MIN
+        } else {
+            value as isize
+        }
+    }
+}
+
+impl Default for SelectionWindowMouseEventAdapter {
+    fn default() -> Self {
+        Self::new(SelectionWindowMouseEventAdapterConfig::default())
+    }
+}
+
 /// Configuration for multi-click selection detection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SelectionMouseEventAdapterConfig {
@@ -157,6 +342,8 @@ impl Default for SelectionMouseEventAdapter {
 pub struct SelectionEventFlowConfig {
     /// Multi-click adapter settings for raw mouse press classification.
     pub mouse: SelectionMouseEventAdapterConfig,
+    /// Window-space adapter settings for pixel-to-cell translation.
+    window_mouse: SelectionWindowMouseEventAdapterConfig,
     /// Clipboard target for copy operations.
     pub copy_target: ClipboardSelection,
     /// Clipboard source strategy for paste operations.
@@ -169,10 +356,29 @@ impl Default for SelectionEventFlowConfig {
     fn default() -> Self {
         Self {
             mouse: SelectionMouseEventAdapterConfig::default(),
+            window_mouse: SelectionWindowMouseEventAdapterConfig::default(),
             copy_target: ClipboardSelection::Clipboard,
             paste_source: PasteSource::PrimaryThenClipboard,
             auto_copy_on_select: false,
         }
+    }
+}
+
+impl SelectionEventFlowConfig {
+    /// Sets window-space adapter settings for pixel-to-cell translation.
+    #[must_use]
+    pub const fn with_window_mouse(
+        mut self,
+        config: SelectionWindowMouseEventAdapterConfig,
+    ) -> Self {
+        self.window_mouse = config;
+        self
+    }
+
+    /// Returns window-space adapter settings for pixel-to-cell translation.
+    #[must_use]
+    pub const fn window_mouse(&self) -> &SelectionWindowMouseEventAdapterConfig {
+        &self.window_mouse
     }
 }
 
@@ -192,6 +398,7 @@ pub struct SelectionEventFlowOutcome {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectionEventFlow {
     mouse_adapter: SelectionMouseEventAdapter,
+    window_mouse_adapter: SelectionWindowMouseEventAdapter,
     clipboard_controller: SelectionClipboardController,
     auto_copy_on_select: bool,
 }
@@ -202,6 +409,7 @@ impl SelectionEventFlow {
     pub const fn new(config: SelectionEventFlowConfig) -> Self {
         Self {
             mouse_adapter: SelectionMouseEventAdapter::new(config.mouse),
+            window_mouse_adapter: SelectionWindowMouseEventAdapter::new(config.window_mouse),
             clipboard_controller: SelectionClipboardController::new(
                 config.copy_target,
                 config.paste_source,
@@ -234,6 +442,22 @@ impl SelectionEventFlow {
         };
 
         Ok(SelectionEventFlowOutcome { consumed, copied })
+    }
+
+    /// Handles a window-space mouse event by translating it to cell
+    /// coordinates and applying normal selection event flow.
+    pub fn handle_window_mouse_event(
+        &mut self,
+        terminal: &mut Terminal,
+        clipboard: &mut impl Clipboard,
+        event: SelectionWindowMouseEvent,
+        geometry: SelectionWindowGeometry,
+    ) -> Result<SelectionEventFlowOutcome> {
+        let Some(cell_event) = self.window_mouse_adapter.translate(event, geometry) else {
+            return Ok(SelectionEventFlowOutcome::default());
+        };
+
+        self.handle_mouse_event(terminal, clipboard, cell_event)
     }
 
     /// Copies the current terminal selection to the configured target.

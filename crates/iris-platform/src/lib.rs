@@ -21,5 +21,7 @@ pub use ime::{ImeHandler, ImePosition, NoopImeHandler};
 pub use pty::{PortablePtyBackend, PtyBackend, PtyConfig};
 pub use selection_input::{
     SelectionEventFlow, SelectionEventFlowConfig, SelectionEventFlowOutcome, SelectionMouseEvent,
-    SelectionMouseEventAdapter, SelectionMouseEventAdapterConfig,
+    SelectionMouseEventAdapter, SelectionMouseEventAdapterConfig, SelectionWindowGeometry,
+    SelectionWindowMouseEvent, SelectionWindowMouseEventAdapter,
+    SelectionWindowMouseEventAdapterConfig,
 };
