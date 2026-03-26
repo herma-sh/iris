@@ -324,12 +324,10 @@ impl NativeClipboard {
     ) -> Result<Option<String>> {
         match result {
             Ok(text) => Ok(Some(text)),
+            Err(arboard::Error::ContentNotAvailable) => Ok(None),
             Err(error) => {
                 tracing::debug!(?error, "clipboard read failed");
-                match error {
-                    arboard::Error::ContentNotAvailable => Ok(None),
-                    _ => Err(ClipboardError::ReadUnavailable.into()),
-                }
+                Err(ClipboardError::ReadUnavailable.into())
             }
         }
     }
@@ -550,19 +548,40 @@ impl PlatformClipboard {
         }
     }
 
-    pub(crate) fn from_native_or_fallback(native: Result<NativeClipboard>) -> Self {
+    pub(crate) fn from_native_or_fallback(
+        native: std::result::Result<NativeClipboard, ClipboardError>,
+    ) -> std::result::Result<Self, ClipboardError> {
         let inner = match native {
             Ok(native) => PlatformClipboardBackend::Native(native),
-            Err(_) => PlatformClipboardBackend::Noop(Self::fallback_noop()),
+            Err(ClipboardError::InitializationFailed) => {
+                PlatformClipboardBackend::Noop(Self::fallback_noop())
+            }
+            Err(error) => return Err(error),
         };
 
-        Self { inner }
+        Ok(Self { inner })
     }
 }
 
 impl Default for PlatformClipboard {
     fn default() -> Self {
-        Self::from_native_or_fallback(NativeClipboard::new())
+        let native = NativeClipboard::new().map_err(|error| match error {
+            Error::Clipboard(clipboard_error) => clipboard_error,
+            _ => ClipboardError::InitializationFailed,
+        });
+
+        match Self::from_native_or_fallback(native) {
+            Ok(clipboard) => clipboard,
+            Err(error) => {
+                tracing::debug!(
+                    ?error,
+                    "unexpected native clipboard setup failure; using noop fallback"
+                );
+                Self {
+                    inner: PlatformClipboardBackend::Noop(Self::fallback_noop()),
+                }
+            }
+        }
     }
 }
 

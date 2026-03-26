@@ -428,9 +428,9 @@ fn native_clipboard_maps_write_errors_to_write_unavailable() {
 
 #[test]
 fn platform_clipboard_falls_back_to_noop_when_native_init_fails() {
-    let mut clipboard = PlatformClipboard::from_native_or_fallback(Err(
-        ClipboardError::InitializationFailed.into(),
-    ));
+    let mut clipboard =
+        PlatformClipboard::from_native_or_fallback(Err(ClipboardError::InitializationFailed))
+            .unwrap();
     clipboard.set_text("fallback").unwrap();
 
     assert_eq!(clipboard.get_text().unwrap().as_deref(), Some("fallback"));
@@ -438,9 +438,9 @@ fn platform_clipboard_falls_back_to_noop_when_native_init_fails() {
 
 #[test]
 fn platform_clipboard_fallback_primary_behavior_matches_target() {
-    let mut clipboard = PlatformClipboard::from_native_or_fallback(Err(
-        ClipboardError::InitializationFailed.into(),
-    ));
+    let mut clipboard =
+        PlatformClipboard::from_native_or_fallback(Err(ClipboardError::InitializationFailed))
+            .unwrap();
 
     #[cfg(target_os = "linux")]
     {
@@ -457,4 +457,10 @@ fn platform_clipboard_fallback_primary_behavior_matches_target() {
             ))
         ));
     }
+}
+
+#[test]
+fn platform_clipboard_propagates_non_init_native_errors() {
+    let result = PlatformClipboard::from_native_or_fallback(Err(ClipboardError::ReadUnavailable));
+    assert!(matches!(result, Err(ClipboardError::ReadUnavailable)));
 }
