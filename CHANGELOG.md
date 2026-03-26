@@ -18,6 +18,8 @@ Work window: `2026-03-22` to present
 - Selection-event flow unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for drag release copy, double-click word copy, disabled auto-copy behavior, and configured paste-source delegation.
 - Native clipboard backend integration in `iris-platform` via `NativeClipboard` (`arboard`) for real system clipboard read/write/clear behavior, including Linux PRIMARY selection handling.
 - Clipboard backend coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for native error mapping and `PlatformClipboard` native-init fallback behavior.
+- Window-space selection input integration in `iris-platform` via `SelectionWindowMouseEvent`, `SelectionWindowGeometry`, `SelectionWindowMouseEventAdapter`, and `SelectionEventFlow::handle_window_mouse_event` to route pixel-coordinates from UI event loops into terminal-cell selection flow.
+- Selection-input unit coverage in `crates/iris-platform/src/test/selection_input/tests.rs` for window-to-cell translation, clamp vs drop behavior for out-of-bounds pointer events, invalid geometry rejection, and end-to-end window-event selection copy flow.
 
 #### Changed
 
