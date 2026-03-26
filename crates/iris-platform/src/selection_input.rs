@@ -80,7 +80,9 @@ impl SelectionWindowGeometry {
             && self.cell_height_px.is_finite()
             && self.cell_height_px > 0.0
             && self.rows > 0
+            && self.rows <= isize::MAX as usize
             && self.cols > 0
+            && self.cols <= isize::MAX as usize
     }
 }
 

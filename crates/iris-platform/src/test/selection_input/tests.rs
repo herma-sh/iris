@@ -344,6 +344,36 @@ fn window_mouse_adapter_rejects_invalid_geometry() {
 }
 
 #[test]
+fn window_mouse_adapter_rejects_geometry_dimensions_above_isize_max() {
+    let adapter = SelectionWindowMouseEventAdapter::default();
+    let event = SelectionWindowMouseEvent::Move {
+        x_px: 8.0,
+        y_px: 8.0,
+        modifiers: MouseModifiers::default(),
+    };
+    let too_large = (isize::MAX as usize) + 1;
+    let invalid_rows = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: too_large,
+        cols: 2,
+    };
+    let invalid_cols = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 8.0,
+        cell_height_px: 16.0,
+        rows: 2,
+        cols: too_large,
+    };
+
+    assert_eq!(adapter.translate(event, invalid_rows), None);
+    assert_eq!(adapter.translate(event, invalid_cols), None);
+}
+
+#[test]
 fn window_mouse_adapter_clamps_extreme_window_coordinates_without_overflow() {
     let adapter = SelectionWindowMouseEventAdapter::new(SelectionWindowMouseEventAdapterConfig {
         clamp_to_visible_grid: true,
