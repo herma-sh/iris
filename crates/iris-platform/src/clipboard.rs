@@ -579,7 +579,7 @@ impl Default for PlatformClipboard {
         match Self::from_native_or_fallback(native) {
             Ok(clipboard) => clipboard,
             Err(error) => {
-                tracing::debug!(
+                tracing::warn!(
                     ?error,
                     "unexpected native clipboard setup failure; using noop fallback"
                 );
