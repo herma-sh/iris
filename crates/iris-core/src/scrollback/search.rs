@@ -19,7 +19,7 @@ impl SearchResult {
     /// Returns the first column immediately after the match.
     #[must_use]
     pub const fn end_column(&self) -> usize {
-        self.column + self.length
+        self.column.saturating_add(self.length)
     }
 }
 

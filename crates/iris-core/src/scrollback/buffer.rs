@@ -97,7 +97,16 @@ impl Scrollback {
             return None;
         }
 
-        self.lines.iter().find(|line| line.number == number)
+        let (first, second) = self.lines.as_slices();
+        if let Ok(index) = first.binary_search_by_key(&number, |line| line.number) {
+            return first.get(index);
+        }
+        if let Ok(index) = second.binary_search_by_key(&number, |line| line.number) {
+            let combined_index = first.len().saturating_add(index);
+            return self.lines.get(combined_index);
+        }
+
+        None
     }
 
     /// Iterates retained lines in newest-first order.
