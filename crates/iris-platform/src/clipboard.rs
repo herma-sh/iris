@@ -352,7 +352,10 @@ impl NativeClipboard {
             Err(arboard::Error::ClipboardNotSupported) => {
                 Err(ClipboardError::PrimarySelectionUnavailable.into())
             }
-            Err(_) => Err(ClipboardError::ReadUnavailable.into()),
+            Err(error) => {
+                tracing::debug!(?error, "primary clipboard read failed");
+                Err(ClipboardError::ReadUnavailable.into())
+            }
         }
     }
 
@@ -363,7 +366,10 @@ impl NativeClipboard {
             Err(arboard::Error::ClipboardNotSupported) => {
                 Err(ClipboardError::PrimarySelectionUnavailable.into())
             }
-            Err(_) => Err(ClipboardError::WriteUnavailable.into()),
+            Err(error) => {
+                tracing::debug!(?error, "primary clipboard write failed");
+                Err(ClipboardError::WriteUnavailable.into())
+            }
         }
     }
 }

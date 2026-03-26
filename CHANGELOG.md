@@ -23,6 +23,7 @@ Work window: `2026-03-22` to present
 
 - Native clipboard error handling in `iris-platform` now maps backend creation failures to `ClipboardError::InitializationFailed` and emits debug-level tracing for native clipboard read/write failures before preserving existing public error mappings.
 - `NativeClipboard::map_read_text` now treats `arboard::Error::ContentNotAvailable` as an expected empty-read path without failure logging, and `PlatformClipboard::from_native_or_fallback` now only falls back to noop on `ClipboardError::InitializationFailed` while propagating other native-init error variants.
+- Linux primary clipboard error mapping in `NativeClipboard` now emits debug-level tracing for non-`ClipboardNotSupported` primary read/write failures before mapping them to `ClipboardError::ReadUnavailable`/`ClipboardError::WriteUnavailable`.
 
 ### 2026-03-25
 
