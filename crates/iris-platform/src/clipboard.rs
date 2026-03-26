@@ -298,8 +298,10 @@ pub struct NativeClipboard {
 impl NativeClipboard {
     /// Creates a native clipboard backend.
     pub fn new() -> Result<Self> {
-        let clipboard = arboard::Clipboard::new()
-            .map_err(|_| Error::Clipboard(ClipboardError::ReadUnavailable))?;
+        let clipboard = arboard::Clipboard::new().map_err(|error| {
+            tracing::debug!(?error, "clipboard initialization failed");
+            Error::Clipboard(ClipboardError::InitializationFailed)
+        })?;
         Ok(Self {
             inner: Mutex::new(clipboard),
         })
@@ -317,18 +319,29 @@ impl NativeClipboard {
             .map_err(|_| Error::Clipboard(ClipboardError::WriteUnavailable))
     }
 
-    fn map_read_text(
+    pub(crate) fn map_read_text(
         result: std::result::Result<String, arboard::Error>,
     ) -> Result<Option<String>> {
         match result {
             Ok(text) => Ok(Some(text)),
-            Err(arboard::Error::ContentNotAvailable) => Ok(None),
-            Err(_) => Err(ClipboardError::ReadUnavailable.into()),
+            Err(error) => {
+                tracing::debug!(?error, "clipboard read failed");
+                match error {
+                    arboard::Error::ContentNotAvailable => Ok(None),
+                    _ => Err(ClipboardError::ReadUnavailable.into()),
+                }
+            }
         }
     }
 
-    fn map_write_result(result: std::result::Result<(), arboard::Error>) -> Result<()> {
-        result.map_err(|_| ClipboardError::WriteUnavailable.into())
+    pub(crate) fn map_write_result(result: std::result::Result<(), arboard::Error>) -> Result<()> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                tracing::debug!(?error, "clipboard write failed");
+                Err(ClipboardError::WriteUnavailable.into())
+            }
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -383,12 +396,12 @@ impl Clipboard for NativeClipboard {
         #[cfg(target_os = "linux")]
         {
             let mut clipboard = self.lock_for_read()?;
-            return Self::map_primary_read_text(
+            Self::map_primary_read_text(
                 clipboard
                     .get()
                     .clipboard(LinuxClipboardKind::Primary)
                     .text(),
-            );
+            )
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -401,12 +414,12 @@ impl Clipboard for NativeClipboard {
         #[cfg(target_os = "linux")]
         {
             let mut clipboard = self.lock_for_write()?;
-            return Self::map_primary_write_result(
+            Self::map_primary_write_result(
                 clipboard
                     .set()
                     .clipboard(LinuxClipboardKind::Primary)
                     .text(text.to_string()),
-            );
+            )
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -420,11 +433,11 @@ impl Clipboard for NativeClipboard {
         #[cfg(target_os = "linux")]
         {
             let mut clipboard = self.lock_for_write()?;
-            return Self::map_primary_write_result(
+            Self::map_primary_write_result(
                 clipboard
                     .clear_with()
                     .clipboard(LinuxClipboardKind::Primary),
-            );
+            )
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -537,7 +550,7 @@ impl PlatformClipboard {
         }
     }
 
-    fn from_native_or_fallback(native: Result<NativeClipboard>) -> Self {
+    pub(crate) fn from_native_or_fallback(native: Result<NativeClipboard>) -> Self {
         let inner = match native {
             Ok(native) => PlatformClipboardBackend::Native(native),
             Err(_) => PlatformClipboardBackend::Noop(Self::fallback_noop()),

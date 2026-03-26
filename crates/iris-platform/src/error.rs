@@ -49,6 +49,9 @@ pub enum PtyError {
 /// Clipboard-specific failures.
 #[derive(Debug, Error)]
 pub enum ClipboardError {
+    /// Clipboard backend initialization failed.
+    #[error("clipboard initialization failed")]
+    InitializationFailed,
     /// Clipboard reads are unavailable.
     #[error("clipboard read is not available")]
     ReadUnavailable,

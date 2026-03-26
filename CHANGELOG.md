@@ -19,6 +19,10 @@ Work window: `2026-03-22` to present
 - Native clipboard backend integration in `iris-platform` via `NativeClipboard` (`arboard`) for real system clipboard read/write/clear behavior, including Linux PRIMARY selection handling.
 - Clipboard backend coverage in `crates/iris-platform/src/test/clipboard/tests.rs` for native error mapping and `PlatformClipboard` native-init fallback behavior.
 
+#### Changed
+
+- Native clipboard error handling in `iris-platform` now maps backend creation failures to `ClipboardError::InitializationFailed` and emits debug-level tracing for native clipboard read/write failures before preserving existing public error mappings.
+
 ### 2026-03-25
 
 #### Added

@@ -548,6 +548,7 @@ dependencies = [
  "portable-pty",
  "pretty_assertions",
  "thiserror",
+ "tracing",
 ]
 
 [[package]]
