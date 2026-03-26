@@ -30,6 +30,7 @@ Work window: `2026-03-22` to present
 - Now uses saturating float-to-`isize` conversion in `SelectionWindowMouseEventAdapter::window_point_to_cell` before clamp/bounds handling to avoid overflow when mapping extreme window coordinates.
 - Now rejects `rows`/`cols` values above `isize::MAX` in `SelectionWindowGeometry::is_valid` so grid dimension casts in window-event translation cannot wrap to negative values.
 - `SelectionEventFlowConfig` now keeps `window_mouse` as a private field with `with_window_mouse(...)` and `window_mouse()` APIs to avoid downstream exhaustive struct-literal breakage from future config evolution.
+- Updated `docs/phases/03.md` with a closure-oriented test coverage checklist and acceptance status table that maps implemented behavior to concrete tests and marks deferred criteria explicitly.
 
 ### 2026-03-25
 
