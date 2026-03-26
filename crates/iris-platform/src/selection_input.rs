@@ -1,6 +1,9 @@
-use crate::clipboard::{Clipboard, ClipboardSelection, PasteSource, SelectionClipboardController};
-use crate::error::Result;
-use iris_core::{MouseButton, MouseModifiers, SelectionInputEvent, Terminal};
+use crate::clipboard::{
+    paste_terminal_bytes_from_clipboard, Clipboard, ClipboardSelection, PasteSource,
+    SelectionClipboardController,
+};
+use crate::error::{ClipboardError, Error, Result};
+use iris_core::{MouseButton, MouseModifiers, SelectionInputEvent, SelectionKind, Terminal};
 
 /// Raw mouse events used to drive selection input integration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +55,28 @@ pub enum SelectionWindowMouseEvent {
         button: MouseButton,
         modifiers: MouseModifiers,
     },
+}
+
+/// Selection direction used for keyboard-driven extension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectionDirection {
+    /// Extend selection one column to the left.
+    Left,
+    /// Extend selection one column to the right.
+    Right,
+    /// Extend selection one row upward.
+    Up,
+    /// Extend selection one row downward.
+    Down,
+}
+
+/// Keyboard event used to drive selection extension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionKeyboardEvent {
+    /// Directional extension requested by keyboard input.
+    pub direction: SelectionDirection,
+    /// Keyboard modifiers from the host input event.
+    pub modifiers: MouseModifiers,
 }
 
 /// Terminal cell geometry used to map window pixels into cell coordinates.
@@ -460,6 +485,78 @@ impl SelectionEventFlow {
         self.handle_mouse_event(terminal, clipboard, cell_event)
     }
 
+    /// Handles keyboard-driven selection extension.
+    ///
+    /// This consumes `Shift+Arrow` events and maps them to simple selection
+    /// start/extend behavior anchored at the current cursor position.
+    pub fn handle_keyboard_event(
+        &mut self,
+        terminal: &mut Terminal,
+        event: SelectionKeyboardEvent,
+    ) -> bool {
+        if !event.modifiers.shift {
+            return false;
+        }
+
+        let Some((start_row, start_col)) = Self::cursor_position_in_bounds(terminal) else {
+            return false;
+        };
+        let (target_row, target_col) =
+            Self::step_selection_position(terminal, start_row, start_col, event.direction);
+
+        if !terminal.has_selection() && !terminal.is_selecting() {
+            terminal.start_selection(start_row, start_col, SelectionKind::Simple);
+        }
+
+        terminal.move_cursor(target_row, target_col);
+        terminal.extend_selection(target_row, target_col);
+        terminal.complete_selection();
+        true
+    }
+
+    /// Returns PRIMARY paste bytes when the event is a middle-button release.
+    ///
+    /// On platforms where PRIMARY is unavailable this returns `Ok(None)`.
+    pub fn paste_primary_on_middle_click(
+        &self,
+        terminal: &Terminal,
+        clipboard: &impl Clipboard,
+        event: SelectionMouseEvent,
+    ) -> Result<Option<Vec<u8>>> {
+        if !matches!(
+            event,
+            SelectionMouseEvent::Release {
+                button: MouseButton::Middle,
+                ..
+            }
+        ) {
+            return Ok(None);
+        }
+
+        match paste_terminal_bytes_from_clipboard(terminal, clipboard, ClipboardSelection::Primary)
+        {
+            Ok(payload) => Ok(payload),
+            Err(Error::Clipboard(ClipboardError::PrimarySelectionUnavailable)) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Returns PRIMARY paste bytes when a window-space middle-button release
+    /// maps to a valid terminal cell.
+    pub fn paste_primary_on_window_middle_click(
+        &self,
+        terminal: &Terminal,
+        clipboard: &impl Clipboard,
+        event: SelectionWindowMouseEvent,
+        geometry: SelectionWindowGeometry,
+    ) -> Result<Option<Vec<u8>>> {
+        let Some(cell_event) = self.window_mouse_adapter.translate(event, geometry) else {
+            return Ok(None);
+        };
+
+        self.paste_primary_on_middle_click(terminal, clipboard, cell_event)
+    }
+
     /// Copies the current terminal selection to the configured target.
     pub fn copy_selection(
         &self,
@@ -501,6 +598,36 @@ impl SelectionEventFlow {
     /// Resets multi-click tracking state.
     pub fn reset_click_state(&mut self) {
         self.mouse_adapter.reset();
+    }
+
+    fn cursor_position_in_bounds(terminal: &Terminal) -> Option<(usize, usize)> {
+        let rows = terminal.grid.rows();
+        let cols = terminal.grid.cols();
+        if rows == 0 || cols == 0 {
+            return None;
+        }
+
+        Some((
+            terminal.cursor.position.row.min(rows.saturating_sub(1)),
+            terminal.cursor.position.col.min(cols.saturating_sub(1)),
+        ))
+    }
+
+    fn step_selection_position(
+        terminal: &Terminal,
+        row: usize,
+        col: usize,
+        direction: SelectionDirection,
+    ) -> (usize, usize) {
+        let max_row = terminal.grid.rows().saturating_sub(1);
+        let max_col = terminal.grid.cols().saturating_sub(1);
+
+        match direction {
+            SelectionDirection::Left => (row, col.saturating_sub(1)),
+            SelectionDirection::Right => (row, (col + 1).min(max_col)),
+            SelectionDirection::Up => (row.saturating_sub(1), col),
+            SelectionDirection::Down => ((row + 1).min(max_row), col),
+        }
     }
 
     const fn should_copy_after_event(&self, event: SelectionInputEvent) -> bool {

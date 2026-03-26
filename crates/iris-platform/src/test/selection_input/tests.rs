@@ -3,9 +3,10 @@ use crate::clipboard::{
     BRACKETED_PASTE_START,
 };
 use crate::selection_input::{
-    SelectionEventFlow, SelectionEventFlowConfig, SelectionMouseEvent, SelectionMouseEventAdapter,
-    SelectionMouseEventAdapterConfig, SelectionWindowGeometry, SelectionWindowMouseEvent,
-    SelectionWindowMouseEventAdapter, SelectionWindowMouseEventAdapterConfig,
+    SelectionDirection, SelectionEventFlow, SelectionEventFlowConfig, SelectionKeyboardEvent,
+    SelectionMouseEvent, SelectionMouseEventAdapter, SelectionMouseEventAdapterConfig,
+    SelectionWindowGeometry, SelectionWindowMouseEvent, SelectionWindowMouseEventAdapter,
+    SelectionWindowMouseEventAdapterConfig,
 };
 use iris_core::{Action, MouseButton, MouseModifiers, SelectionInputEvent, Terminal};
 
@@ -631,6 +632,297 @@ fn selection_event_flow_delegates_paste_to_configured_source() {
         .expect("paste source should produce bytes");
     let expected = format!("{BRACKETED_PASTE_START}fallback{BRACKETED_PASTE_END}");
     assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn selection_event_flow_shift_arrow_extends_selection_from_cursor() {
+    let mut terminal = Terminal::new(1, 8).unwrap();
+    terminal.write_ascii_run(b"abcdefg").unwrap();
+    terminal.move_cursor(0, 1);
+    let mut flow = SelectionEventFlow::default();
+
+    let handled_first = flow.handle_keyboard_event(
+        &mut terminal,
+        SelectionKeyboardEvent {
+            direction: SelectionDirection::Right,
+            modifiers: MouseModifiers {
+                shift: true,
+                ..MouseModifiers::default()
+            },
+        },
+    );
+    let handled_second = flow.handle_keyboard_event(
+        &mut terminal,
+        SelectionKeyboardEvent {
+            direction: SelectionDirection::Right,
+            modifiers: MouseModifiers {
+                shift: true,
+                ..MouseModifiers::default()
+            },
+        },
+    );
+
+    assert!(handled_first);
+    assert!(handled_second);
+    assert_eq!(terminal.copy_selection_text().as_deref(), Some("bcd"));
+}
+
+#[test]
+fn selection_event_flow_ignores_arrow_events_without_shift_modifier() {
+    let mut terminal = Terminal::new(1, 8).unwrap();
+    terminal.write_ascii_run(b"abcdefg").unwrap();
+    terminal.move_cursor(0, 1);
+    let mut flow = SelectionEventFlow::default();
+
+    let handled = flow.handle_keyboard_event(
+        &mut terminal,
+        SelectionKeyboardEvent {
+            direction: SelectionDirection::Right,
+            modifiers: MouseModifiers::default(),
+        },
+    );
+
+    assert!(!handled);
+    assert!(!terminal.has_selection());
+}
+
+#[test]
+fn selection_event_flow_middle_click_pastes_primary_selection_bytes() {
+    let mut terminal = Terminal::new(1, 8).unwrap();
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![2004].into(),
+        })
+        .unwrap();
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_primary("primary-paste").unwrap();
+    let flow = SelectionEventFlow::default();
+
+    let payload = flow
+        .paste_primary_on_middle_click(
+            &terminal,
+            &clipboard,
+            SelectionMouseEvent::Release {
+                row: 0,
+                col: 1,
+                button: MouseButton::Middle,
+                modifiers: MouseModifiers::default(),
+            },
+        )
+        .unwrap()
+        .expect("middle click should yield primary paste payload");
+
+    let expected = format!("{BRACKETED_PASTE_START}primary-paste{BRACKETED_PASTE_END}");
+    assert_eq!(payload, expected.into_bytes());
+}
+
+#[test]
+fn selection_event_flow_middle_click_returns_none_when_primary_is_unavailable() {
+    let terminal = Terminal::new(1, 8).unwrap();
+    let clipboard = NoopClipboard::new();
+    let flow = SelectionEventFlow::default();
+
+    let payload = flow
+        .paste_primary_on_middle_click(
+            &terminal,
+            &clipboard,
+            SelectionMouseEvent::Release {
+                row: 0,
+                col: 0,
+                button: MouseButton::Middle,
+                modifiers: MouseModifiers::default(),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(payload, None);
+}
+
+#[test]
+fn selection_event_flow_non_middle_click_does_not_trigger_primary_paste() {
+    let terminal = Terminal::new(1, 8).unwrap();
+    let clipboard = NoopClipboard::with_primary_selection();
+    let flow = SelectionEventFlow::default();
+
+    let payload = flow
+        .paste_primary_on_middle_click(
+            &terminal,
+            &clipboard,
+            SelectionMouseEvent::Release {
+                row: 0,
+                col: 0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+            },
+        )
+        .unwrap();
+
+    assert_eq!(payload, None);
+}
+
+#[test]
+fn selection_event_flow_window_middle_click_pastes_primary_selection() {
+    let terminal = Terminal::new(1, 8).unwrap();
+    let mut clipboard = NoopClipboard::with_primary_selection();
+    clipboard.set_primary("primary-window").unwrap();
+    let flow = SelectionEventFlow::default();
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 10.0,
+        cell_height_px: 20.0,
+        rows: 1,
+        cols: 8,
+    };
+
+    let payload = flow
+        .paste_primary_on_window_middle_click(
+            &terminal,
+            &clipboard,
+            SelectionWindowMouseEvent::Release {
+                x_px: 15.0,
+                y_px: 10.0,
+                button: MouseButton::Middle,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+
+    assert_eq!(payload, Some(b"primary-window".to_vec()));
+}
+
+#[test]
+fn selection_event_flow_handles_window_selection_with_wide_and_emoji_cells() {
+    let mut terminal = Terminal::new(1, 12).unwrap();
+    terminal.write_char('A').unwrap();
+    terminal.write_char('你').unwrap();
+    terminal.write_char('🙂').unwrap();
+    terminal.write_char('B').unwrap();
+    let mut clipboard = NoopClipboard::new();
+    let mut flow = SelectionEventFlow::new(SelectionEventFlowConfig {
+        auto_copy_on_select: true,
+        ..SelectionEventFlowConfig::default()
+    });
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 10.0,
+        cell_height_px: 20.0,
+        rows: 1,
+        cols: 12,
+    };
+
+    let _ = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Press {
+                x_px: 5.0,
+                y_px: 10.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+                timestamp_ms: 100,
+            },
+            geometry,
+        )
+        .unwrap();
+    let _ = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Move {
+                x_px: 65.0,
+                y_px: 10.0,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+    let release = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Release {
+                x_px: 65.0,
+                y_px: 10.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+    let copied = clipboard
+        .get_text()
+        .unwrap()
+        .expect("selection should copy non-empty text");
+
+    assert!(release.copied);
+    assert!(copied.contains('你'));
+    assert!(copied.contains('🙂'));
+}
+
+#[test]
+fn selection_event_flow_handles_window_selection_across_wrapped_lines() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal.write_ascii_run(b"abcdef").unwrap();
+    let mut clipboard = NoopClipboard::new();
+    let mut flow = SelectionEventFlow::new(SelectionEventFlowConfig {
+        auto_copy_on_select: true,
+        ..SelectionEventFlowConfig::default()
+    });
+    let geometry = SelectionWindowGeometry {
+        origin_x_px: 0.0,
+        origin_y_px: 0.0,
+        cell_width_px: 10.0,
+        cell_height_px: 20.0,
+        rows: 2,
+        cols: 4,
+    };
+
+    let _ = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Press {
+                x_px: 25.0,
+                y_px: 10.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+                timestamp_ms: 100,
+            },
+            geometry,
+        )
+        .unwrap();
+    let _ = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Move {
+                x_px: 15.0,
+                y_px: 30.0,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+    let release = flow
+        .handle_window_mouse_event(
+            &mut terminal,
+            &mut clipboard,
+            SelectionWindowMouseEvent::Release {
+                x_px: 15.0,
+                y_px: 30.0,
+                button: MouseButton::Left,
+                modifiers: MouseModifiers::default(),
+            },
+            geometry,
+        )
+        .unwrap();
+
+    assert!(release.copied);
+    assert_eq!(clipboard.get_text().unwrap().as_deref(), Some("cd\nef"));
 }
 
 #[test]
