@@ -18,6 +18,7 @@ Work window: `2026-03-26` to present
 - Terminal-integrated scrollback history capture for primary-screen upward scrolling (`index`/`SU`) with alternate-screen isolation, plus viewport scroll commands (`scroll_line_up/down`, `scroll_page_up/down`, `scroll_to_top`, `scroll_to_bottom`) in `crates/iris-core/src/terminal`.
 - Terminal helper APIs for phase-4 integration consumers: `Terminal::scrollback`, `Terminal::scrollback_view_offset`, `Terminal::search_scrollback`, and `Terminal::new_with_scrollback`.
 - Viewport-projection APIs in `iris-core::Terminal` for scrollback navigation consumers: `viewport_row_cells` and `viewport_search_matches`, plus scrollback oldest-index lookup helpers for line-number-to-row mapping.
+- Optional search-highlight rendering flow in `iris-render-wgpu::TerminalRenderer` via `prepare_terminal_with_search` and `update_terminal_with_search`, including incremental repaint tracking when visible matches change.
 - Phase-4 unit coverage updates in `crates/iris-core/src/test/scrollback/tests.rs` and `crates/iris-core/src/test/terminal/tests.rs` for search-engine navigation/wrap/whole-word/regex behavior, primary-vs-alternate scrollback capture behavior, and viewport offset command semantics.
 
 #### Changed
@@ -25,6 +26,8 @@ Work window: `2026-03-26` to present
 - `Scrollback` equality now ignores per-line capture timestamps and allocation-accounting differences (`memory_bytes`) so semantic history comparisons remain content-based across equivalent retained lines.
 - `Terminal::search_scrollback` now accepts `SearchConfig` and forwards to config-aware scrollback search so regex and whole-word behavior are available through the terminal API surface.
 - `SearchEngine` setters now no-op when values are unchanged (`set_pattern`, `set_whole_word`, `set_wrap`) to preserve existing navigation state when callers re-apply identical settings.
+- `iris-render-wgpu::TerminalRenderer` search highlighting now derives ranges from the currently rendered live grid rows and skips highlight application when the viewport is detached into scrollback history, avoiding coordinate-space mismatches.
+- `iris-render-wgpu::TerminalRenderer` now caches visible-row search input across terminal updates and only rebuilds it when grid content or dimensions change, removing per-call temporary scrollback allocations from search highlight snapshots.
 
 ### 2026-03-26
 
