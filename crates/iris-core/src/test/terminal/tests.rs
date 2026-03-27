@@ -979,7 +979,24 @@ fn terminal_viewport_search_matches_maps_visible_rows() {
     };
 
     let matches = terminal.viewport_search_matches(&config);
+    let first_visible_line = terminal
+        .scrollback
+        .oldest(2)
+        .map(|line| line.number)
+        .unwrap();
+    let second_visible_line = terminal
+        .scrollback
+        .oldest(3)
+        .map(|line| line.number)
+        .unwrap();
+
     assert_eq!(matches.len(), 2);
     assert_eq!(matches[0].row, 0);
+    assert_eq!(matches[0].line_number, first_visible_line);
+    assert_eq!(matches[0].column, 0);
+    assert_eq!(matches[0].length, 5);
     assert_eq!(matches[1].row, 1);
+    assert_eq!(matches[1].line_number, second_visible_line);
+    assert_eq!(matches[1].column, 0);
+    assert_eq!(matches[1].length, 5);
 }

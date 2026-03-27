@@ -355,9 +355,10 @@ impl Terminal {
 
         let viewport_start = self.viewport_start_absolute_index();
         let viewport_end = viewport_start.saturating_add(self.grid.rows());
-        let mut projected = Vec::new();
+        let results = self.search_scrollback(config);
+        let mut projected = Vec::with_capacity(results.len());
 
-        for result in self.search_scrollback(config) {
+        for result in results {
             let Some(oldest_index) = self.scrollback.oldest_index_by_number(result.line_number)
             else {
                 continue;
