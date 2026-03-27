@@ -7,6 +7,7 @@ use crate::error::{validate_printable_ascii, Result};
 use crate::grid::{Grid, GridSize};
 use crate::modes::TerminalModes;
 use crate::parser::Action;
+use crate::scrollback::{Line, Scrollback, ScrollbackConfig, SearchResult};
 use crate::selection::{Selection, SelectionEngine, SelectionKind};
 
 mod editing;
@@ -43,6 +44,8 @@ pub struct Terminal {
     pub active_hyperlink: Option<Hyperlink>,
     /// Active selection state for copy operations.
     selection: SelectionEngine,
+    scrollback: Scrollback,
+    scrollback_view_offset: usize,
     tab_stops: Vec<usize>,
     alternate_screen_state: Option<AlternateScreenState>,
     scroll_region: Option<(usize, usize)>,
@@ -63,11 +66,21 @@ struct AlternateScreenState {
     grid: Grid,
     cursor: SavedCursor,
     scroll_region: Option<(usize, usize)>,
+    scrollback_view_offset: usize,
 }
 
 impl Terminal {
     /// Creates a terminal with the provided visible dimensions.
     pub fn new(rows: usize, cols: usize) -> Result<Self> {
+        Self::new_with_scrollback(rows, cols, ScrollbackConfig::default())
+    }
+
+    /// Creates a terminal with the provided visible dimensions and scrollback settings.
+    pub fn new_with_scrollback(
+        rows: usize,
+        cols: usize,
+        scrollback_config: ScrollbackConfig,
+    ) -> Result<Self> {
         Ok(Self {
             grid: Grid::new(GridSize { rows, cols })?,
             cursor: Cursor::new(),
@@ -76,6 +89,8 @@ impl Terminal {
             window_title: None,
             active_hyperlink: None,
             selection: SelectionEngine::new(),
+            scrollback: Scrollback::new(scrollback_config),
+            scrollback_view_offset: 0,
             tab_stops: default_tab_stops(cols),
             alternate_screen_state: None,
             scroll_region: None,
@@ -276,6 +291,54 @@ impl Terminal {
         payload
     }
 
+    /// Returns retained scrollback history.
+    #[must_use]
+    pub const fn scrollback(&self) -> &Scrollback {
+        &self.scrollback
+    }
+
+    /// Returns the current viewport offset from the bottom in rows.
+    #[must_use]
+    pub const fn scrollback_view_offset(&self) -> usize {
+        self.scrollback_view_offset
+    }
+
+    /// Returns scrollback matches for the provided query.
+    #[must_use]
+    pub fn search_scrollback(&self, pattern: &str, case_sensitive: bool) -> Vec<SearchResult> {
+        self.scrollback.search(pattern, case_sensitive)
+    }
+
+    /// Scrolls the viewport up by one row.
+    pub fn scroll_line_up(&mut self) {
+        self.scroll_lines_up(1);
+    }
+
+    /// Scrolls the viewport down by one row.
+    pub fn scroll_line_down(&mut self) {
+        self.scroll_lines_down(1);
+    }
+
+    /// Scrolls the viewport up by one page.
+    pub fn scroll_page_up(&mut self) {
+        self.scroll_lines_up(self.grid.rows().max(1));
+    }
+
+    /// Scrolls the viewport down by one page.
+    pub fn scroll_page_down(&mut self) {
+        self.scroll_lines_down(self.grid.rows().max(1));
+    }
+
+    /// Scrolls the viewport to the oldest retained scrollback line.
+    pub fn scroll_to_top(&mut self) {
+        self.scrollback_view_offset = self.scrollback.len();
+    }
+
+    /// Scrolls the viewport back to live output.
+    pub fn scroll_to_bottom(&mut self) {
+        self.scrollback_view_offset = 0;
+    }
+
     /// Returns the current terminal selection, if any.
     #[must_use]
     pub const fn selection(&self) -> Option<&Selection> {
@@ -398,6 +461,7 @@ impl Terminal {
             .and_then(|(top, bottom)| normalize_scroll_region(rows, top + 1, bottom + 1));
         self.move_cursor(self.cursor.position.row, self.cursor.position.col);
         self.selection.cancel();
+        self.clamp_scrollback_view_offset();
         Ok(())
     }
 
@@ -446,11 +510,74 @@ impl Terminal {
         self.attrs = CellAttrs::default();
         self.window_title = None;
         self.active_hyperlink = None;
+        self.scrollback.clear();
+        self.scrollback_view_offset = 0;
         self.tab_stops = default_tab_stops(self.grid.cols());
         self.scroll_region = None;
         self.saved_cursor = None;
         self.selection.cancel();
         Ok(())
+    }
+
+    fn scroll_lines_up(&mut self, lines: usize) {
+        if lines == 0 {
+            return;
+        }
+
+        let max_offset = self.scrollback.len();
+        self.scrollback_view_offset = self
+            .scrollback_view_offset
+            .saturating_add(lines)
+            .min(max_offset);
+    }
+
+    fn scroll_lines_down(&mut self, lines: usize) {
+        if lines == 0 {
+            return;
+        }
+
+        self.scrollback_view_offset = self.scrollback_view_offset.saturating_sub(lines);
+    }
+
+    fn clamp_scrollback_view_offset(&mut self) {
+        self.scrollback_view_offset = self.scrollback_view_offset.min(self.scrollback.len());
+    }
+
+    fn capture_scrollback_rows(&mut self, top: usize, bottom: usize, count: usize) {
+        if self.modes.alternate_screen
+            || count == 0
+            || self.grid.rows() == 0
+            || self.grid.cols() == 0
+        {
+            return;
+        }
+        if top != 0 || bottom.saturating_add(1) != self.grid.rows() {
+            return;
+        }
+
+        let region_rows = bottom.saturating_sub(top).saturating_add(1);
+        let capture_count = count.min(region_rows);
+        if capture_count == 0 {
+            return;
+        }
+
+        let mut captured = Vec::with_capacity(capture_count);
+        for row in top..(top + capture_count) {
+            if let Some(cells) = self.grid.row(row) {
+                captured.push(Line::new(cells.to_vec(), false));
+            }
+        }
+
+        if self.scrollback_view_offset > 0 {
+            self.scrollback_view_offset =
+                self.scrollback_view_offset.saturating_add(captured.len());
+        }
+
+        for line in captured {
+            self.scrollback.push(line);
+        }
+
+        self.clamp_scrollback_view_offset();
     }
 
     fn clamp_selection_position(&self, row: usize, col: usize) -> Option<(usize, usize)> {

@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use crate::cell::{Cell, CellAttrs};
-use crate::scrollback::{Line, Scrollback, ScrollbackConfig};
+use crate::scrollback::{Line, Scrollback, ScrollbackConfig, SearchEngine};
 
 fn line(text: &str) -> Line {
     Line::from_text(text, false)
@@ -224,4 +224,74 @@ fn scrollback_clear_drops_retained_lines_but_keeps_total_seen_counter() {
     assert_eq!(scrollback.len(), 0);
     assert_eq!(scrollback.memory_bytes(), 0);
     assert_eq!(scrollback.total_lines_seen(), seen_before_clear);
+}
+
+#[test]
+fn search_engine_forward_and_backward_find_adjacent_matches() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("alpha beta"));
+    scrollback.push(line("middle"));
+    scrollback.push(line("alpha gamma"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("alpha");
+
+    let forward = engine.search_forward(&scrollback, 0, 0).unwrap();
+    assert_eq!(forward.line_number, 2);
+    assert_eq!(forward.column, 0);
+    assert_eq!(engine.current_match(), Some(1));
+
+    let backward = engine.search_backward(&scrollback, 2, 0).unwrap();
+    assert_eq!(backward.line_number, 0);
+    assert_eq!(backward.column, 0);
+    assert_eq!(engine.current_match(), Some(0));
+}
+
+#[test]
+fn search_engine_wraps_when_enabled() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("one"));
+    scrollback.push(line("two one"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("one");
+    let wrapped = engine
+        .search_forward(&scrollback, u64::MAX, usize::MAX)
+        .unwrap();
+    assert_eq!(wrapped.line_number, 0);
+    assert_eq!(engine.current_match(), Some(0));
+
+    engine.set_wrap(false);
+    assert!(engine
+        .search_forward(&scrollback, u64::MAX, usize::MAX)
+        .is_none());
+}
+
+#[test]
+fn search_engine_whole_word_ignores_embedded_matches() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("helloworld world"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_whole_word(true);
+    engine.set_pattern("world");
+
+    let results = engine.search(&scrollback);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].column, 11);
+}
+
+#[test]
+fn search_engine_regex_matches_patterns() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("abc123xyz"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_use_regex(true);
+    engine.set_pattern(r"\d+");
+
+    let results = engine.search(&scrollback);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].column, 3);
+    assert_eq!(results[0].length, 3);
 }

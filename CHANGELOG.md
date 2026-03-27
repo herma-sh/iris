@@ -10,6 +10,15 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-26` to present
 
+### 2026-03-27
+
+#### Added
+
+- Stateful scrollback search APIs in `iris-core` via `SearchConfig` and `SearchEngine`, including forward/backward navigation, optional wrap-around behavior, whole-word matching, and regex matching (`crates/iris-core/src/scrollback/search.rs`).
+- Terminal-integrated scrollback history capture for primary-screen upward scrolling (`index`/`SU`) with alternate-screen isolation, plus viewport scroll commands (`scroll_line_up/down`, `scroll_page_up/down`, `scroll_to_top`, `scroll_to_bottom`) in `crates/iris-core/src/terminal`.
+- Terminal helper APIs for phase-4 integration consumers: `Terminal::scrollback`, `Terminal::scrollback_view_offset`, `Terminal::search_scrollback`, and `Terminal::new_with_scrollback`.
+- Phase-4 unit coverage updates in `crates/iris-core/src/test/scrollback/tests.rs` and `crates/iris-core/src/test/terminal/tests.rs` for search-engine navigation/wrap/whole-word/regex behavior, primary-vs-alternate scrollback capture behavior, and viewport offset command semantics.
+
 ### 2026-03-26
 
 #### Added

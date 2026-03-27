@@ -22,7 +22,7 @@ impl Default for ScrollbackConfig {
 }
 
 /// Ring buffer of terminal history lines.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Scrollback {
     config: ScrollbackConfig,
     lines: VecDeque<Line>,
