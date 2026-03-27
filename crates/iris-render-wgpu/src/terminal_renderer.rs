@@ -4,6 +4,7 @@ use iris_core::cursor::Cursor;
 use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::grid::Grid;
 use iris_core::terminal::Terminal;
+use iris_core::SearchConfig;
 
 use crate::error::Result;
 use crate::font::{FontRasterizer, FontRasterizerConfig};
@@ -87,6 +88,119 @@ impl SelectionSnapshot {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SearchRowRange {
+    row: usize,
+    start_col: usize,
+    end_col: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SearchSnapshot {
+    rows: Vec<SearchRowRange>,
+}
+
+impl SearchSnapshot {
+    fn from_terminal(terminal: &Terminal, config: &SearchConfig) -> Option<Self> {
+        let grid_rows = terminal.grid.rows();
+        let grid_cols = terminal.grid.cols();
+        if grid_rows == 0 || grid_cols == 0 {
+            return None;
+        }
+
+        let mut rows = Vec::new();
+        for candidate in terminal.viewport_search_matches(config) {
+            if candidate.length == 0 || candidate.row >= grid_rows || candidate.column >= grid_cols
+            {
+                continue;
+            }
+
+            let end_col = candidate
+                .column
+                .saturating_add(candidate.length)
+                .saturating_sub(1)
+                .min(grid_cols.saturating_sub(1));
+            if candidate.column > end_col {
+                continue;
+            }
+
+            rows.push(SearchRowRange {
+                row: candidate.row,
+                start_col: candidate.column,
+                end_col,
+            });
+        }
+
+        if rows.is_empty() {
+            return None;
+        }
+
+        rows.sort_unstable_by_key(|range| (range.row, range.start_col, range.end_col));
+        let mut merged = Vec::with_capacity(rows.len());
+        for range in rows {
+            let Some(previous) = merged.last_mut() else {
+                merged.push(range);
+                continue;
+            };
+            if previous.row == range.row && range.start_col <= previous.end_col.saturating_add(1) {
+                previous.end_col = previous.end_col.max(range.end_col);
+            } else {
+                merged.push(range);
+            }
+        }
+
+        Some(Self { rows: merged })
+    }
+
+    fn contains(&self, row: usize, col: usize) -> bool {
+        let Ok(mut index) = self.rows.binary_search_by_key(&row, |range| range.row) else {
+            return false;
+        };
+        while index > 0 && self.rows[index - 1].row == row {
+            index -= 1;
+        }
+
+        for range in self.rows[index..]
+            .iter()
+            .take_while(|range| range.row == row)
+        {
+            if col >= range.start_col && col <= range.end_col {
+                return true;
+            }
+            if col < range.start_col {
+                break;
+            }
+        }
+
+        false
+    }
+
+    fn push_damage_regions(&self, damage: &mut Vec<DamageRegion>) {
+        for range in &self.rows {
+            damage.push(DamageRegion::new(
+                range.row,
+                range.row,
+                range.start_col,
+                range.end_col,
+            ));
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct HighlightSnapshots<'a> {
+    selection: Option<&'a SelectionSnapshot>,
+    search: Option<&'a SearchSnapshot>,
+}
+
+impl HighlightSnapshots<'_> {
+    fn contains(self, row: usize, col: usize) -> bool {
+        self.selection
+            .is_some_and(|selection| selection.contains(row, col))
+            || self.search.is_some_and(|search| search.contains(row, col))
+    }
+}
+
 /// Renderer-owned terminal draw state that prepares text and cursor output from
 /// `iris-core` terminal state into a cached frame surface.
 pub struct TerminalRenderer {
@@ -105,6 +219,7 @@ pub struct TerminalRenderer {
     full_redraw_damage: Vec<DamageRegion>,
     previous_cursor: Option<Cursor>,
     previous_selection: Option<SelectionSnapshot>,
+    previous_search: Option<SearchSnapshot>,
     frame_initialized: bool,
 }
 
@@ -151,6 +266,7 @@ impl TerminalRenderer {
             full_redraw_damage: Vec::with_capacity(4),
             previous_cursor: None,
             previous_selection: None,
+            previous_search: None,
             frame_initialized: false,
         };
         terminal_renderer.write_present_uniforms(renderer);
@@ -247,32 +363,64 @@ impl TerminalRenderer {
 
     /// Prepares a full visible terminal frame from `iris-core` terminal state.
     pub fn prepare_terminal(&mut self, renderer: &Renderer, terminal: &Terminal) -> Result<()> {
+        self.prepare_terminal_with_search(renderer, terminal, None)
+    }
+
+    /// Prepares a full visible terminal frame and applies optional search highlighting.
+    pub fn prepare_terminal_with_search(
+        &mut self,
+        renderer: &Renderer,
+        terminal: &Terminal,
+        search: Option<&SearchConfig>,
+    ) -> Result<()> {
         let selection = SelectionSnapshot::from_terminal(terminal);
+        let search = search.and_then(|config| SearchSnapshot::from_terminal(terminal, config));
+        let highlights = HighlightSnapshots {
+            selection: selection.as_ref(),
+            search: search.as_ref(),
+        };
         self.prepare_grid_and_cursor_internal(
             renderer,
             &terminal.grid,
             terminal.cursor,
-            selection.as_ref(),
+            highlights,
         )?;
         self.previous_selection = selection;
+        self.previous_search = search;
         Ok(())
     }
 
     /// Applies an incremental terminal update into the cached frame using the
     /// terminal's accumulated damage plus cursor old/new regions.
     pub fn update_terminal(&mut self, renderer: &Renderer, terminal: &mut Terminal) -> Result<()> {
+        self.update_terminal_with_search(renderer, terminal, None)
+    }
+
+    /// Applies an incremental terminal update with optional search highlighting.
+    pub fn update_terminal_with_search(
+        &mut self,
+        renderer: &Renderer,
+        terminal: &mut Terminal,
+        search: Option<&SearchConfig>,
+    ) -> Result<()> {
         let selection = SelectionSnapshot::from_terminal(terminal);
+        let search = search.and_then(|config| SearchSnapshot::from_terminal(terminal, config));
+        let highlights = HighlightSnapshots {
+            selection: selection.as_ref(),
+            search: search.as_ref(),
+        };
         if !self.frame_initialized {
             let result = self.prepare_grid_and_cursor_internal(
                 renderer,
                 &terminal.grid,
                 terminal.cursor,
-                selection.as_ref(),
+                highlights,
             );
             if result.is_ok() {
                 let _ = terminal.take_scroll_delta();
                 let _ = terminal.take_damage();
                 self.previous_selection = selection;
+                self.previous_search = search;
             }
             return result;
         }
@@ -284,6 +432,7 @@ impl TerminalRenderer {
             self.previous_selection.as_ref(),
             selection.as_ref(),
         );
+        self.push_search_damage_pair(&mut damage, self.previous_search.as_ref(), search.as_ref());
         let original_damage_len = damage.len();
         let result = self.update_grid_and_cursor_internal(
             renderer,
@@ -291,13 +440,14 @@ impl TerminalRenderer {
             &mut damage,
             scroll_delta,
             terminal.cursor,
-            selection.as_ref(),
+            highlights,
         );
         self.full_redraw_damage = damage;
 
         match result {
             Ok(()) => {
                 self.previous_selection = selection;
+                self.previous_search = search;
                 Ok(())
             }
             Err(error) => {
@@ -316,8 +466,14 @@ impl TerminalRenderer {
         grid: &Grid,
         cursor: Cursor,
     ) -> Result<()> {
-        self.prepare_grid_and_cursor_internal(renderer, grid, cursor, None)?;
+        self.prepare_grid_and_cursor_internal(
+            renderer,
+            grid,
+            cursor,
+            HighlightSnapshots::default(),
+        )?;
         self.previous_selection = None;
+        self.previous_search = None;
         Ok(())
     }
 
@@ -343,11 +499,12 @@ impl TerminalRenderer {
             &mut full_redraw_damage,
             scroll_delta,
             cursor,
-            None,
+            HighlightSnapshots::default(),
         );
         self.full_redraw_damage = full_redraw_damage;
         if result.is_ok() {
             self.previous_selection = None;
+            self.previous_search = None;
         }
         result
     }
@@ -357,12 +514,10 @@ impl TerminalRenderer {
         renderer: &Renderer,
         grid: &Grid,
         cursor: Cursor,
-        selection: Option<&SelectionSnapshot>,
+        highlights: HighlightSnapshots<'_>,
     ) -> Result<()> {
         self.rebuild_full_redraw_damage(grid);
-        let is_selected = |row: usize, col: usize| {
-            selection.is_some_and(|selection| selection.contains(row, col))
-        };
+        let is_highlighted = |row: usize, col: usize| highlights.contains(row, col);
         self.text_renderer
             .prepare_grid_with_font_rasterizer_with_selection(
                 renderer,
@@ -370,7 +525,7 @@ impl TerminalRenderer {
                 &self.full_redraw_damage,
                 &mut self.font_rasterizer,
                 false,
-                is_selected,
+                is_highlighted,
             )?;
         self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
         self.text_renderer
@@ -387,7 +542,7 @@ impl TerminalRenderer {
         damage: &mut Vec<DamageRegion>,
         scroll_delta: Option<ScrollDelta>,
         cursor: Cursor,
-        selection: Option<&SelectionSnapshot>,
+        highlights: HighlightSnapshots<'_>,
     ) -> Result<()> {
         let original_damage_len = damage.len();
         let cursor_changed = self.previous_cursor != Some(cursor);
@@ -424,9 +579,7 @@ impl TerminalRenderer {
             return Ok(());
         }
 
-        let is_selected = |row: usize, col: usize| {
-            selection.is_some_and(|selection| selection.contains(row, col))
-        };
+        let is_highlighted = |row: usize, col: usize| highlights.contains(row, col);
         self.text_renderer
             .prepare_grid_with_font_rasterizer_with_selection(
                 renderer,
@@ -434,7 +587,7 @@ impl TerminalRenderer {
                 damage,
                 &mut self.font_rasterizer,
                 true,
-                is_selected,
+                is_highlighted,
             )?;
         if should_prepare_cursor {
             self.text_renderer.prepare_cursor(renderer, grid, cursor)?;
@@ -543,6 +696,24 @@ impl TerminalRenderer {
         }
     }
 
+    fn push_search_damage_pair(
+        &self,
+        damage: &mut Vec<DamageRegion>,
+        previous_search: Option<&SearchSnapshot>,
+        current_search: Option<&SearchSnapshot>,
+    ) {
+        if previous_search == current_search {
+            return;
+        }
+
+        if let Some(search) = previous_search {
+            search.push_damage_regions(damage);
+        }
+        if let Some(search) = current_search {
+            search.push_damage_regions(damage);
+        }
+    }
+
     fn cursor_damage_region(&self, grid: &Grid, cursor: Option<Cursor>) -> Option<DamageRegion> {
         crate::cursor::cursor_damage_region(cursor?, grid)
     }
@@ -586,6 +757,7 @@ impl TerminalRenderer {
         self.frame_initialized = false;
         self.previous_cursor = None;
         self.previous_selection = None;
+        self.previous_search = None;
     }
 }
 

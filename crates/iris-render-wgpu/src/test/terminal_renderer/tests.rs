@@ -3,6 +3,7 @@ use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::parser::Action;
 use iris_core::selection::SelectionKind;
 use iris_core::terminal::Terminal;
+use iris_core::SearchConfig;
 
 use super::{
     partial_scroll_copy_region, scroll_copy_region, TerminalRenderer, TerminalRendererConfig,
@@ -226,6 +227,104 @@ fn terminal_renderer_updates_selection_highlight_without_grid_or_cursor_changes(
     assert_eq!(
         re_cleared_color, background,
         "clearing selection should repaint selected cells back to the normal background"
+    );
+}
+
+#[test]
+fn terminal_renderer_updates_search_highlight_without_grid_or_cursor_changes() {
+    let _gpu_test_lock = crate::test_support::gpu_test_lock();
+    let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+        Ok(renderer) => renderer,
+        Err(crate::error::Error::NoAdapter) => return,
+        Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+    };
+    let surface = renderer
+        .create_texture_surface(TextureSurfaceConfig::new(
+            TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
+        ))
+        .expect("texture surface should be created");
+    let mut terminal_renderer = match TerminalRenderer::new(
+        &renderer,
+        surface.format(),
+        TerminalRendererConfig {
+            text: crate::text_renderer::TextRendererConfig {
+                theme: Theme {
+                    foreground: ThemeColor::rgb(0xff, 0xff, 0xff),
+                    background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                    ..Theme::default()
+                },
+                uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    ) {
+        Ok(renderer) => renderer,
+        Err(crate::error::Error::NoUsableSystemFont) => return,
+        Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+    };
+    let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+    terminal
+        .write_char('A')
+        .expect("terminal write should succeed");
+    terminal
+        .execute_control(0x0a)
+        .expect("line feed should move content into scrollback");
+    terminal
+        .execute_control(0x0d)
+        .expect("carriage return should reset cursor column");
+    terminal
+        .write_char('A')
+        .expect("terminal write should succeed");
+    terminal.cursor.visible = false;
+    terminal.scroll_line_up();
+
+    let search = SearchConfig {
+        pattern: "A".to_string(),
+        case_sensitive: true,
+        use_regex: false,
+        whole_word: false,
+        wrap: true,
+    };
+
+    terminal_renderer
+        .prepare_terminal_with_search(&renderer, &terminal, None)
+        .expect("initial terminal frame should prepare");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let unhighlighted_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    let _ = terminal.take_damage();
+    let _ = terminal.take_scroll_delta();
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search))
+        .expect("search-only update should repaint highlighted cells");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let highlighted_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, None)
+        .expect("search-clear update should repaint previously highlighted cells");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let cleared_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    let unhighlighted_color = pixel_at(&unhighlighted_pixels, surface.size(), (1, 1));
+    let highlighted_color = pixel_at(&highlighted_pixels, surface.size(), (1, 1));
+    let cleared_color = pixel_at(&cleared_pixels, surface.size(), (1, 1));
+    let highlighted_background =
+        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
+    let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+
+    assert_eq!(
+        unhighlighted_color, background,
+        "unhighlighted cells should render with the theme background color"
+    );
+    assert_eq!(
+        highlighted_color, highlighted_background,
+        "search-only updates should apply highlight colors for visible matches"
+    );
+    assert_eq!(
+        cleared_color, background,
+        "clearing search highlighting should repaint cells back to the normal background"
     );
 }
 
