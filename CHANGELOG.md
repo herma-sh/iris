@@ -19,6 +19,7 @@ Work window: `2026-03-26` to present
 - Terminal helper APIs for phase-4 integration consumers: `Terminal::scrollback`, `Terminal::scrollback_view_offset`, `Terminal::search_scrollback`, and `Terminal::new_with_scrollback`.
 - Viewport-projection APIs in `iris-core::Terminal` for scrollback navigation consumers: `viewport_row_cells` and `viewport_search_matches`, plus scrollback oldest-index lookup helpers for line-number-to-row mapping.
 - Optional search-highlight rendering flow in `iris-render-wgpu::TerminalRenderer` via `prepare_terminal_with_search` and `update_terminal_with_search`, including incremental repaint tracking when visible matches change.
+- Terminal search navigation helpers in `iris-core::Terminal`: `search_scrollback_forward` and `search_scrollback_backward`, which reveal matched history rows and return viewport-projected match coordinates.
 - Phase-4 unit coverage updates in `crates/iris-core/src/test/scrollback/tests.rs` and `crates/iris-core/src/test/terminal/tests.rs` for search-engine navigation/wrap/whole-word/regex behavior, primary-vs-alternate scrollback capture behavior, and viewport offset command semantics.
 
 #### Changed

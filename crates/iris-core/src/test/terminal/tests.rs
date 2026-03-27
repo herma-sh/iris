@@ -1000,3 +1000,71 @@ fn terminal_viewport_search_matches_maps_visible_rows() {
     assert_eq!(matches[1].column, 0);
     assert_eq!(matches[1].length, 5);
 }
+
+#[test]
+fn terminal_search_scrollback_forward_reveals_matched_row() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    terminal.scrollback.push(Line::from_text("zero", false));
+    terminal
+        .scrollback
+        .push(Line::from_text("alpha-one", false));
+    terminal.scrollback.push(Line::from_text("two", false));
+    terminal
+        .scrollback
+        .push(Line::from_text("alpha-two", false));
+
+    let config = SearchConfig {
+        pattern: "alpha".to_string(),
+        case_sensitive: true,
+        use_regex: false,
+        whole_word: false,
+        wrap: true,
+    };
+
+    assert_eq!(terminal.scrollback_view_offset(), 0);
+    let projected = terminal.search_scrollback_forward(&config, 0, 0).unwrap();
+    let first_match_line = terminal
+        .scrollback
+        .oldest(1)
+        .map(|line| line.number)
+        .unwrap();
+
+    assert_eq!(projected.line_number, first_match_line);
+    assert_eq!(projected.column, 0);
+    assert_eq!(projected.length, 5);
+    assert!(projected.row < terminal.grid.rows());
+    assert!(terminal.scrollback_view_offset() > 0);
+}
+
+#[test]
+fn terminal_search_scrollback_backward_wraps_to_latest_match() {
+    let mut terminal = Terminal::new(2, 8).unwrap();
+    terminal.scrollback.push(Line::from_text("zero", false));
+    terminal
+        .scrollback
+        .push(Line::from_text("alpha-one", false));
+    terminal.scrollback.push(Line::from_text("two", false));
+    terminal
+        .scrollback
+        .push(Line::from_text("alpha-two", false));
+
+    let config = SearchConfig {
+        pattern: "alpha".to_string(),
+        case_sensitive: true,
+        use_regex: false,
+        whole_word: false,
+        wrap: true,
+    };
+
+    let projected = terminal.search_scrollback_backward(&config, 0, 0).unwrap();
+    let latest_match_line = terminal
+        .scrollback
+        .oldest(3)
+        .map(|line| line.number)
+        .unwrap();
+
+    assert_eq!(projected.line_number, latest_match_line);
+    assert_eq!(projected.column, 0);
+    assert_eq!(projected.length, 5);
+    assert!(projected.row < terminal.grid.rows());
+}
