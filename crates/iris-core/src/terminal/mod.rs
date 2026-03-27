@@ -353,7 +353,12 @@ impl Terminal {
             return Vec::new();
         }
 
+        let scrollback_len = self.scrollback.len();
         let viewport_start = self.viewport_start_absolute_index();
+        if viewport_start >= scrollback_len {
+            return Vec::new();
+        }
+
         let viewport_end = viewport_start.saturating_add(self.grid.rows());
         let results = self.search_scrollback(config);
         let mut projected = Vec::with_capacity(results.len());
