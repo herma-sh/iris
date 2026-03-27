@@ -86,7 +86,12 @@ impl SearchEngine {
 
     /// Sets the search pattern and refreshes compiled regex state.
     pub fn set_pattern<S: Into<String>>(&mut self, pattern: S) {
-        self.config.pattern = pattern.into();
+        let next_pattern = pattern.into();
+        if self.config.pattern == next_pattern {
+            return;
+        }
+
+        self.config.pattern = next_pattern;
         self.current_match = None;
         self.rebuild_regex();
     }
@@ -115,12 +120,20 @@ impl SearchEngine {
 
     /// Enables or disables whole-word matching.
     pub fn set_whole_word(&mut self, whole_word: bool) {
+        if self.config.whole_word == whole_word {
+            return;
+        }
+
         self.config.whole_word = whole_word;
         self.current_match = None;
     }
 
     /// Enables or disables wrap-around behavior for next/previous lookups.
     pub fn set_wrap(&mut self, wrap: bool) {
+        if self.config.wrap == wrap {
+            return;
+        }
+
         self.config.wrap = wrap;
         self.current_match = None;
     }

@@ -15,6 +15,12 @@ fn line_with_exact_capacity(text: &str) -> Line {
     Line::new(cells, false)
 }
 
+fn line_with_capacity(text: &str, capacity: usize) -> Line {
+    let mut cells = Vec::with_capacity(capacity);
+    cells.extend(text.chars().map(Cell::new));
+    Line::new(cells, false)
+}
+
 #[test]
 fn line_text_omits_continuation_cells() {
     let attrs = CellAttrs::default();
@@ -326,4 +332,39 @@ fn scrollback_equality_ignores_line_timestamps() {
     right.push(right_line);
 
     assert_eq!(left, right);
+}
+
+#[test]
+fn scrollback_equality_ignores_allocation_accounting() {
+    let mut left = Scrollback::new(ScrollbackConfig::default());
+    let mut right = Scrollback::new(ScrollbackConfig::default());
+
+    left.push(line_with_capacity("same", 4));
+    right.push(line_with_capacity("same", 16));
+
+    assert_ne!(left.memory_bytes(), right.memory_bytes());
+    assert_eq!(left, right);
+}
+
+#[test]
+fn search_engine_setters_noop_on_equal_values() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("alpha"));
+    scrollback.push(line("beta"));
+    scrollback.push(line("alpha"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("alpha");
+    let _ = engine.search_forward(&scrollback, 0, 0);
+    let selected = engine.current_match();
+    assert!(selected.is_some());
+
+    engine.set_pattern("alpha");
+    assert_eq!(engine.current_match(), selected);
+
+    engine.set_whole_word(false);
+    assert_eq!(engine.current_match(), selected);
+
+    engine.set_wrap(true);
+    assert_eq!(engine.current_match(), selected);
 }

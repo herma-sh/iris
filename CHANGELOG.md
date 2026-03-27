@@ -21,8 +21,9 @@ Work window: `2026-03-26` to present
 
 #### Changed
 
-- `Scrollback` equality now ignores per-line capture timestamps so terminal/scrollback state comparisons remain content-based across equivalent histories.
+- `Scrollback` equality now ignores per-line capture timestamps and allocation-accounting differences (`memory_bytes`) so semantic history comparisons remain content-based across equivalent retained lines.
 - `Terminal::search_scrollback` now accepts `SearchConfig` and forwards to config-aware scrollback search so regex and whole-word behavior are available through the terminal API surface.
+- `SearchEngine` setters now no-op when values are unchanged (`set_pattern`, `set_whole_word`, `set_wrap`) to preserve existing navigation state when callers re-apply identical settings.
 
 ### 2026-03-26
 

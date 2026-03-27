@@ -34,7 +34,6 @@ impl PartialEq for Scrollback {
     fn eq(&self, other: &Self) -> bool {
         self.config == other.config
             && self.total_lines_seen == other.total_lines_seen
-            && self.memory_bytes == other.memory_bytes
             && self.lines.len() == other.lines.len()
             && self
                 .lines
