@@ -6,6 +6,20 @@ This project uses a phase-based versioning scheme:
 
 Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N.0`.
 
+## 0.4.0 (In Progress)
+
+Work window: `2026-03-26` to present
+
+### 2026-03-26
+
+#### Added
+
+- `iris-core::scrollback` foundation module (`crates/iris-core/src/scrollback/{buffer.rs,line.rs,search.rs}`) with `Line`, `ScrollbackConfig`, `Scrollback`, and `SearchResult` core types.
+- Ring-buffer scrollback retention behavior in `iris-core` with configurable line-count and memory-byte caps, monotonic line numbering, newest/oldest iteration, and line lookup by number.
+- Scrollback search helpers in `iris-core` with newest-first result ordering, case-sensitive/case-insensitive matching, multi-match support per line, and display-column-aware match positions for wide-cell lines.
+- Scrollback unit coverage in `crates/iris-core/src/test/scrollback/tests.rs` for line text/width behavior, line/memory retention eviction, ordering/lookups, search behavior (including empty-pattern and wide-cell column cases), and clear semantics.
+- `iris-core` crate exports for scrollback primitives via `crates/iris-core/src/lib.rs`.
+
 ## 0.3.0 (In Progress)
 
 Work window: `2026-03-22` to present
