@@ -1,6 +1,7 @@
 use super::Terminal;
-use crate::cell::{CellFlags, Color};
+use crate::cell::{Cell, CellFlags, Color};
 use crate::parser::{Action, GraphicsRendition};
+use crate::scrollback::{Line, ScrollbackConfig, SearchConfig};
 use crate::selection::SelectionKind;
 
 #[test]
@@ -369,6 +370,7 @@ fn terminal_reset_clears_stale_alternate_screen_state() {
         grid: crate::grid::Grid::new(crate::grid::GridSize { rows: 2, cols: 4 }).unwrap(),
         cursor: terminal.cursor.save(),
         scroll_region: Some((0, 1)),
+        scrollback_view_offset: 0,
     });
 
     terminal.apply_action(Action::ResetTerminal).unwrap();
@@ -801,4 +803,137 @@ fn terminal_selection_queries_return_expected_block_bounds() {
     assert!(terminal.selection_contains(1, 2));
     assert!(!terminal.selection_contains(1, 4));
     assert!(!terminal.selection_contains(4, 1));
+}
+
+#[test]
+fn terminal_line_feed_captures_scrolled_primary_row_in_scrollback() {
+    let mut terminal = Terminal::new_with_scrollback(
+        2,
+        4,
+        ScrollbackConfig {
+            max_lines: 16,
+            max_memory_bytes: None,
+        },
+    )
+    .unwrap();
+
+    terminal.write_ascii_run(b"AA").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    terminal.write_ascii_run(b"BB").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+
+    assert_eq!(terminal.scrollback().len(), 1);
+    assert_eq!(
+        terminal.scrollback().newest(0).map(Line::text).as_deref(),
+        Some("AA  ")
+    );
+}
+
+#[test]
+fn terminal_scroll_up_captures_full_screen_scrollback_lines() {
+    let mut terminal = Terminal::new(3, 3).unwrap();
+    for (row, ch) in ['A', 'B', 'C'].into_iter().enumerate() {
+        terminal.grid.write(row, 0, Cell::new(ch)).unwrap();
+    }
+
+    terminal.apply_action(Action::ScrollUp(2)).unwrap();
+
+    assert_eq!(terminal.scrollback().len(), 2);
+    assert_eq!(
+        terminal.scrollback().newest(0).map(Line::text).as_deref(),
+        Some("B  ")
+    );
+    assert_eq!(
+        terminal.scrollback().newest(1).map(Line::text).as_deref(),
+        Some("A  ")
+    );
+}
+
+#[test]
+fn terminal_scroll_up_inside_custom_region_does_not_capture_scrollback() {
+    let mut terminal = Terminal::new(4, 3).unwrap();
+    for (row, ch) in ['A', 'B', 'C', 'D'].into_iter().enumerate() {
+        terminal.grid.write(row, 0, Cell::new(ch)).unwrap();
+    }
+
+    terminal
+        .apply_action(Action::SetScrollRegion { top: 2, bottom: 4 })
+        .unwrap();
+    terminal.apply_action(Action::ScrollUp(1)).unwrap();
+
+    assert!(terminal.scrollback().is_empty());
+}
+
+#[test]
+fn terminal_alternate_screen_scroll_does_not_mutate_primary_scrollback() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal.write_ascii_run(b"AA").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    terminal.write_ascii_run(b"BB").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    let scrollback_before_alt = terminal.scrollback().len();
+
+    terminal
+        .apply_action(Action::SetModes {
+            private: true,
+            modes: vec![1049].into(),
+        })
+        .unwrap();
+    terminal.write_ascii_run(b"CC").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    terminal.write_ascii_run(b"DD").unwrap();
+    terminal.apply_action(Action::NextLine).unwrap();
+    terminal
+        .apply_action(Action::ResetModes {
+            private: true,
+            modes: vec![1049].into(),
+        })
+        .unwrap();
+
+    assert_eq!(terminal.scrollback().len(), scrollback_before_alt);
+}
+
+#[test]
+fn terminal_viewport_scroll_commands_adjust_offset_within_scrollback_bounds() {
+    let mut terminal = Terminal::new(3, 4).unwrap();
+    for index in 0..10 {
+        terminal
+            .scrollback
+            .push(Line::from_text(&format!("line-{index}"), false));
+    }
+
+    assert_eq!(terminal.scrollback_view_offset(), 0);
+    terminal.scroll_page_up();
+    assert_eq!(terminal.scrollback_view_offset(), 3);
+    terminal.scroll_line_up();
+    assert_eq!(terminal.scrollback_view_offset(), 4);
+    terminal.scroll_to_top();
+    assert_eq!(terminal.scrollback_view_offset(), 10);
+    terminal.scroll_page_down();
+    assert_eq!(terminal.scrollback_view_offset(), 7);
+    terminal.scroll_line_down();
+    assert_eq!(terminal.scrollback_view_offset(), 6);
+    terminal.scroll_to_bottom();
+    assert_eq!(terminal.scrollback_view_offset(), 0);
+}
+
+#[test]
+fn terminal_search_scrollback_supports_regex_and_whole_word_config() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .scrollback
+        .push(Line::from_text("helloworld", false));
+    terminal.scrollback.push(Line::from_text("world", false));
+    terminal.scrollback.push(Line::from_text("WORLD", false));
+
+    let config = SearchConfig {
+        pattern: "world".to_string(),
+        case_sensitive: false,
+        use_regex: true,
+        whole_word: true,
+        wrap: true,
+    };
+
+    let results = terminal.search_scrollback(&config);
+    assert_eq!(results.len(), 2);
 }

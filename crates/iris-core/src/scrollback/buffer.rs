@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use super::line::Line;
-use super::search::{search_line, SearchResult};
+use super::search::{search_line, SearchConfig, SearchEngine, SearchResult};
 
 /// Scrollback retention settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -29,6 +29,21 @@ pub struct Scrollback {
     total_lines_seen: u64,
     memory_bytes: usize,
 }
+
+impl PartialEq for Scrollback {
+    fn eq(&self, other: &Self) -> bool {
+        self.config == other.config
+            && self.total_lines_seen == other.total_lines_seen
+            && self.lines.len() == other.lines.len()
+            && self
+                .lines
+                .iter()
+                .zip(other.lines.iter())
+                .all(|(left, right)| left.eq_ignoring_timestamp(right))
+    }
+}
+
+impl Eq for Scrollback {}
 
 impl Scrollback {
     /// Creates a new scrollback buffer.
@@ -139,6 +154,18 @@ impl Scrollback {
         }
 
         results
+    }
+
+    /// Searches retained lines using the richer config surface.
+    #[must_use]
+    pub fn search_with_config(&self, config: &SearchConfig) -> Vec<SearchResult> {
+        let mut engine = SearchEngine::new();
+        engine.set_case_sensitive(config.case_sensitive);
+        engine.set_use_regex(config.use_regex);
+        engine.set_whole_word(config.whole_word);
+        engine.set_wrap(config.wrap);
+        engine.set_pattern(config.pattern.clone());
+        engine.search(self)
     }
 
     /// Clears retained lines while preserving `total_lines_seen`.

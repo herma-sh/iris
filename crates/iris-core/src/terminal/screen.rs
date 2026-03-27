@@ -14,11 +14,14 @@ impl Terminal {
         let (top, bottom) = self.active_scroll_region();
         if self.cursor.position.row >= top && self.cursor.position.row <= bottom {
             if self.cursor.position.row == bottom {
+                self.capture_scrollback_rows(top, bottom, 1);
                 let _ = self.grid.scroll_up_range(top, bottom, 1);
             } else {
                 self.cursor.position.row += 1;
             }
         } else if self.cursor.position.row + 1 >= self.grid.rows() {
+            let last_row = self.grid.rows().saturating_sub(1);
+            self.capture_scrollback_rows(0, last_row, 1);
             self.grid.scroll_up(1);
         } else {
             self.cursor.move_down(1, self.grid.rows());
@@ -46,6 +49,7 @@ impl Terminal {
 
     pub(super) fn scroll_up(&mut self, count: u16) -> Result<()> {
         let (top, bottom) = self.active_scroll_region();
+        self.capture_scrollback_rows(top, bottom, usize::from(count.max(1)));
         self.grid
             .scroll_up_range(top, bottom, usize::from(count.max(1)))
     }
@@ -125,8 +129,10 @@ impl Terminal {
             grid: std::mem::replace(&mut self.grid, alternate_grid),
             cursor: self.cursor.save(),
             scroll_region: self.scroll_region,
+            scrollback_view_offset: self.scrollback_view_offset,
         });
         self.cursor = Cursor::new();
+        self.scrollback_view_offset = 0;
         self.scroll_region = None;
         self.saved_cursor = None;
         self.selection.cancel();
@@ -143,11 +149,14 @@ impl Terminal {
             alternate_screen_state.grid.mark_all_damage();
             self.grid = alternate_screen_state.grid;
             self.scroll_region = alternate_screen_state.scroll_region;
+            self.scrollback_view_offset = alternate_screen_state.scrollback_view_offset;
             self.cursor.restore(alternate_screen_state.cursor);
             self.move_cursor(self.cursor.position.row, self.cursor.position.col);
+            self.clamp_scrollback_view_offset();
         } else {
             self.cursor = Cursor::new();
             self.scroll_region = None;
+            self.scrollback_view_offset = 0;
         }
 
         self.saved_cursor = None;

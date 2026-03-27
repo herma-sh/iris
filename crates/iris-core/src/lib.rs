@@ -24,6 +24,8 @@ pub use grid::{Grid, GridSize};
 pub use input::{MouseButton, MouseModifiers, SelectionInputEvent, SelectionInputState};
 pub use modes::{Mode, TerminalModes};
 pub use parser::{Action, GraphicsRendition, Parser, ParserConfig, ParserState};
-pub use scrollback::{Line, Scrollback, ScrollbackConfig, SearchResult};
+pub use scrollback::{
+    Line, Scrollback, ScrollbackConfig, SearchConfig, SearchEngine, SearchResult,
+};
 pub use selection::{Anchor, Selection, SelectionEngine, SelectionKind, SelectionState};
 pub use terminal::Terminal;
