@@ -4,7 +4,7 @@ use iris_core::cursor::Cursor;
 use iris_core::damage::{DamageRegion, ScrollDelta};
 use iris_core::grid::Grid;
 use iris_core::terminal::Terminal;
-use iris_core::SearchConfig;
+use iris_core::{Line, Scrollback, ScrollbackConfig, SearchConfig};
 
 use crate::error::Result;
 use crate::font::{FontRasterizer, FontRasterizerConfig};
@@ -104,14 +104,25 @@ impl SearchSnapshot {
     fn from_terminal(terminal: &Terminal, config: &SearchConfig) -> Option<Self> {
         let grid_rows = terminal.grid.rows();
         let grid_cols = terminal.grid.cols();
-        if grid_rows == 0 || grid_cols == 0 {
+        if grid_rows == 0 || grid_cols == 0 || terminal.scrollback_view_offset() > 0 {
             return None;
         }
 
+        let mut visible_rows = Scrollback::new(ScrollbackConfig {
+            max_lines: grid_rows.max(1),
+            max_memory_bytes: None,
+        });
+        for row in 0..grid_rows {
+            let cells = terminal.grid.row(row)?.to_vec();
+            visible_rows.push(Line::new(cells, false));
+        }
+
         let mut rows = Vec::new();
-        for candidate in terminal.viewport_search_matches(config) {
-            if candidate.length == 0 || candidate.row >= grid_rows || candidate.column >= grid_cols
-            {
+        for candidate in visible_rows.search_with_config(config) {
+            let Some(row) = visible_rows.oldest_index_by_number(candidate.line_number) else {
+                continue;
+            };
+            if row >= grid_rows || candidate.length == 0 || candidate.column >= grid_cols {
                 continue;
             }
 
@@ -125,7 +136,7 @@ impl SearchSnapshot {
             }
 
             rows.push(SearchRowRange {
-                row: candidate.row,
+                row,
                 start_col: candidate.column,
                 end_col,
             });

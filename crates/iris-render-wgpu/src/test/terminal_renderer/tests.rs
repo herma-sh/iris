@@ -267,17 +267,7 @@ fn terminal_renderer_updates_search_highlight_without_grid_or_cursor_changes() {
     terminal
         .write_char('A')
         .expect("terminal write should succeed");
-    terminal
-        .execute_control(0x0a)
-        .expect("line feed should move content into scrollback");
-    terminal
-        .execute_control(0x0d)
-        .expect("carriage return should reset cursor column");
-    terminal
-        .write_char('A')
-        .expect("terminal write should succeed");
     terminal.cursor.visible = false;
-    terminal.scroll_line_up();
 
     let search = SearchConfig {
         pattern: "A".to_string(),
@@ -325,6 +315,96 @@ fn terminal_renderer_updates_search_highlight_without_grid_or_cursor_changes() {
     assert_eq!(
         cleared_color, background,
         "clearing search highlighting should repaint cells back to the normal background"
+    );
+}
+
+#[test]
+fn terminal_renderer_skips_search_highlight_when_viewport_detached_from_live_grid() {
+    let _gpu_test_lock = crate::test_support::gpu_test_lock();
+    let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
+        Ok(renderer) => renderer,
+        Err(crate::error::Error::NoAdapter) => return,
+        Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
+    };
+    let surface = renderer
+        .create_texture_surface(TextureSurfaceConfig::new(
+            TextureSurfaceSize::new(16, 16).expect("surface dimensions are valid"),
+        ))
+        .expect("texture surface should be created");
+    let mut terminal_renderer = match TerminalRenderer::new(
+        &renderer,
+        surface.format(),
+        TerminalRendererConfig {
+            text: crate::text_renderer::TextRendererConfig {
+                theme: Theme {
+                    foreground: ThemeColor::rgb(0xff, 0xff, 0xff),
+                    background: ThemeColor::rgb(0x00, 0x00, 0x00),
+                    ..Theme::default()
+                },
+                uniforms: TextUniforms::new([16.0, 16.0], [16.0, 16.0], 0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+    ) {
+        Ok(renderer) => renderer,
+        Err(crate::error::Error::NoUsableSystemFont) => return,
+        Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
+    };
+    let mut terminal = Terminal::new(1, 1).expect("terminal should be created");
+    terminal
+        .write_char('X')
+        .expect("terminal write should succeed");
+    terminal
+        .execute_control(0x0a)
+        .expect("line feed should move content into scrollback");
+    terminal
+        .execute_control(0x0d)
+        .expect("carriage return should reset cursor column");
+    terminal
+        .write_char('Y')
+        .expect("terminal write should succeed");
+    terminal.cursor.visible = false;
+    terminal.scroll_line_up();
+
+    let search = SearchConfig {
+        pattern: "X".to_string(),
+        case_sensitive: true,
+        use_regex: false,
+        whole_word: false,
+        wrap: true,
+    };
+
+    terminal_renderer
+        .prepare_terminal_with_search(&renderer, &terminal, None)
+        .expect("initial terminal frame should prepare");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let baseline_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    let _ = terminal.take_damage();
+    let _ = terminal.take_scroll_delta();
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search))
+        .expect("detached viewport update should still succeed");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let highlighted_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+
+    let baseline_color = pixel_at(&baseline_pixels, surface.size(), (1, 1));
+    let highlighted_color = pixel_at(&highlighted_pixels, surface.size(), (1, 1));
+    let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
+
+    assert_eq!(
+        terminal.scrollback_view_offset(),
+        1,
+        "test setup must keep the viewport detached from live grid rows"
+    );
+    assert_eq!(
+        baseline_color, background,
+        "baseline cell should render with normal background"
+    );
+    assert_eq!(
+        highlighted_color, baseline_color,
+        "search highlighting should be skipped when viewport rows are not sourced from live grid"
     );
 }
 

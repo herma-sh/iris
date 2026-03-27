@@ -26,6 +26,7 @@ Work window: `2026-03-26` to present
 - `Scrollback` equality now ignores per-line capture timestamps and allocation-accounting differences (`memory_bytes`) so semantic history comparisons remain content-based across equivalent retained lines.
 - `Terminal::search_scrollback` now accepts `SearchConfig` and forwards to config-aware scrollback search so regex and whole-word behavior are available through the terminal API surface.
 - `SearchEngine` setters now no-op when values are unchanged (`set_pattern`, `set_whole_word`, `set_wrap`) to preserve existing navigation state when callers re-apply identical settings.
+- `iris-render-wgpu::TerminalRenderer` search highlighting now derives ranges from the currently rendered live grid rows and skips highlight application when the viewport is detached into scrollback history, avoiding coordinate-space mismatches.
 
 ### 2026-03-26
 
