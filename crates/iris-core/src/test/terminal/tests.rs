@@ -937,3 +937,49 @@ fn terminal_search_scrollback_supports_regex_and_whole_word_config() {
     let results = terminal.search_scrollback(&config);
     assert_eq!(results.len(), 2);
 }
+
+#[test]
+fn terminal_viewport_row_cells_reads_scrollback_and_grid_rows() {
+    let mut terminal = Terminal::new(3, 4).unwrap();
+    terminal.scrollback.push(Line::from_text("hist-0", false));
+    terminal.scrollback.push(Line::from_text("hist-1", false));
+    terminal.scrollback.push(Line::from_text("hist-2", false));
+
+    terminal.grid.write(0, 0, Cell::new('A')).unwrap();
+    terminal.grid.write(1, 0, Cell::new('B')).unwrap();
+    terminal.grid.write(2, 0, Cell::new('C')).unwrap();
+
+    terminal.scroll_line_up();
+
+    let top = terminal.viewport_row_cells(0).unwrap();
+    let middle = terminal.viewport_row_cells(1).unwrap();
+    let bottom = terminal.viewport_row_cells(2).unwrap();
+
+    assert_eq!(top[0].character, 'h');
+    assert_eq!(middle[0].character, 'A');
+    assert_eq!(bottom[0].character, 'B');
+}
+
+#[test]
+fn terminal_viewport_search_matches_maps_visible_rows() {
+    let mut terminal = Terminal::new(3, 4).unwrap();
+    terminal.scrollback.push(Line::from_text("alpha", false));
+    terminal.scrollback.push(Line::from_text("beta", false));
+    terminal.scrollback.push(Line::from_text("alpha", false));
+    terminal.scrollback.push(Line::from_text("alpha", false));
+
+    terminal.scroll_line_up();
+    terminal.scroll_line_up();
+    let config = SearchConfig {
+        pattern: "alpha".to_string(),
+        case_sensitive: true,
+        use_regex: false,
+        whole_word: false,
+        wrap: true,
+    };
+
+    let matches = terminal.viewport_search_matches(&config);
+    assert_eq!(matches.len(), 2);
+    assert_eq!(matches[0].row, 0);
+    assert_eq!(matches[1].row, 1);
+}

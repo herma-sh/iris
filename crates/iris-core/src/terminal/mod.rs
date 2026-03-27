@@ -61,6 +61,19 @@ pub struct Hyperlink {
     pub uri: String,
 }
 
+/// A search match projected into the currently visible viewport rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ViewportSearchMatch {
+    /// Zero-based visible row in the viewport.
+    pub row: usize,
+    /// Inclusive start column in display cells.
+    pub column: usize,
+    /// Match length in display cells.
+    pub length: usize,
+    /// Monotonic retained line number from scrollback.
+    pub line_number: u64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AlternateScreenState {
     grid: Grid,
@@ -309,6 +322,61 @@ impl Terminal {
         self.scrollback.search_with_config(config)
     }
 
+    /// Returns the currently visible row cells from scrollback+grid composition.
+    #[must_use]
+    pub fn viewport_row_cells(&self, row: usize) -> Option<&[Cell]> {
+        if row >= self.grid.rows() {
+            return None;
+        }
+
+        let scrollback_len = self.scrollback.len();
+        let absolute_line_index = self.viewport_start_absolute_index().saturating_add(row);
+        if absolute_line_index < scrollback_len {
+            return self
+                .scrollback
+                .oldest(absolute_line_index)
+                .map(|line| line.cells.as_slice());
+        }
+
+        self.grid
+            .row(absolute_line_index.saturating_sub(scrollback_len))
+    }
+
+    /// Returns visible scrollback search matches projected into viewport rows.
+    ///
+    /// Matches are limited to retained scrollback lines and do not currently
+    /// include the live visible grid rows that have not yet scrolled into
+    /// history.
+    #[must_use]
+    pub fn viewport_search_matches(&self, config: &SearchConfig) -> Vec<ViewportSearchMatch> {
+        if self.grid.rows() == 0 {
+            return Vec::new();
+        }
+
+        let viewport_start = self.viewport_start_absolute_index();
+        let viewport_end = viewport_start.saturating_add(self.grid.rows());
+        let mut projected = Vec::new();
+
+        for result in self.search_scrollback(config) {
+            let Some(oldest_index) = self.scrollback.oldest_index_by_number(result.line_number)
+            else {
+                continue;
+            };
+            if oldest_index < viewport_start || oldest_index >= viewport_end {
+                continue;
+            }
+
+            projected.push(ViewportSearchMatch {
+                row: oldest_index - viewport_start,
+                column: result.column,
+                length: result.length,
+                line_number: result.line_number,
+            });
+        }
+
+        projected
+    }
+
     /// Scrolls the viewport up by one row.
     pub fn scroll_line_up(&mut self) {
         self.scroll_lines_up(1);
@@ -537,6 +605,12 @@ impl Terminal {
         }
 
         self.scrollback_view_offset = self.scrollback_view_offset.saturating_sub(lines);
+    }
+
+    fn viewport_start_absolute_index(&self) -> usize {
+        self.scrollback
+            .len()
+            .saturating_sub(self.scrollback_view_offset)
     }
 
     fn clamp_scrollback_view_offset(&mut self) {

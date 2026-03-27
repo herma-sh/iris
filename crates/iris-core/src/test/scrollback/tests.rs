@@ -150,6 +150,23 @@ fn scrollback_iterators_return_expected_order() {
 }
 
 #[test]
+fn scrollback_oldest_index_lookup_matches_retained_order() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("one"));
+    scrollback.push(line("two"));
+    scrollback.push(line("three"));
+
+    let oldest_number = scrollback.oldest(0).map(|line| line.number).unwrap();
+    let middle_number = scrollback.oldest(1).map(|line| line.number).unwrap();
+    let newest_number = scrollback.oldest(2).map(|line| line.number).unwrap();
+
+    assert_eq!(scrollback.oldest_index_by_number(oldest_number), Some(0));
+    assert_eq!(scrollback.oldest_index_by_number(middle_number), Some(1));
+    assert_eq!(scrollback.oldest_index_by_number(newest_number), Some(2));
+    assert_eq!(scrollback.oldest_index_by_number(u64::MAX), None);
+}
+
+#[test]
 fn scrollback_search_returns_newest_first_matches() {
     let mut scrollback = Scrollback::new(ScrollbackConfig::default());
     scrollback.push(line("alpha beta alpha"));

@@ -103,6 +103,12 @@ impl Scrollback {
         self.lines.get(len - 1 - index)
     }
 
+    /// Returns a retained line by oldest-first index (`0` is oldest).
+    #[must_use]
+    pub fn oldest(&self, index: usize) -> Option<&Line> {
+        self.lines.get(index)
+    }
+
     /// Returns a retained line by monotonic line number.
     #[must_use]
     pub fn line_by_number(&self, number: u64) -> Option<&Line> {
@@ -119,6 +125,26 @@ impl Scrollback {
         if let Ok(index) = second.binary_search_by_key(&number, |line| line.number) {
             let combined_index = first.len().saturating_add(index);
             return self.lines.get(combined_index);
+        }
+
+        None
+    }
+
+    /// Returns the oldest-first index for a retained line number.
+    #[must_use]
+    pub fn oldest_index_by_number(&self, number: u64) -> Option<usize> {
+        let oldest_number = self.lines.front()?.number;
+        let newest_number = self.lines.back()?.number;
+        if number < oldest_number || number > newest_number {
+            return None;
+        }
+
+        let (first, second) = self.lines.as_slices();
+        if let Ok(index) = first.binary_search_by_key(&number, |line| line.number) {
+            return Some(index);
+        }
+        if let Ok(index) = second.binary_search_by_key(&number, |line| line.number) {
+            return Some(first.len().saturating_add(index));
         }
 
         None
