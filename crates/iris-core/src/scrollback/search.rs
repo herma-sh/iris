@@ -142,9 +142,9 @@ impl SearchEngine {
         for (oldest_index, line) in scrollback.iter_oldest_first().enumerate() {
             let newest_index = retained_len - 1 - oldest_index;
             let line_matches = if self.config.use_regex {
-                self.compiled_regex
-                    .as_ref()
-                    .map_or_else(Vec::new, |regex| search_line_regex(line, regex))
+                self.compiled_regex.as_ref().map_or_else(Vec::new, |regex| {
+                    search_line_regex(line, regex, self.config.whole_word)
+                })
             } else if self.config.whole_word {
                 search_line_whole_word(line, pattern, self.config.case_sensitive)
             } else {
@@ -273,7 +273,7 @@ fn search_line_whole_word(line: &Line, pattern: &str, case_sensitive: bool) -> V
     find_char_slice_matches(&units, &pattern_chars, case_sensitive, true)
 }
 
-fn search_line_regex(line: &Line, regex: &Regex) -> Vec<(usize, usize)> {
+fn search_line_regex(line: &Line, regex: &Regex, whole_word: bool) -> Vec<(usize, usize)> {
     let units = searchable_units(line);
     if units.is_empty() {
         return Vec::new();
@@ -286,6 +286,9 @@ fn search_line_regex(line: &Line, regex: &Regex) -> Vec<(usize, usize)> {
         let start_char = searchable[..candidate.start()].chars().count();
         let end_char = searchable[..candidate.end()].chars().count();
         if end_char <= start_char || start_char >= units.len() || end_char > units.len() {
+            continue;
+        }
+        if whole_word && !has_word_boundaries(&units, start_char, end_char) {
             continue;
         }
 

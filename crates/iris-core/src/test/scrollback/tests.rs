@@ -295,3 +295,19 @@ fn search_engine_regex_matches_patterns() {
     assert_eq!(results[0].column, 3);
     assert_eq!(results[0].length, 3);
 }
+
+#[test]
+fn search_engine_regex_honors_whole_word_boundaries() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("helloworld world WORLD"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_use_regex(true);
+    engine.set_whole_word(true);
+    engine.set_pattern("world");
+
+    let results = engine.search(&scrollback);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].column, 11);
+    assert_eq!(results[1].column, 17);
+}
