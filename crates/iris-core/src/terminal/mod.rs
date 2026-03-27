@@ -7,7 +7,9 @@ use crate::error::{validate_printable_ascii, Result};
 use crate::grid::{Grid, GridSize};
 use crate::modes::TerminalModes;
 use crate::parser::Action;
-use crate::scrollback::{Line, Scrollback, ScrollbackConfig, SearchConfig, SearchResult};
+use crate::scrollback::{
+    Line, Scrollback, ScrollbackConfig, SearchConfig, SearchEngine, SearchResult,
+};
 use crate::selection::{Selection, SelectionEngine, SelectionKind};
 
 mod editing;
@@ -322,6 +324,36 @@ impl Terminal {
         self.scrollback.search_with_config(config)
     }
 
+    /// Finds the next scrollback match, reveals it in the viewport, and returns
+    /// viewport-projected match coordinates.
+    #[must_use]
+    pub fn search_scrollback_forward(
+        &mut self,
+        config: &SearchConfig,
+        start_line: u64,
+        start_col: usize,
+    ) -> Option<ViewportSearchMatch> {
+        let mut engine = Self::search_engine_from_config(config);
+        let result = engine.search_forward(&self.scrollback, start_line, start_col)?;
+        self.reveal_scrollback_line(result.line_number);
+        self.project_scrollback_match(&result)
+    }
+
+    /// Finds the previous scrollback match, reveals it in the viewport, and
+    /// returns viewport-projected match coordinates.
+    #[must_use]
+    pub fn search_scrollback_backward(
+        &mut self,
+        config: &SearchConfig,
+        start_line: u64,
+        start_col: usize,
+    ) -> Option<ViewportSearchMatch> {
+        let mut engine = Self::search_engine_from_config(config);
+        let result = engine.search_backward(&self.scrollback, start_line, start_col)?;
+        self.reveal_scrollback_line(result.line_number);
+        self.project_scrollback_match(&result)
+    }
+
     /// Returns the currently visible row cells from scrollback+grid composition.
     #[must_use]
     pub fn viewport_row_cells(&self, row: usize) -> Option<&[Cell]> {
@@ -611,6 +643,56 @@ impl Terminal {
         }
 
         self.scrollback_view_offset = self.scrollback_view_offset.saturating_sub(lines);
+    }
+
+    fn search_engine_from_config(config: &SearchConfig) -> SearchEngine {
+        let mut engine = SearchEngine::new();
+        engine.set_pattern(config.pattern.clone());
+        engine.set_case_sensitive(config.case_sensitive);
+        engine.set_use_regex(config.use_regex);
+        engine.set_whole_word(config.whole_word);
+        engine.set_wrap(config.wrap);
+        engine
+    }
+
+    fn project_scrollback_match(&self, result: &SearchResult) -> Option<ViewportSearchMatch> {
+        let oldest_index = self.scrollback.oldest_index_by_number(result.line_number)?;
+        let viewport_start = self.viewport_start_absolute_index();
+        let viewport_end = viewport_start.saturating_add(self.grid.rows());
+        if oldest_index < viewport_start || oldest_index >= viewport_end {
+            return None;
+        }
+
+        Some(ViewportSearchMatch {
+            row: oldest_index - viewport_start,
+            column: result.column,
+            length: result.length,
+            line_number: result.line_number,
+        })
+    }
+
+    fn reveal_scrollback_line(&mut self, line_number: u64) {
+        let Some(target_index) = self.scrollback.oldest_index_by_number(line_number) else {
+            return;
+        };
+        if self.grid.rows() == 0 {
+            return;
+        }
+
+        let scrollback_len = self.scrollback.len();
+        let viewport_start = self.viewport_start_absolute_index();
+        let viewport_end = viewport_start.saturating_add(self.grid.rows());
+        if target_index >= viewport_start && target_index < viewport_end {
+            return;
+        }
+
+        if target_index < viewport_start {
+            self.scrollback_view_offset = scrollback_len.saturating_sub(target_index);
+        } else {
+            let target_start = target_index.saturating_sub(self.grid.rows().saturating_sub(1));
+            self.scrollback_view_offset = scrollback_len.saturating_sub(target_start);
+        }
+        self.clamp_scrollback_view_offset();
     }
 
     fn viewport_start_absolute_index(&self) -> usize {
