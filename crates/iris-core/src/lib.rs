@@ -28,4 +28,4 @@ pub use scrollback::{
     Line, Scrollback, ScrollbackConfig, SearchConfig, SearchEngine, SearchResult,
 };
 pub use selection::{Anchor, Selection, SelectionEngine, SelectionKind, SelectionState};
-pub use terminal::Terminal;
+pub use terminal::{Terminal, ViewportSearchMatch};
