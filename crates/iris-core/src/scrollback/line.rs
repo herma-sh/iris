@@ -56,4 +56,8 @@ impl Line {
     pub(crate) fn memory_size_bytes(&self) -> usize {
         self.cells.capacity().saturating_mul(size_of::<Cell>())
     }
+
+    pub(crate) fn eq_ignoring_timestamp(&self, other: &Self) -> bool {
+        self.cells == other.cells && self.wrapped == other.wrapped && self.number == other.number
+    }
 }

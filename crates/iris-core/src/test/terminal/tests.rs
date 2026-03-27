@@ -1,7 +1,7 @@
 use super::Terminal;
 use crate::cell::{Cell, CellFlags, Color};
 use crate::parser::{Action, GraphicsRendition};
-use crate::scrollback::{Line, ScrollbackConfig};
+use crate::scrollback::{Line, ScrollbackConfig, SearchConfig};
 use crate::selection::SelectionKind;
 
 #[test]
@@ -915,4 +915,25 @@ fn terminal_viewport_scroll_commands_adjust_offset_within_scrollback_bounds() {
     assert_eq!(terminal.scrollback_view_offset(), 6);
     terminal.scroll_to_bottom();
     assert_eq!(terminal.scrollback_view_offset(), 0);
+}
+
+#[test]
+fn terminal_search_scrollback_supports_regex_and_whole_word_config() {
+    let mut terminal = Terminal::new(2, 4).unwrap();
+    terminal
+        .scrollback
+        .push(Line::from_text("helloworld", false));
+    terminal.scrollback.push(Line::from_text("world", false));
+    terminal.scrollback.push(Line::from_text("WORLD", false));
+
+    let config = SearchConfig {
+        pattern: "world".to_string(),
+        case_sensitive: false,
+        use_regex: true,
+        whole_word: true,
+        wrap: true,
+    };
+
+    let results = terminal.search_scrollback(&config);
+    assert_eq!(results.len(), 2);
 }

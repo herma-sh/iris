@@ -19,6 +19,11 @@ Work window: `2026-03-26` to present
 - Terminal helper APIs for phase-4 integration consumers: `Terminal::scrollback`, `Terminal::scrollback_view_offset`, `Terminal::search_scrollback`, and `Terminal::new_with_scrollback`.
 - Phase-4 unit coverage updates in `crates/iris-core/src/test/scrollback/tests.rs` and `crates/iris-core/src/test/terminal/tests.rs` for search-engine navigation/wrap/whole-word/regex behavior, primary-vs-alternate scrollback capture behavior, and viewport offset command semantics.
 
+#### Changed
+
+- `Scrollback` equality now ignores per-line capture timestamps so terminal/scrollback state comparisons remain content-based across equivalent histories.
+- `Terminal::search_scrollback` now accepts `SearchConfig` and forwards to config-aware scrollback search so regex and whole-word behavior are available through the terminal API surface.
+
 ### 2026-03-26
 
 #### Added

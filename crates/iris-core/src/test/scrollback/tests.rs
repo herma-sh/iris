@@ -1,4 +1,5 @@
 use std::mem::size_of;
+use std::time::Duration;
 
 use crate::cell::{Cell, CellAttrs};
 use crate::scrollback::{Line, Scrollback, ScrollbackConfig, SearchEngine};
@@ -310,4 +311,19 @@ fn search_engine_regex_honors_whole_word_boundaries() {
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].column, 11);
     assert_eq!(results[1].column, 17);
+}
+
+#[test]
+fn scrollback_equality_ignores_line_timestamps() {
+    let mut left = Scrollback::new(ScrollbackConfig::default());
+    let mut right = Scrollback::new(ScrollbackConfig::default());
+
+    let left_line = line("same");
+    let mut right_line = line("same");
+    right_line.timestamp = left_line.timestamp + Duration::from_secs(1);
+
+    left.push(left_line);
+    right.push(right_line);
+
+    assert_eq!(left, right);
 }

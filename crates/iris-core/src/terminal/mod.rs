@@ -7,7 +7,7 @@ use crate::error::{validate_printable_ascii, Result};
 use crate::grid::{Grid, GridSize};
 use crate::modes::TerminalModes;
 use crate::parser::Action;
-use crate::scrollback::{Line, Scrollback, ScrollbackConfig, SearchResult};
+use crate::scrollback::{Line, Scrollback, ScrollbackConfig, SearchConfig, SearchResult};
 use crate::selection::{Selection, SelectionEngine, SelectionKind};
 
 mod editing;
@@ -303,10 +303,10 @@ impl Terminal {
         self.scrollback_view_offset
     }
 
-    /// Returns scrollback matches for the provided query.
+    /// Returns scrollback matches for the provided query configuration.
     #[must_use]
-    pub fn search_scrollback(&self, pattern: &str, case_sensitive: bool) -> Vec<SearchResult> {
-        self.scrollback.search(pattern, case_sensitive)
+    pub fn search_scrollback(&self, config: &SearchConfig) -> Vec<SearchResult> {
+        self.scrollback.search_with_config(config)
     }
 
     /// Scrolls the viewport up by one row.
