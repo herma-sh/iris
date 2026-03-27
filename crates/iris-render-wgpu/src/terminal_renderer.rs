@@ -101,22 +101,12 @@ struct SearchSnapshot {
 }
 
 impl SearchSnapshot {
-    fn from_terminal(terminal: &Terminal, config: &SearchConfig) -> Option<Self> {
-        let grid_rows = terminal.grid.rows();
-        let grid_cols = terminal.grid.cols();
-        if grid_rows == 0 || grid_cols == 0 || terminal.scrollback_view_offset() > 0 {
-            return None;
-        }
-
-        let mut visible_rows = Scrollback::new(ScrollbackConfig {
-            max_lines: grid_rows.max(1),
-            max_memory_bytes: None,
-        });
-        for row in 0..grid_rows {
-            let cells = terminal.grid.row(row)?.to_vec();
-            visible_rows.push(Line::new(cells, false));
-        }
-
+    fn from_rows(
+        visible_rows: &Scrollback,
+        grid_rows: usize,
+        grid_cols: usize,
+        config: &SearchConfig,
+    ) -> Option<Self> {
         let mut rows = Vec::new();
         for candidate in visible_rows.search_with_config(config) {
             let Some(row) = visible_rows.oldest_index_by_number(candidate.line_number) else {
@@ -198,6 +188,42 @@ impl SearchSnapshot {
     }
 }
 
+#[derive(Clone, Debug)]
+struct SearchRowsCache {
+    grid_rows: usize,
+    grid_cols: usize,
+    visible_rows: Scrollback,
+}
+
+impl SearchRowsCache {
+    fn from_terminal(terminal: &Terminal) -> Option<Self> {
+        let grid_rows = terminal.grid.rows();
+        let grid_cols = terminal.grid.cols();
+        if grid_rows == 0 || grid_cols == 0 {
+            return None;
+        }
+
+        let mut visible_rows = Scrollback::new(ScrollbackConfig {
+            max_lines: grid_rows.max(1),
+            max_memory_bytes: None,
+        });
+        for row in 0..grid_rows {
+            let cells = terminal.grid.row(row)?.to_vec();
+            visible_rows.push(Line::new(cells, false));
+        }
+
+        Some(Self {
+            grid_rows,
+            grid_cols,
+            visible_rows,
+        })
+    }
+
+    const fn matches_grid_shape(&self, terminal: &Terminal) -> bool {
+        self.grid_rows == terminal.grid.rows() && self.grid_cols == terminal.grid.cols()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct HighlightSnapshots<'a> {
     selection: Option<&'a SelectionSnapshot>,
@@ -231,6 +257,7 @@ pub struct TerminalRenderer {
     previous_cursor: Option<Cursor>,
     previous_selection: Option<SelectionSnapshot>,
     previous_search: Option<SearchSnapshot>,
+    search_rows_cache: Option<SearchRowsCache>,
     frame_initialized: bool,
 }
 
@@ -278,6 +305,7 @@ impl TerminalRenderer {
             previous_cursor: None,
             previous_selection: None,
             previous_search: None,
+            search_rows_cache: None,
             frame_initialized: false,
         };
         terminal_renderer.write_present_uniforms(renderer);
@@ -385,7 +413,7 @@ impl TerminalRenderer {
         search: Option<&SearchConfig>,
     ) -> Result<()> {
         let selection = SelectionSnapshot::from_terminal(terminal);
-        let search = search.and_then(|config| SearchSnapshot::from_terminal(terminal, config));
+        let search = self.search_snapshot_from_terminal(terminal, search, true);
         let highlights = HighlightSnapshots {
             selection: selection.as_ref(),
             search: search.as_ref(),
@@ -415,12 +443,12 @@ impl TerminalRenderer {
         search: Option<&SearchConfig>,
     ) -> Result<()> {
         let selection = SelectionSnapshot::from_terminal(terminal);
-        let search = search.and_then(|config| SearchSnapshot::from_terminal(terminal, config));
-        let highlights = HighlightSnapshots {
-            selection: selection.as_ref(),
-            search: search.as_ref(),
-        };
         if !self.frame_initialized {
+            let search_snapshot = self.search_snapshot_from_terminal(terminal, search, true);
+            let highlights = HighlightSnapshots {
+                selection: selection.as_ref(),
+                search: search_snapshot.as_ref(),
+            };
             let result = self.prepare_grid_and_cursor_internal(
                 renderer,
                 &terminal.grid,
@@ -431,19 +459,32 @@ impl TerminalRenderer {
                 let _ = terminal.take_scroll_delta();
                 let _ = terminal.take_damage();
                 self.previous_selection = selection;
-                self.previous_search = search;
+                self.previous_search = search_snapshot;
             }
             return result;
         }
 
         let scroll_delta = terminal.take_scroll_delta();
         let mut damage = terminal.take_damage();
+        let search_snapshot = self.search_snapshot_from_terminal(
+            terminal,
+            search,
+            scroll_delta.is_some() || !damage.is_empty(),
+        );
+        let highlights = HighlightSnapshots {
+            selection: selection.as_ref(),
+            search: search_snapshot.as_ref(),
+        };
         self.push_selection_damage_pair(
             &mut damage,
             self.previous_selection.as_ref(),
             selection.as_ref(),
         );
-        self.push_search_damage_pair(&mut damage, self.previous_search.as_ref(), search.as_ref());
+        self.push_search_damage_pair(
+            &mut damage,
+            self.previous_search.as_ref(),
+            search_snapshot.as_ref(),
+        );
         let original_damage_len = damage.len();
         let result = self.update_grid_and_cursor_internal(
             renderer,
@@ -458,7 +499,7 @@ impl TerminalRenderer {
         match result {
             Ok(()) => {
                 self.previous_selection = selection;
-                self.previous_search = search;
+                self.previous_search = search_snapshot;
                 Ok(())
             }
             Err(error) => {
@@ -485,6 +526,7 @@ impl TerminalRenderer {
         )?;
         self.previous_selection = None;
         self.previous_search = None;
+        self.search_rows_cache = None;
         Ok(())
     }
 
@@ -516,6 +558,7 @@ impl TerminalRenderer {
         if result.is_ok() {
             self.previous_selection = None;
             self.previous_search = None;
+            self.search_rows_cache = None;
         }
         result
     }
@@ -729,6 +772,34 @@ impl TerminalRenderer {
         crate::cursor::cursor_damage_region(cursor?, grid)
     }
 
+    fn search_snapshot_from_terminal(
+        &mut self,
+        terminal: &Terminal,
+        config: Option<&SearchConfig>,
+        force_rebuild_cache: bool,
+    ) -> Option<SearchSnapshot> {
+        let config = config?;
+        if terminal.scrollback_view_offset() > 0 {
+            return None;
+        }
+
+        let cache_is_compatible = self
+            .search_rows_cache
+            .as_ref()
+            .is_some_and(|cache| cache.matches_grid_shape(terminal));
+        if force_rebuild_cache || !cache_is_compatible {
+            self.search_rows_cache = SearchRowsCache::from_terminal(terminal);
+        }
+
+        let cache = self.search_rows_cache.as_ref()?;
+        SearchSnapshot::from_rows(
+            &cache.visible_rows,
+            cache.grid_rows,
+            cache.grid_cols,
+            config,
+        )
+    }
+
     fn resize_frame_surface(&mut self, renderer: &Renderer, uniforms: TextUniforms) {
         let next_size = frame_surface_size_for_uniforms(uniforms);
         if next_size == self.frame_surface.size() {
@@ -769,6 +840,7 @@ impl TerminalRenderer {
         self.previous_cursor = None;
         self.previous_selection = None;
         self.previous_search = None;
+        self.search_rows_cache = None;
     }
 }
 
