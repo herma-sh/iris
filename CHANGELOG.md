@@ -16,6 +16,7 @@ Work window: `2026-03-26` to present
 
 - Added a scrollback/search benchmark harness in `iris-core` at `crates/iris-core/benches/scrollback_throughput.rs`, covering 100k-line retention push throughput, retained-memory reporting, and whole-word search latency across full retained history.
 - Added a new executable bench target entry for `scrollback_throughput` in `crates/iris-core/Cargo.toml`.
+- Added large-history scrollback test coverage in `crates/iris-core/src/test/scrollback/tests.rs` for 100k-line ingest retention window behavior and full-history search matching across 100k retained lines.
 
 #### Changed
 

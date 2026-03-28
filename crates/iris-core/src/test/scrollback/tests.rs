@@ -400,3 +400,64 @@ fn search_engine_setters_noop_on_equal_values() {
     engine.set_wrap(true);
     assert_eq!(engine.current_match(), selected);
 }
+
+#[test]
+fn scrollback_retains_expected_window_after_100k_ingest() {
+    const TOTAL_LINES: usize = 100_000;
+    const RETAINED_LINES: usize = 10_000;
+
+    let mut scrollback = Scrollback::new(ScrollbackConfig {
+        max_lines: RETAINED_LINES,
+        max_memory_bytes: None,
+    });
+    let template = line("row");
+
+    for _ in 0..TOTAL_LINES {
+        scrollback.push(template.clone());
+    }
+
+    assert_eq!(scrollback.total_lines_seen(), TOTAL_LINES as u64);
+    assert_eq!(scrollback.len(), RETAINED_LINES);
+    assert_eq!(scrollback.oldest(0).map(|line| line.number), Some(90_000));
+    assert_eq!(
+        scrollback.newest(0).map(|line| line.number),
+        Some((TOTAL_LINES - 1) as u64)
+    );
+}
+
+#[test]
+fn scrollback_search_covers_full_100k_retained_history() {
+    const RETAINED_LINES: usize = 100_000;
+    const MATCH_INTERVAL: usize = 97;
+
+    let mut scrollback = Scrollback::new(ScrollbackConfig {
+        max_lines: RETAINED_LINES,
+        max_memory_bytes: None,
+    });
+    let match_line = line("needle");
+    let filler_line = line("filler");
+
+    for line_index in 0..RETAINED_LINES {
+        if line_index % MATCH_INTERVAL == 0 {
+            scrollback.push(match_line.clone());
+        } else {
+            scrollback.push(filler_line.clone());
+        }
+    }
+
+    let mut engine = SearchEngine::new();
+    engine.set_whole_word(true);
+    engine.set_pattern("needle");
+
+    let results = engine.search(&scrollback);
+    let expected_matches = ((RETAINED_LINES - 1) / MATCH_INTERVAL) + 1;
+    let expected_last_match = ((RETAINED_LINES - 1) / MATCH_INTERVAL) * MATCH_INTERVAL;
+
+    assert_eq!(scrollback.len(), RETAINED_LINES);
+    assert_eq!(results.len(), expected_matches);
+    assert_eq!(results.first().map(|result| result.line_number), Some(0));
+    assert_eq!(
+        results.last().map(|result| result.line_number),
+        Some(expected_last_match as u64)
+    );
+}
