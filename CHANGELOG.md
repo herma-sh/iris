@@ -32,6 +32,7 @@ Work window: `2026-03-26` to present
 - Superseded behavior note: detached/mixed viewport highlight application was reverted after correctness review; `iris-render-wgpu::TerminalRenderer` now skips search highlighting when `scrollback_view_offset > 0` so highlight coordinates always match rasterized `terminal.grid` rows.
 - Updated `docs/phases/04.md` with a live progress snapshot, refreshed coverage checklist, and acceptance-status tracking aligned with the implemented scrollback/search feature set.
 - `scrollback_throughput` now supports threshold enforcement via `IRIS_SCROLLBACK_BENCH_ASSERT`, failing the benchmark when retained-memory/search-latency/navigation-step metrics exceed the documented phase-4 targets.
+- `scrollback_throughput` now includes a dedicated 1M-line retained-memory gate fixture (`1_000_000` lines at `32` columns) and enforces the phase-4 `<= 500 MiB` memory target when `IRIS_SCROLLBACK_BENCH_ASSERT` is enabled.
 - CI now runs a Linux-only scrollback benchmark gate (`IRIS_SCROLLBACK_BENCH_ASSERT=1 cargo bench -p iris-core --bench scrollback_throughput -- --nocapture`) so phase-4 scrollback/search regressions fail fast in pull requests.
 - Updated `docs/benchmarks.md` and `docs/phases/04.md` to document the new CI benchmark gate and current remaining phase-4 benchmark follow-up.
 - Tightened contributor workflow docs (`AGENTS.md`, `.agents/agent.md`, `.agents/rules.md`, `README.md`, and `docs/pull-request-guidelines.md`) to require explicit user/reviewer approval before any PR merge command is executed.

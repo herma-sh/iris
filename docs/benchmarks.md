@@ -89,11 +89,13 @@ The repository now ships a scrollback/search benchmark harness:
 - Scope:
   - push throughput for retaining 100k history lines (`64` columns per line)
   - retained-memory estimate for the 100k-line fixture
+  - retained-memory estimate for a dedicated 1M-line fixture (`32` columns per line)
   - whole-word search latency over the full retained fixture
   - next-match navigation step latency for repeated `SearchEngine::search_forward` lookups
 - Fixture:
   - 100,000 retained lines
   - one whole-word match every 97 lines (`needle`)
+  - 1,000,000 retained lines (`32` columns) for the phase-4 memory gate
 
 Run locally:
 
@@ -104,6 +106,7 @@ cargo bench -p iris-core --bench scrollback_throughput
 The benchmark prints memory/search targets used during development:
 
 - retained memory target: `<= 200 MiB` for the 100k-line fixture
+- retained memory target: `<= 500 MiB` for the 1M-line fixture (`32` columns)
 - search target: `<= 500 ms` per full-history query
 - navigation target: `<= 500 us` per next-match step
 
