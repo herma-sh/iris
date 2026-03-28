@@ -90,6 +90,7 @@ The repository now ships a scrollback/search benchmark harness:
   - push throughput for retaining 100k history lines (`64` columns per line)
   - retained-memory estimate for the 100k-line fixture
   - whole-word search latency over the full retained fixture
+  - next-match navigation step latency for repeated `SearchEngine::search_forward` lookups
 - Fixture:
   - 100,000 retained lines
   - one whole-word match every 97 lines (`needle`)
@@ -104,6 +105,7 @@ The benchmark prints memory/search targets used during development:
 
 - retained memory target: `<= 200 MiB` for the 100k-line fixture
 - search target: `<= 500 ms` per full-history query
+- navigation target: `<= 500 us` per next-match step
 
 ## Planned Benchmarks
 

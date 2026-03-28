@@ -23,6 +23,12 @@ Work window: `2026-03-26` to present
 - Updated benchmark documentation in `docs/benchmarks.md` to include the new scrollback benchmark workflow, command, and development target thresholds for retained memory and search latency.
 - Optimized regex search match indexing in `iris-core::scrollback::search` by reusing precomputed char-byte offsets per line instead of repeatedly rescanning prefix slices for every regex match.
 - Added Unicode wide-cell regex coverage in `crates/iris-core/src/test/scrollback/tests.rs` to verify display-column and length mapping for multibyte matches.
+- `iris-core::SearchEngine` next/previous navigation now caches match results across repeated lookups and refreshes cache entries when the source scrollback instance changes, scrollback length/line counters change, or query settings change.
+- Extended `crates/iris-core/benches/scrollback_throughput.rs` with forward-navigation step latency measurements for repeated `SearchEngine::search_forward` calls over retained 100k-line history.
+- Added scrollback regression coverage for navigation cache refresh behavior after history growth and clear in `crates/iris-core/src/test/scrollback/tests.rs`.
+- `SearchEngine::set_wrap` now preserves cached navigation match sets when only wrap behavior changes, because wrap toggles affect traversal policy but not the underlying match set.
+- `Scrollback` now carries a stable `instance_id` assigned at construction and used in search navigation cache keys to avoid cross-buffer cache contamination and pointer-identity ABA edge cases.
+- Added rollover-specific navigation regression coverage in `crates/iris-core/src/test/scrollback/tests.rs` for fixed-capacity scrollback where retained length stays constant while `total_lines_seen` increases.
 
 ### 2026-03-27
 

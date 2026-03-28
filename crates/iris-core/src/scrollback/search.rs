@@ -59,6 +59,16 @@ pub struct SearchEngine {
     config: SearchConfig,
     compiled_regex: Option<Regex>,
     current_match: Option<usize>,
+    navigation_cache: NavigationCache,
+}
+
+#[derive(Clone, Debug, Default)]
+struct NavigationCache {
+    scrollback_identity: u64,
+    total_lines_seen: u64,
+    retained_len: usize,
+    results: Vec<SearchResult>,
+    valid: bool,
 }
 
 impl SearchEngine {
@@ -69,6 +79,7 @@ impl SearchEngine {
             config: SearchConfig::default(),
             compiled_regex: None,
             current_match: None,
+            navigation_cache: NavigationCache::default(),
         }
     }
 
@@ -93,6 +104,7 @@ impl SearchEngine {
 
         self.config.pattern = next_pattern;
         self.current_match = None;
+        self.invalidate_navigation_cache();
         self.rebuild_regex();
     }
 
@@ -104,6 +116,7 @@ impl SearchEngine {
 
         self.config.case_sensitive = case_sensitive;
         self.current_match = None;
+        self.invalidate_navigation_cache();
         self.rebuild_regex();
     }
 
@@ -115,6 +128,7 @@ impl SearchEngine {
 
         self.config.use_regex = use_regex;
         self.current_match = None;
+        self.invalidate_navigation_cache();
         self.rebuild_regex();
     }
 
@@ -126,6 +140,7 @@ impl SearchEngine {
 
         self.config.whole_word = whole_word;
         self.current_match = None;
+        self.invalidate_navigation_cache();
     }
 
     /// Enables or disables wrap-around behavior for next/previous lookups.
@@ -135,12 +150,96 @@ impl SearchEngine {
         }
 
         self.config.wrap = wrap;
-        self.current_match = None;
     }
 
     /// Returns all matches ordered from oldest to newest line.
     #[must_use]
     pub fn search(&self, scrollback: &Scrollback) -> Vec<SearchResult> {
+        self.compute_results(scrollback)
+    }
+
+    /// Finds the next match after the provided position.
+    #[must_use]
+    pub fn search_forward(
+        &mut self,
+        scrollback: &Scrollback,
+        start_line: u64,
+        start_col: usize,
+    ) -> Option<SearchResult> {
+        let wrap_enabled = self.config.wrap;
+        let mut selected_index = None;
+        {
+            let results = self.navigation_results(scrollback);
+            for (index, result) in results.iter().enumerate() {
+                let is_after_line = result.line_number > start_line;
+                let is_after_column = result.line_number == start_line && result.column > start_col;
+                if is_after_line || is_after_column {
+                    selected_index = Some(index);
+                    break;
+                }
+            }
+            if selected_index.is_none() && wrap_enabled && !results.is_empty() {
+                selected_index = Some(0);
+            }
+        }
+
+        if let Some(index) = selected_index {
+            self.current_match = Some(index);
+            return self.navigation_cache.results.get(index).cloned();
+        }
+
+        self.current_match = None;
+        None
+    }
+
+    /// Finds the previous match before the provided position.
+    #[must_use]
+    pub fn search_backward(
+        &mut self,
+        scrollback: &Scrollback,
+        start_line: u64,
+        start_col: usize,
+    ) -> Option<SearchResult> {
+        let wrap_enabled = self.config.wrap;
+        let mut selected_index = None;
+        {
+            let results = self.navigation_results(scrollback);
+            for (index, result) in results.iter().enumerate().rev() {
+                let is_before_line = result.line_number < start_line;
+                let is_before_column =
+                    result.line_number == start_line && result.column < start_col;
+                if is_before_line || is_before_column {
+                    selected_index = Some(index);
+                    break;
+                }
+            }
+
+            if selected_index.is_none() && wrap_enabled {
+                selected_index = results.len().checked_sub(1);
+            }
+        }
+
+        if let Some(index) = selected_index {
+            self.current_match = Some(index);
+            return self.navigation_cache.results.get(index).cloned();
+        }
+
+        self.current_match = None;
+        None
+    }
+
+    fn rebuild_regex(&mut self) {
+        self.compiled_regex = if self.config.use_regex && !self.config.pattern.is_empty() {
+            RegexBuilder::new(&self.config.pattern)
+                .case_insensitive(!self.config.case_sensitive)
+                .build()
+                .ok()
+        } else {
+            None
+        };
+    }
+
+    fn compute_results(&self, scrollback: &Scrollback) -> Vec<SearchResult> {
         let pattern = self.config.pattern.as_str();
         if pattern.is_empty() {
             return Vec::new();
@@ -177,79 +276,32 @@ impl SearchEngine {
         results
     }
 
-    /// Finds the next match after the provided position.
-    #[must_use]
-    pub fn search_forward(
-        &mut self,
-        scrollback: &Scrollback,
-        start_line: u64,
-        start_col: usize,
-    ) -> Option<SearchResult> {
-        let results = self.search(scrollback);
-
-        for (index, result) in results.iter().enumerate() {
-            let is_after_line = result.line_number > start_line;
-            let is_after_column = result.line_number == start_line && result.column > start_col;
-            if is_after_line || is_after_column {
-                self.current_match = Some(index);
-                return Some(result.clone());
-            }
+    fn navigation_results(&mut self, scrollback: &Scrollback) -> &[SearchResult] {
+        let scrollback_identity = scrollback.instance_id();
+        let total_lines_seen = scrollback.total_lines_seen();
+        let retained_len = scrollback.len();
+        if self.navigation_cache.valid
+            && self.navigation_cache.scrollback_identity == scrollback_identity
+            && self.navigation_cache.total_lines_seen == total_lines_seen
+            && self.navigation_cache.retained_len == retained_len
+        {
+            return &self.navigation_cache.results;
         }
 
-        if self.config.wrap {
-            if let Some(result) = results.first() {
-                self.current_match = Some(0);
-                return Some(result.clone());
-            }
-        }
-
-        self.current_match = None;
-        None
+        self.navigation_cache.results = self.compute_results(scrollback);
+        self.navigation_cache.scrollback_identity = scrollback_identity;
+        self.navigation_cache.total_lines_seen = total_lines_seen;
+        self.navigation_cache.retained_len = retained_len;
+        self.navigation_cache.valid = true;
+        &self.navigation_cache.results
     }
 
-    /// Finds the previous match before the provided position.
-    #[must_use]
-    pub fn search_backward(
-        &mut self,
-        scrollback: &Scrollback,
-        start_line: u64,
-        start_col: usize,
-    ) -> Option<SearchResult> {
-        let results = self.search(scrollback);
-
-        for (index, result) in results.iter().enumerate().rev() {
-            let is_before_line = result.line_number < start_line;
-            let is_before_column = result.line_number == start_line && result.column < start_col;
-            if is_before_line || is_before_column {
-                self.current_match = Some(index);
-                return Some(result.clone());
-            }
-        }
-
-        if self.config.wrap {
-            if let Some((index, result)) = results
-                .len()
-                .checked_sub(1)
-                .and_then(|index| results.get(index).map(|result| (index, result)))
-            {
-                self.current_match = Some(index);
-                return Some(result.clone());
-            }
-        }
-
-        self.current_match = None;
-        None
-    }
-
-    fn rebuild_regex(&mut self) {
-        self.compiled_regex = if self.config.use_regex && !self.config.pattern.is_empty() {
-            RegexBuilder::new(&self.config.pattern)
-                .case_insensitive(!self.config.case_sensitive)
-                .build()
-                .ok()
-        } else {
-            None
-        };
+    fn invalidate_navigation_cache(&mut self) {
+        self.navigation_cache.valid = false;
+        self.navigation_cache.scrollback_identity = 0;
+        self.navigation_cache.total_lines_seen = 0;
+        self.navigation_cache.retained_len = 0;
+        self.navigation_cache.results.clear();
     }
 }
 

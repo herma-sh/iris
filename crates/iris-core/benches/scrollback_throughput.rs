@@ -2,17 +2,19 @@ use std::hint::black_box;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
 
-use iris_core::{Cell, Line, Scrollback, ScrollbackConfig, SearchConfig};
+use iris_core::{Cell, Line, Scrollback, ScrollbackConfig, SearchConfig, SearchEngine};
 
 const RETAINED_LINES: usize = 100_000;
 const LINE_WIDTH: usize = 64;
 const MATCH_INTERVAL: usize = 97;
 const TARGET_MAX_MEMORY_MIB: f64 = 200.0;
 const TARGET_MAX_SEARCH_MILLIS: f64 = 500.0;
+const TARGET_MAX_NAVIGATION_STEP_MICROS: f64 = 500.0;
 const PUSH_WARMUP_RUNS: usize = 1;
 const SEARCH_WARMUP_RUNS: usize = 5;
 const MIN_PUSH_BENCH_TIME: Duration = Duration::from_millis(250);
 const MIN_SEARCH_BENCH_TIME: Duration = Duration::from_millis(750);
+const NAVIGATION_STEPS: usize = 128;
 
 #[derive(Clone)]
 struct LineTemplates {
@@ -84,9 +86,33 @@ fn main() {
         search_result.elapsed.as_secs_f64()
     );
 
+    let mut navigation_engine = SearchEngine::new();
+    navigation_engine.set_pattern("needle");
+    navigation_engine.set_whole_word(true);
+    navigation_engine.set_wrap(false);
+    let baseline_navigation_hits =
+        navigate_forward_steps(&mut navigation_engine, &scrollback, NAVIGATION_STEPS);
+    assert_eq!(baseline_navigation_hits, NAVIGATION_STEPS);
+
+    let navigation_result = run_benchmark(SEARCH_WARMUP_RUNS, MIN_SEARCH_BENCH_TIME, || {
+        let hits = navigate_forward_steps(&mut navigation_engine, &scrollback, NAVIGATION_STEPS);
+        assert_eq!(
+            hits, NAVIGATION_STEPS,
+            "navigate_forward_steps returned fewer hits than NAVIGATION_STEPS during run_benchmark; navigation_engine or scrollback state changed unexpectedly"
+        );
+        black_box(hits);
+    });
+    let per_navigation_step_us = per_iteration_micros(&navigation_result) / NAVIGATION_STEPS as f64;
     println!(
-        "targets: retained memory <= {:.0} MiB, search <= {:.0} ms/query",
-        TARGET_MAX_MEMORY_MIB, TARGET_MAX_SEARCH_MILLIS
+        "search_navigation_forward_step: {:.2} us/step over {} iterations ({:.3}s)",
+        per_navigation_step_us,
+        navigation_result.iterations,
+        navigation_result.elapsed.as_secs_f64()
+    );
+
+    println!(
+        "targets: retained memory <= {:.0} MiB, search <= {:.0} ms/query, navigation <= {:.0} us/step",
+        TARGET_MAX_MEMORY_MIB, TARGET_MAX_SEARCH_MILLIS, TARGET_MAX_NAVIGATION_STEP_MICROS
     );
 }
 
@@ -150,6 +176,29 @@ fn per_iteration_millis(result: &BenchResult) -> f64 {
     (result.elapsed.as_secs_f64() * 1000.0) / result.iterations as f64
 }
 
+fn per_iteration_micros(result: &BenchResult) -> f64 {
+    (result.elapsed.as_secs_f64() * 1_000_000.0) / result.iterations as f64
+}
+
 fn bytes_to_mib(bytes: usize) -> f64 {
     bytes as f64 / (1024.0 * 1024.0)
+}
+
+fn navigate_forward_steps(
+    engine: &mut SearchEngine,
+    scrollback: &Scrollback,
+    steps: usize,
+) -> usize {
+    let mut start_line = 0_u64;
+    let mut start_col = 0_usize;
+    let mut hits = 0usize;
+    for _ in 0..steps {
+        let Some(next) = engine.search_forward(scrollback, start_line, start_col) else {
+            break;
+        };
+        start_line = next.line_number;
+        start_col = next.column;
+        hits = hits.saturating_add(1);
+    }
+    hits
 }
