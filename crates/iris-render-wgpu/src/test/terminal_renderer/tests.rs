@@ -371,7 +371,7 @@ fn terminal_renderer_skips_search_highlight_when_viewport_detached_from_live_gri
     terminal.scroll_line_up();
 
     let search = SearchConfig {
-        pattern: "X".to_string(),
+        pattern: "Y".to_string(),
         case_sensitive: true,
         use_regex: false,
         whole_word: false,
@@ -408,6 +408,29 @@ fn terminal_renderer_skips_search_highlight_when_viewport_detached_from_live_gri
     assert_eq!(
         highlighted_color, baseline_color,
         "search highlighting should be skipped when viewport rows are not sourced from live grid"
+    );
+
+    terminal.scroll_to_bottom();
+    assert!(
+        terminal.take_damage().is_empty(),
+        "reattaching viewport should not require explicit grid damage for this regression path"
+    );
+    assert!(
+        terminal.take_scroll_delta().is_none(),
+        "reattaching viewport should not require explicit scroll delta for this regression path"
+    );
+
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search))
+        .expect("reattached viewport update should rebuild search highlights");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let reattached_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+    let reattached_color = pixel_at(&reattached_pixels, surface.size(), (1, 1));
+    let highlighted_background =
+        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
+    assert_eq!(
+        reattached_color, highlighted_background,
+        "search highlights should be rebuilt on reattach using live-grid rows"
     );
 }
 
