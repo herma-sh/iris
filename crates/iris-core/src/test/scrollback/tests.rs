@@ -434,6 +434,24 @@ fn search_engine_navigation_refreshes_results_after_scrollback_clear() {
 }
 
 #[test]
+fn search_engine_navigation_does_not_reuse_cache_across_scrollback_instances() {
+    let mut first = Scrollback::new(ScrollbackConfig::default());
+    first.push(line("alpha"));
+
+    let mut second = Scrollback::new(ScrollbackConfig::default());
+    second.push(line("beta"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("alpha");
+
+    let first_hit = engine.search_forward(&first, 0, 0).unwrap();
+    assert_eq!(first_hit.line_number, 0);
+
+    assert!(engine.search_forward(&second, 0, 0).is_none());
+    assert!(engine.search_backward(&second, 0, 0).is_none());
+}
+
+#[test]
 fn scrollback_retains_expected_window_after_100k_ingest() {
     const TOTAL_LINES: usize = 100_000;
     const RETAINED_LINES: usize = 10_000;

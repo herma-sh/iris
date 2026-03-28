@@ -64,6 +64,7 @@ pub struct SearchEngine {
 
 #[derive(Clone, Debug, Default)]
 struct NavigationCache {
+    scrollback_identity: usize,
     total_lines_seen: u64,
     retained_len: usize,
     results: Vec<SearchResult>,
@@ -278,9 +279,11 @@ impl SearchEngine {
     }
 
     fn navigation_results(&mut self, scrollback: &Scrollback) -> &[SearchResult] {
+        let scrollback_identity = std::ptr::from_ref(scrollback) as usize;
         let total_lines_seen = scrollback.total_lines_seen();
         let retained_len = scrollback.len();
         if self.navigation_cache.valid
+            && self.navigation_cache.scrollback_identity == scrollback_identity
             && self.navigation_cache.total_lines_seen == total_lines_seen
             && self.navigation_cache.retained_len == retained_len
         {
@@ -288,6 +291,7 @@ impl SearchEngine {
         }
 
         self.navigation_cache.results = self.compute_results(scrollback);
+        self.navigation_cache.scrollback_identity = scrollback_identity;
         self.navigation_cache.total_lines_seen = total_lines_seen;
         self.navigation_cache.retained_len = retained_len;
         self.navigation_cache.valid = true;
@@ -296,6 +300,7 @@ impl SearchEngine {
 
     fn invalidate_navigation_cache(&mut self) {
         self.navigation_cache.valid = false;
+        self.navigation_cache.scrollback_identity = 0;
         self.navigation_cache.total_lines_seen = 0;
         self.navigation_cache.retained_len = 0;
         self.navigation_cache.results.clear();
