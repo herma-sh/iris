@@ -10,6 +10,12 @@ All PRs must use the repository template:
 
 Do not replace it with a short freeform summary.
 
+## Branch Policy
+
+- Create a focused `feature/*` branch from `dev` before implementing changes.
+- Do not commit feature work directly to `main` or `dev`.
+- Open PRs from `feature/*` into `dev` unless a maintainer explicitly requests a different base.
+
 ## Required Detail Level
 
 Each required section must include concrete, reviewable detail:

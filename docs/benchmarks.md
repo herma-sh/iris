@@ -81,6 +81,30 @@ Latest verified run on `2026-03-22`:
 | `retained_mixed_update_160x45` | `~3.8k-5.1k updates/s` |
 | `estimated_renderer_memory` | `~13.6 MiB` |
 
+### Scrollback Throughput (Phase 4)
+
+The repository now ships a scrollback/search benchmark harness:
+
+- Path: `crates/iris-core/benches/scrollback_throughput.rs`
+- Scope:
+  - push throughput for retaining 100k history lines (`64` columns per line)
+  - retained-memory estimate for the 100k-line fixture
+  - whole-word search latency over the full retained fixture
+- Fixture:
+  - 100,000 retained lines
+  - one whole-word match every 97 lines (`needle`)
+
+Run locally:
+
+```bash
+cargo bench -p iris-core --bench scrollback_throughput
+```
+
+The benchmark prints memory/search targets used during development:
+
+- retained memory target: `<= 200 MiB` for the 100k-line fixture
+- search target: `<= 500 ms` per full-history query
+
 ## Planned Benchmarks
 
 Additional benchmark areas are still planned for later phases:
@@ -88,7 +112,6 @@ Additional benchmark areas are still planned for later phases:
 - Grid operations
 - Render latency and damage-only redraw cost at larger viewport tiers
 - Startup time
-- Memory usage under large scrollback (deferred until scrollback lands in Phase 4)
 - Interactive latency under heavy output
 
 Those benches should follow the same rule as the current parser harness: measure the shipped execution path rather than a simplified micro-benchmark that skips real state updates.
@@ -100,6 +123,9 @@ Those benches should follow the same rule as the current parser harness: measure
 ```bash
 # Run the shipped parser throughput benchmark
 cargo bench -p iris-core --bench parser_throughput
+
+# Run the shipped scrollback/search benchmark
+cargo bench -p iris-core --bench scrollback_throughput
 
 # Run the renderer throughput benchmark
 cargo bench -p iris-render-wgpu --bench renderer_throughput

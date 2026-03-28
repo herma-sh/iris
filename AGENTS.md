@@ -23,6 +23,15 @@ Load these when relevant:
 - Follow the active phase in [docs/phases.md](./docs/phases.md) and the matching file in [docs/phases](./docs/phases).
 - Update [CHANGELOG.md](./CHANGELOG.md) with every meaningful change.
 
+## Branch And PR Workflow (Required)
+
+- Do not work directly on `main` or `dev`.
+- Before making code or docs changes, create/switch to a `feature/*` branch from `dev`.
+- Keep each branch focused on one coherent change set.
+- Open or update a pull request targeting `dev` after verification completes.
+- Use `./.github/PULL_REQUEST_TEMPLATE.md` for every PR description.
+- If a PR cannot be opened (for example, missing auth/remote), report the blocker and provide exact commands to complete it.
+
 ## Source Documents
 
 - Architecture: [docs/design.md](./docs/design.md), [docs/api-design.md](./docs/api-design.md), [docs/implementation.md](./docs/implementation.md)
