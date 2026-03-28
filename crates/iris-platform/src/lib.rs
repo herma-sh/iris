@@ -1,6 +1,7 @@
 //! Platform abstractions for PTY, clipboard, fonts, and IME support.
 
 pub mod clipboard;
+pub mod dpi;
 pub mod error;
 pub mod fonts;
 pub mod ime;
@@ -15,9 +16,10 @@ pub use clipboard::{
     ClipboardSelection, NativeClipboard, NoopClipboard, PasteSource, PlatformClipboard,
     SelectionClipboardController, BRACKETED_PASTE_END, BRACKETED_PASTE_START,
 };
+pub use dpi::{DpiScale, BASELINE_DPI};
 pub use error::{ClipboardError, Error, FontError, ImeError, PtyError, Result};
-pub use fonts::{FontInfo, FontProvider, NoopFontProvider};
-pub use ime::{ImeHandler, ImePosition, NoopImeHandler};
+pub use fonts::{FontInfo, FontProvider, NoopFontProvider, PlatformFontProvider};
+pub use ime::{ImeComposition, ImeHandler, ImePosition, NoopImeHandler};
 pub use pty::{PortablePtyBackend, PtyBackend, PtyConfig};
 pub use selection_input::{
     SelectionDirection, SelectionEventFlow, SelectionEventFlowConfig, SelectionEventFlowOutcome,
