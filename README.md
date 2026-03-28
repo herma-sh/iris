@@ -70,7 +70,7 @@ That means building out `iris-render-wgpu` so it can:
 - `dev`: active integration branch
 - `feature/*`: focused work branches created from `dev`
 
-Normal development should branch from `dev` and merge back into `dev`. `main` should only receive deliberate promotion merges from `dev`.
+Normal development must branch from `dev` and merge back into `dev` via pull request. Do not commit feature work directly to `main` or `dev`. `main` should only receive deliberate promotion merges from `dev`.
 
 ## Documentation
 

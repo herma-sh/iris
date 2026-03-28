@@ -10,6 +10,17 @@ Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N
 
 Work window: `2026-03-26` to present
 
+### 2026-03-28
+
+#### Added
+
+- Added a scrollback/search benchmark harness in `iris-core` at `crates/iris-core/benches/scrollback_throughput.rs`, covering 100k-line retention push throughput, retained-memory reporting, and whole-word search latency across full retained history.
+- Added a new executable bench target entry for `scrollback_throughput` in `crates/iris-core/Cargo.toml`.
+
+#### Changed
+
+- Updated benchmark documentation in `docs/benchmarks.md` to include the new scrollback benchmark workflow, command, and development target thresholds for retained memory and search latency.
+
 ### 2026-03-27
 
 #### Added

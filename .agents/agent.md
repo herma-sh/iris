@@ -41,10 +41,12 @@ See:
 ## How To Work
 
 1. Start with the relevant docs before changing code.
-2. Identify the active delivery phase and use the matching phase spec for scope and acceptance criteria.
-3. Make the smallest coherent change that preserves crate boundaries.
-4. Add or update tests, benchmarks, docs, and logging/security behavior when the change affects them.
-5. Verify with formatting, linting, tests, and phase-appropriate checks.
+2. If you are on `main` or `dev`, create a focused `feature/*` branch before editing files.
+3. Identify the active delivery phase and use the matching phase spec for scope and acceptance criteria.
+4. Make the smallest coherent change that preserves crate boundaries.
+5. Add or update tests, benchmarks, docs, and logging/security behavior when the change affects them.
+6. Verify with formatting, linting, tests, and phase-appropriate checks.
+7. Open or update a PR targeting `dev` and use `./.github/PULL_REQUEST_TEMPLATE.md`.
 
 ## Document Map
 

@@ -104,6 +104,15 @@ See:
 - For later phases, map phase `N` to `0.N.0`.
 - Do not assume code signing is required for local, development, alpha, or preview builds unless the release docs are explicitly tightened.
 
+## Git And PR Rules
+
+- Never implement work directly on `main` or `dev`.
+- Before changing files, switch to a focused `feature/*` branch created from `dev`.
+- Keep branch scope reviewable; avoid mixing unrelated changes.
+- Open or update a PR to `dev` for every meaningful change set.
+- PR descriptions must use `./.github/PULL_REQUEST_TEMPLATE.md` with all required sections completed (or marked `N/A` with a reason).
+- If a PR cannot be opened due environment constraints (for example missing GitHub auth), document the blocker and provide exact follow-up commands.
+
 ## Logging Rules
 
 - Use structured `tracing`.
