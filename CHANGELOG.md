@@ -31,6 +31,7 @@ Work window: `2026-03-26` to present
 - Added rollover-specific navigation regression coverage in `crates/iris-core/src/test/scrollback/tests.rs` for fixed-capacity scrollback where retained length stays constant while `total_lines_seen` increases.
 - `iris-render-wgpu::TerminalRenderer` search highlighting now tracks the currently visible viewport row composition (scrollback + live rows) so detached or mixed scrollback viewports continue to receive search highlights instead of being skipped.
 - Updated `docs/phases/04.md` with a live progress snapshot, refreshed coverage checklist, and acceptance-status tracking aligned with the implemented scrollback/search feature set.
+- Follow-up correctness fix: `iris-render-wgpu::TerminalRenderer` now skips search highlighting when `scrollback_view_offset > 0` so highlight coordinates always match the currently rasterized `terminal.grid` rows and cannot paint false positives on detached history viewports.
 
 ### 2026-03-27
 

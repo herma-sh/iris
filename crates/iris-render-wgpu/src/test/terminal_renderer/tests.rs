@@ -319,7 +319,7 @@ fn terminal_renderer_updates_search_highlight_without_grid_or_cursor_changes() {
 }
 
 #[test]
-fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_grid() {
+fn terminal_renderer_skips_search_highlight_when_viewport_detached_from_live_grid() {
     let _gpu_test_lock = crate::test_support::gpu_test_lock();
     let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
         Ok(renderer) => renderer,
@@ -394,8 +394,6 @@ fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_g
 
     let baseline_color = pixel_at(&baseline_pixels, surface.size(), (1, 1));
     let highlighted_color = pixel_at(&highlighted_pixels, surface.size(), (1, 1));
-    let highlighted_background =
-        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
     let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
 
     assert_eq!(
@@ -408,113 +406,8 @@ fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_g
         "baseline cell should render with normal background"
     );
     assert_eq!(
-        highlighted_color, highlighted_background,
-        "search highlighting should apply to rows rendered from detached scrollback viewport state"
-    );
-}
-
-#[test]
-fn terminal_renderer_applies_search_highlight_to_mixed_scrollback_and_live_rows() {
-    let _gpu_test_lock = crate::test_support::gpu_test_lock();
-    let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
-        Ok(renderer) => renderer,
-        Err(crate::error::Error::NoAdapter) => return,
-        Err(error) => panic!("renderer bootstrap failed unexpectedly: {error}"),
-    };
-    let surface = renderer
-        .create_texture_surface(TextureSurfaceConfig::new(
-            TextureSurfaceSize::new(32, 32).expect("surface dimensions are valid"),
-        ))
-        .expect("texture surface should be created");
-    let mut terminal_renderer = match TerminalRenderer::new(
-        &renderer,
-        surface.format(),
-        TerminalRendererConfig {
-            text: crate::text_renderer::TextRendererConfig {
-                theme: Theme {
-                    foreground: ThemeColor::rgb(0xff, 0xff, 0xff),
-                    background: ThemeColor::rgb(0x00, 0x00, 0x00),
-                    ..Theme::default()
-                },
-                uniforms: TextUniforms::new([32.0, 32.0], [16.0, 16.0], 0.0),
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-    ) {
-        Ok(renderer) => renderer,
-        Err(crate::error::Error::NoUsableSystemFont) => return,
-        Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
-    };
-    let mut terminal = Terminal::new(2, 2).expect("terminal should be created");
-    terminal
-        .write_char('A')
-        .expect("terminal write should succeed");
-    terminal
-        .execute_control(0x0a)
-        .expect("line feed should move cursor to the second row");
-    terminal
-        .execute_control(0x0d)
-        .expect("carriage return should reset cursor column");
-    terminal
-        .write_char('B')
-        .expect("terminal write should succeed");
-    terminal
-        .execute_control(0x0a)
-        .expect("line feed at bottom should push the first row into scrollback");
-    terminal
-        .execute_control(0x0d)
-        .expect("carriage return should reset cursor column");
-    terminal
-        .write_char('C')
-        .expect("terminal write should succeed");
-    terminal.cursor.visible = false;
-    terminal.scroll_line_up();
-
-    let search = SearchConfig {
-        pattern: "[AB]".to_string(),
-        case_sensitive: true,
-        use_regex: true,
-        whole_word: false,
-        wrap: true,
-    };
-
-    terminal_renderer
-        .prepare_terminal_with_search(&renderer, &terminal, None)
-        .expect("initial terminal frame should prepare");
-    terminal_renderer.render_to_texture_surface(&renderer, &surface);
-    let baseline_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
-
-    let _ = terminal.take_damage();
-    let _ = terminal.take_scroll_delta();
-    terminal_renderer
-        .update_terminal_with_search(&renderer, &mut terminal, Some(&search))
-        .expect("mixed viewport update should succeed");
-    terminal_renderer.render_to_texture_surface(&renderer, &surface);
-    let highlighted_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
-
-    let baseline_top = pixel_at(&baseline_pixels, surface.size(), (1, 1));
-    let baseline_bottom = pixel_at(&baseline_pixels, surface.size(), (1, 17));
-    let highlighted_top = pixel_at(&highlighted_pixels, surface.size(), (1, 1));
-    let highlighted_bottom = pixel_at(&highlighted_pixels, surface.size(), (1, 17));
-    let highlighted_background =
-        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
-    let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
-
-    assert_eq!(
-        terminal.scrollback_view_offset(),
-        1,
-        "test setup must render a mixed scrollback/live viewport"
-    );
-    assert_eq!(baseline_top, background);
-    assert_eq!(baseline_bottom, background);
-    assert_eq!(
-        highlighted_top, highlighted_background,
-        "top row highlight should apply to a scrollback-sourced viewport row"
-    );
-    assert_eq!(
-        highlighted_bottom, highlighted_background,
-        "bottom row highlight should apply to a live-grid viewport row"
+        highlighted_color, baseline_color,
+        "search highlighting should be skipped when viewport rows are not sourced from live grid"
     );
 }
 

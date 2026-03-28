@@ -192,10 +192,6 @@ impl SearchSnapshot {
 struct SearchRowsCache {
     grid_rows: usize,
     grid_cols: usize,
-    viewport_offset: usize,
-    scrollback_identity: u64,
-    scrollback_total_lines_seen: u64,
-    scrollback_retained_len: usize,
     visible_rows: Scrollback,
 }
 
@@ -212,29 +208,19 @@ impl SearchRowsCache {
             max_memory_bytes: None,
         });
         for row in 0..grid_rows {
-            let cells = terminal.viewport_row_cells(row)?.to_vec();
+            let cells = terminal.grid.row(row)?.to_vec();
             visible_rows.push(Line::new(cells, false));
         }
 
         Some(Self {
             grid_rows,
             grid_cols,
-            viewport_offset: terminal.scrollback_view_offset(),
-            scrollback_identity: terminal.scrollback().instance_id(),
-            scrollback_total_lines_seen: terminal.scrollback().total_lines_seen(),
-            scrollback_retained_len: terminal.scrollback().len(),
             visible_rows,
         })
     }
 
-    fn matches_terminal_state(&self, terminal: &Terminal) -> bool {
-        let scrollback = terminal.scrollback();
-        self.grid_rows == terminal.grid.rows()
-            && self.grid_cols == terminal.grid.cols()
-            && self.viewport_offset == terminal.scrollback_view_offset()
-            && self.scrollback_identity == scrollback.instance_id()
-            && self.scrollback_total_lines_seen == scrollback.total_lines_seen()
-            && self.scrollback_retained_len == scrollback.len()
+    const fn matches_grid_shape(&self, terminal: &Terminal) -> bool {
+        self.grid_rows == terminal.grid.rows() && self.grid_cols == terminal.grid.cols()
     }
 }
 
@@ -793,10 +779,14 @@ impl TerminalRenderer {
         force_rebuild_cache: bool,
     ) -> Option<SearchSnapshot> {
         let config = config?;
+        if terminal.scrollback_view_offset() > 0 {
+            return None;
+        }
+
         let cache_is_compatible = self
             .search_rows_cache
             .as_ref()
-            .is_some_and(|cache| cache.matches_terminal_state(terminal));
+            .is_some_and(|cache| cache.matches_grid_shape(terminal));
         if force_rebuild_cache || !cache_is_compatible {
             self.search_rows_cache = SearchRowsCache::from_terminal(terminal);
         }
