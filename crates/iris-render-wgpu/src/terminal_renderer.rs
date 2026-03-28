@@ -778,7 +778,10 @@ impl TerminalRenderer {
         config: Option<&SearchConfig>,
         force_rebuild_cache: bool,
     ) -> Option<SearchSnapshot> {
-        let config = config?;
+        let Some(config) = config else {
+            self.search_rows_cache = None;
+            return None;
+        };
         if terminal.scrollback_view_offset() > 0 {
             self.search_rows_cache = None;
             return None;
