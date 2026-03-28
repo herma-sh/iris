@@ -6,6 +6,27 @@ This project uses a phase-based versioning scheme:
 
 Phase `0` maps to `0.0.1`, phase `1` maps to `0.1.0`, and phase `N` maps to `0.N.0`.
 
+## 0.5.0 (In Progress)
+
+Work window: `2026-03-28` to present
+
+### 2026-03-28
+
+#### Added
+
+- Added `PlatformFontProvider` in `crates/iris-platform/src/fonts.rs` with platform-aware default font catalogs and deterministic fallback selection for monospace, emoji, and CJK text.
+- Added font-provider unit coverage in `crates/iris-platform/src/fonts.rs` for catalog enumeration and fallback selection behavior.
+- Added a new DPI utility module in `crates/iris-platform/src/dpi.rs` with baseline DPI constants plus logical/physical pixel and font-size scaling helpers.
+- Added DPI unit coverage in `crates/iris-platform/src/dpi.rs` for normalization, invalid-factor fallback behavior, and coordinate conversion helpers.
+- Added IME composition-state modeling in `crates/iris-platform/src/ime.rs` via `ImeComposition` and lifecycle APIs for start/update/commit/cancel flows.
+- Added IME lifecycle unit coverage in `crates/iris-platform/src/ime.rs` for commit and cancel composition behavior.
+
+#### Changed
+
+- Extended the `ImeHandler` trait in `crates/iris-platform/src/ime.rs` from position/active-only behavior to full composition lifecycle handling.
+- Updated `NoopImeHandler` in `crates/iris-platform/src/ime.rs` to track active composition text and cursor state.
+- Updated crate exports in `crates/iris-platform/src/lib.rs` to surface `DpiScale`, `BASELINE_DPI`, `PlatformFontProvider`, and `ImeComposition`.
+
 ## 0.4.0 (In Progress)
 
 Work window: `2026-03-26` to present
