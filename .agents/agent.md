@@ -47,6 +47,7 @@ See:
 5. Add or update tests, benchmarks, docs, and logging/security behavior when the change affects them.
 6. Verify with formatting, linting, tests, and phase-appropriate checks.
 7. Open or update a PR targeting `dev` and use `./.github/PULL_REQUEST_TEMPLATE.md`.
+8. Stop at PR handoff and wait for explicit user approval before running any merge command.
 
 ## Document Map
 

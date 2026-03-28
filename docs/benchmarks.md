@@ -144,6 +144,9 @@ cargo flamegraph --bench parser_throughput -p iris-core
 ```bash
 # Phase 1 performance gate
 cargo bench -p iris-core --bench parser_throughput
+
+# Phase 4 scrollback/search performance gate
+IRIS_SCROLLBACK_BENCH_ASSERT=1 cargo bench -p iris-core --bench scrollback_throughput -- --nocapture
 ```
 
 ## Regression Policy

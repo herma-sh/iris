@@ -319,7 +319,7 @@ fn terminal_renderer_updates_search_highlight_without_grid_or_cursor_changes() {
 }
 
 #[test]
-fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_grid() {
+fn terminal_renderer_skips_search_highlight_when_viewport_detached_from_live_grid() {
     let _gpu_test_lock = crate::test_support::gpu_test_lock();
     let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
         Ok(renderer) => renderer,
@@ -371,7 +371,7 @@ fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_g
     terminal.scroll_line_up();
 
     let search = SearchConfig {
-        pattern: "X".to_string(),
+        pattern: "Y".to_string(),
         case_sensitive: true,
         use_regex: false,
         whole_word: false,
@@ -394,8 +394,6 @@ fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_g
 
     let baseline_color = pixel_at(&baseline_pixels, surface.size(), (1, 1));
     let highlighted_color = pixel_at(&highlighted_pixels, surface.size(), (1, 1));
-    let highlighted_background =
-        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
     let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
 
     assert_eq!(
@@ -408,13 +406,36 @@ fn terminal_renderer_applies_search_highlight_when_viewport_detached_from_live_g
         "baseline cell should render with normal background"
     );
     assert_eq!(
-        highlighted_color, highlighted_background,
-        "search highlighting should apply to rows rendered from detached scrollback viewport state"
+        highlighted_color, baseline_color,
+        "search highlighting should be skipped when viewport rows are not sourced from live grid"
+    );
+
+    terminal.scroll_to_bottom();
+    assert!(
+        terminal.take_damage().is_empty(),
+        "reattaching viewport should not require explicit grid damage for this regression path"
+    );
+    assert!(
+        terminal.take_scroll_delta().is_none(),
+        "reattaching viewport should not require explicit scroll delta for this regression path"
+    );
+
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search))
+        .expect("reattached viewport update should rebuild search highlights");
+    terminal_renderer.render_to_texture_surface(&renderer, &surface);
+    let reattached_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+    let reattached_color = pixel_at(&reattached_pixels, surface.size(), (1, 1));
+    let highlighted_background =
+        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
+    assert_eq!(
+        reattached_color, highlighted_background,
+        "search highlights should be rebuilt on reattach using live-grid rows"
     );
 }
 
 #[test]
-fn terminal_renderer_applies_search_highlight_to_mixed_scrollback_and_live_rows() {
+fn terminal_renderer_refreshes_search_cache_after_detached_live_grid_changes() {
     let _gpu_test_lock = crate::test_support::gpu_test_lock();
     let renderer = match pollster::block_on(Renderer::new(RendererConfig::default())) {
         Ok(renderer) => renderer,
@@ -423,7 +444,7 @@ fn terminal_renderer_applies_search_highlight_to_mixed_scrollback_and_live_rows(
     };
     let surface = renderer
         .create_texture_surface(TextureSurfaceConfig::new(
-            TextureSurfaceSize::new(32, 32).expect("surface dimensions are valid"),
+            TextureSurfaceSize::new(32, 16).expect("surface dimensions are valid"),
         ))
         .expect("texture surface should be created");
     let mut terminal_renderer = match TerminalRenderer::new(
@@ -436,7 +457,7 @@ fn terminal_renderer_applies_search_highlight_to_mixed_scrollback_and_live_rows(
                     background: ThemeColor::rgb(0x00, 0x00, 0x00),
                     ..Theme::default()
                 },
-                uniforms: TextUniforms::new([32.0, 32.0], [16.0, 16.0], 0.0),
+                uniforms: TextUniforms::new([32.0, 16.0], [16.0, 16.0], 0.0),
                 ..Default::default()
             },
             ..Default::default()
@@ -446,35 +467,28 @@ fn terminal_renderer_applies_search_highlight_to_mixed_scrollback_and_live_rows(
         Err(crate::error::Error::NoUsableSystemFont) => return,
         Err(error) => panic!("terminal renderer failed unexpectedly: {error}"),
     };
-    let mut terminal = Terminal::new(2, 2).expect("terminal should be created");
+    let mut terminal = Terminal::new(1, 2).expect("terminal should be created");
+    terminal.cursor.visible = false;
     terminal
         .write_char('A')
         .expect("terminal write should succeed");
     terminal
+        .execute_control(0x0d)
+        .expect("carriage return should reset cursor column");
+    terminal
         .execute_control(0x0a)
-        .expect("line feed should move cursor to the second row");
+        .expect("line feed should push the row into scrollback");
     terminal
         .execute_control(0x0d)
         .expect("carriage return should reset cursor column");
     terminal
         .write_char('B')
         .expect("terminal write should succeed");
-    terminal
-        .execute_control(0x0a)
-        .expect("line feed at bottom should push the first row into scrollback");
-    terminal
-        .execute_control(0x0d)
-        .expect("carriage return should reset cursor column");
-    terminal
-        .write_char('C')
-        .expect("terminal write should succeed");
-    terminal.cursor.visible = false;
-    terminal.scroll_line_up();
 
-    let search = SearchConfig {
-        pattern: "[AB]".to_string(),
+    let search_b = SearchConfig {
+        pattern: "B".to_string(),
         case_sensitive: true,
-        use_regex: true,
+        use_regex: false,
         whole_word: false,
         wrap: true,
     };
@@ -482,39 +496,45 @@ fn terminal_renderer_applies_search_highlight_to_mixed_scrollback_and_live_rows(
     terminal_renderer
         .prepare_terminal_with_search(&renderer, &terminal, None)
         .expect("initial terminal frame should prepare");
-    terminal_renderer.render_to_texture_surface(&renderer, &surface);
-    let baseline_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
-
     let _ = terminal.take_damage();
     let _ = terminal.take_scroll_delta();
     terminal_renderer
-        .update_terminal_with_search(&renderer, &mut terminal, Some(&search))
-        .expect("mixed viewport update should succeed");
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search_b))
+        .expect("initial search update should build live-grid cache");
+
+    terminal.scroll_line_up();
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search_b))
+        .expect("detached viewport search update should succeed");
+    terminal.move_cursor(0, 0);
+    terminal
+        .write_char('C')
+        .expect("live grid should mutate while viewport is detached");
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search_b))
+        .expect("detached update should consume live-grid damage");
+
+    terminal.scroll_to_bottom();
+    assert!(
+        terminal.take_damage().is_empty(),
+        "returning to live viewport should not require grid-damage input for this regression path"
+    );
+    assert!(
+        terminal.take_scroll_delta().is_none(),
+        "returning to live viewport should not require scroll-delta input for this regression path"
+    );
+
+    terminal_renderer
+        .update_terminal_with_search(&renderer, &mut terminal, Some(&search_b))
+        .expect("search update after returning to live viewport should succeed");
     terminal_renderer.render_to_texture_surface(&renderer, &surface);
-    let highlighted_pixels = crate::test_support::read_texture_surface(&renderer, &surface);
+    let pixels = crate::test_support::read_texture_surface(&renderer, &surface);
 
-    let baseline_top = pixel_at(&baseline_pixels, surface.size(), (1, 1));
-    let baseline_bottom = pixel_at(&baseline_pixels, surface.size(), (1, 17));
-    let highlighted_top = pixel_at(&highlighted_pixels, surface.size(), (1, 1));
-    let highlighted_bottom = pixel_at(&highlighted_pixels, surface.size(), (1, 17));
-    let highlighted_background =
-        crate::test_support::bgra_pixel(terminal_renderer.theme().foreground);
+    let rendered_cell_background = pixel_at(&pixels, surface.size(), (1, 1));
     let background = crate::test_support::bgra_pixel(terminal_renderer.theme().background);
-
     assert_eq!(
-        terminal.scrollback_view_offset(),
-        1,
-        "test setup must render a mixed scrollback/live viewport"
-    );
-    assert_eq!(baseline_top, background);
-    assert_eq!(baseline_bottom, background);
-    assert_eq!(
-        highlighted_top, highlighted_background,
-        "top row highlight should apply to a scrollback-sourced viewport row"
-    );
-    assert_eq!(
-        highlighted_bottom, highlighted_background,
-        "bottom row highlight should apply to a live-grid viewport row"
+        rendered_cell_background, background,
+        "search cache should refresh after detached updates; stale live-grid matches must not be highlighted after returning to offset 0"
     );
 }
 
