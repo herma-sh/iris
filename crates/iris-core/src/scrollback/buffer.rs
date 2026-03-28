@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::line::Line;
 use super::search::{search_line, SearchConfig, SearchEngine, SearchResult};
@@ -22,12 +23,31 @@ impl Default for ScrollbackConfig {
 }
 
 /// Ring buffer of terminal history lines.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Scrollback {
+    instance_id: u64,
     config: ScrollbackConfig,
     lines: VecDeque<Line>,
     total_lines_seen: u64,
     memory_bytes: usize,
+}
+
+static SCROLLBACK_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+fn next_scrollback_instance_id() -> u64 {
+    SCROLLBACK_INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+impl Clone for Scrollback {
+    fn clone(&self) -> Self {
+        Self {
+            instance_id: next_scrollback_instance_id(),
+            config: self.config,
+            lines: self.lines.clone(),
+            total_lines_seen: self.total_lines_seen,
+            memory_bytes: self.memory_bytes,
+        }
+    }
 }
 
 impl PartialEq for Scrollback {
@@ -50,6 +70,7 @@ impl Scrollback {
     #[must_use]
     pub fn new(config: ScrollbackConfig) -> Self {
         Self {
+            instance_id: next_scrollback_instance_id(),
             config,
             lines: VecDeque::new(),
             total_lines_seen: 0,
@@ -210,6 +231,12 @@ impl Scrollback {
     #[must_use]
     pub const fn total_lines_seen(&self) -> u64 {
         self.total_lines_seen
+    }
+
+    /// Returns a stable identity for this scrollback instance.
+    #[must_use]
+    pub const fn instance_id(&self) -> u64 {
+        self.instance_id
     }
 
     fn evict_for_line_count(&mut self) {

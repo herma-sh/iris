@@ -419,6 +419,34 @@ fn search_engine_navigation_refreshes_results_after_scrollback_growth() {
 }
 
 #[test]
+fn search_engine_navigation_refreshes_results_after_scrollback_rollover() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig {
+        max_lines: 1,
+        max_memory_bytes: None,
+    });
+    scrollback.push(line("alpha-0"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("alpha");
+
+    let first = engine.search_forward(&scrollback, 0, 0).unwrap();
+    assert_eq!(first.line_number, 0);
+
+    scrollback.push(line("alpha-1"));
+    assert_eq!(scrollback.len(), 1);
+    assert_eq!(scrollback.total_lines_seen(), 2);
+    assert!(scrollback.line_by_number(0).is_none());
+
+    let updated = engine.search_forward(&scrollback, 0, 0).unwrap();
+    assert_eq!(updated.line_number, 1);
+    assert_eq!(updated.column, 0);
+    assert_eq!(updated.length, 5);
+
+    engine.set_wrap(false);
+    assert!(engine.search_backward(&scrollback, 1, 0).is_none());
+}
+
+#[test]
 fn search_engine_navigation_refreshes_results_after_scrollback_clear() {
     let mut scrollback = Scrollback::new(ScrollbackConfig::default());
     scrollback.push(line("alpha-0"));

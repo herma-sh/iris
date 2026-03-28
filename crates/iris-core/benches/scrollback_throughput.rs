@@ -96,6 +96,10 @@ fn main() {
 
     let navigation_result = run_benchmark(SEARCH_WARMUP_RUNS, MIN_SEARCH_BENCH_TIME, || {
         let hits = navigate_forward_steps(&mut navigation_engine, &scrollback, NAVIGATION_STEPS);
+        assert_eq!(
+            hits, NAVIGATION_STEPS,
+            "navigate_forward_steps returned fewer hits than NAVIGATION_STEPS during run_benchmark; navigation_engine or scrollback state changed unexpectedly"
+        );
         black_box(hits);
     });
     let per_navigation_step_us = per_iteration_micros(&navigation_result) / NAVIGATION_STEPS as f64;

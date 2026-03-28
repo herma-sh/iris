@@ -64,7 +64,7 @@ pub struct SearchEngine {
 
 #[derive(Clone, Debug, Default)]
 struct NavigationCache {
-    scrollback_identity: usize,
+    scrollback_identity: u64,
     total_lines_seen: u64,
     retained_len: usize,
     results: Vec<SearchResult>,
@@ -150,8 +150,6 @@ impl SearchEngine {
         }
 
         self.config.wrap = wrap;
-        self.current_match = None;
-        self.invalidate_navigation_cache();
     }
 
     /// Returns all matches ordered from oldest to newest line.
@@ -279,7 +277,7 @@ impl SearchEngine {
     }
 
     fn navigation_results(&mut self, scrollback: &Scrollback) -> &[SearchResult] {
-        let scrollback_identity = std::ptr::from_ref(scrollback) as usize;
+        let scrollback_identity = scrollback.instance_id();
         let total_lines_seen = scrollback.total_lines_seen();
         let retained_len = scrollback.len();
         if self.navigation_cache.valid
