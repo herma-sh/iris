@@ -36,3 +36,7 @@ jobs:
 
       - name: Test
         run: cargo test --all
+
+      - name: Scrollback Benchmark Gate
+        if: matrix.os == 'ubuntu-latest'
+        run: IRIS_SCROLLBACK_BENCH_ASSERT=1 cargo bench -p iris-core --bench scrollback_throughput -- --nocapture

@@ -10,6 +10,7 @@ const MATCH_INTERVAL: usize = 97;
 const TARGET_MAX_MEMORY_MIB: f64 = 200.0;
 const TARGET_MAX_SEARCH_MILLIS: f64 = 500.0;
 const TARGET_MAX_NAVIGATION_STEP_MICROS: f64 = 500.0;
+const THRESHOLD_ENFORCEMENT_ENV: &str = "IRIS_SCROLLBACK_BENCH_ASSERT";
 const PUSH_WARMUP_RUNS: usize = 1;
 const SEARCH_WARMUP_RUNS: usize = 5;
 const MIN_PUSH_BENCH_TIME: Duration = Duration::from_millis(250);
@@ -25,6 +26,12 @@ struct LineTemplates {
 struct BenchResult {
     iterations: u64,
     elapsed: Duration,
+}
+
+struct ScrollbackBenchMetrics {
+    retained_mib: f64,
+    search_millis: f64,
+    navigation_step_micros: f64,
 }
 
 fn main() {
@@ -114,6 +121,13 @@ fn main() {
         "targets: retained memory <= {:.0} MiB, search <= {:.0} ms/query, navigation <= {:.0} us/step",
         TARGET_MAX_MEMORY_MIB, TARGET_MAX_SEARCH_MILLIS, TARGET_MAX_NAVIGATION_STEP_MICROS
     );
+
+    let metrics = ScrollbackBenchMetrics {
+        retained_mib,
+        search_millis: per_search_ms,
+        navigation_step_micros: per_navigation_step_us,
+    };
+    enforce_thresholds_if_requested(&metrics);
 }
 
 fn build_scrollback(templates: &LineTemplates) -> Scrollback {
@@ -201,4 +215,36 @@ fn navigate_forward_steps(
         hits = hits.saturating_add(1);
     }
     hits
+}
+
+fn enforce_thresholds_if_requested(metrics: &ScrollbackBenchMetrics) {
+    if std::env::var_os(THRESHOLD_ENFORCEMENT_ENV).is_none() {
+        return;
+    }
+
+    if metrics.retained_mib > TARGET_MAX_MEMORY_MIB {
+        panic!(
+            "scrollback benchmark memory threshold exceeded: retained={:.2} MiB target<={:.2} MiB",
+            metrics.retained_mib, TARGET_MAX_MEMORY_MIB
+        );
+    }
+
+    if metrics.search_millis > TARGET_MAX_SEARCH_MILLIS {
+        panic!(
+            "scrollback benchmark search threshold exceeded: search={:.2} ms target<={:.2} ms",
+            metrics.search_millis, TARGET_MAX_SEARCH_MILLIS
+        );
+    }
+
+    if metrics.navigation_step_micros > TARGET_MAX_NAVIGATION_STEP_MICROS {
+        panic!(
+            "scrollback benchmark navigation threshold exceeded: navigation={:.2} us/step target<={:.2} us/step",
+            metrics.navigation_step_micros, TARGET_MAX_NAVIGATION_STEP_MICROS
+        );
+    }
+
+    println!(
+        "threshold_check: pass (env {THRESHOLD_ENFORCEMENT_ENV} set; retained={:.2} MiB, search={:.2} ms, navigation={:.2} us/step)",
+        metrics.retained_mib, metrics.search_millis, metrics.navigation_step_micros
+    );
 }

@@ -15,6 +15,7 @@ Do not replace it with a short freeform summary.
 - Create a focused `feature/*` branch from `dev` before implementing changes.
 - Do not commit feature work directly to `main` or `dev`.
 - Open PRs from `feature/*` into `dev` unless a maintainer explicitly requests a different base.
+- Do not merge a PR until explicit reviewer approval is given for that specific merge.
 
 ## Required Detail Level
 

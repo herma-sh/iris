@@ -29,6 +29,7 @@ Load these when relevant:
 - Before making code or docs changes, create/switch to a `feature/*` branch from `dev`.
 - Keep each branch focused on one coherent change set.
 - Open or update a pull request targeting `dev` after verification completes.
+- Do not run any PR merge command until the user explicitly approves that merge in the current conversation.
 - Use `./.github/PULL_REQUEST_TEMPLATE.md` for every PR description.
 - If a PR cannot be opened (for example, missing auth/remote), report the blocker and provide exact commands to complete it.
 

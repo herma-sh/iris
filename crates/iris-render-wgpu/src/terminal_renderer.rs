@@ -780,6 +780,7 @@ impl TerminalRenderer {
     ) -> Option<SearchSnapshot> {
         let config = config?;
         if terminal.scrollback_view_offset() > 0 {
+            self.search_rows_cache = None;
             return None;
         }
 
