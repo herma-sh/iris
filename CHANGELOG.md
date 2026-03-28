@@ -22,6 +22,8 @@ Work window: `2026-03-28` to present
 - Included IME lifecycle unit coverage in `crates/iris-platform/src/ime.rs` for commit and cancel composition behavior.
 - Added keyboard normalization in `crates/iris-platform/src/keyboard.rs` with platform keycode mapping (`Windows` virtual keys, `macOS` keycodes, `XKB` keysyms) and terminal-input encoding helpers.
 - Included keyboard unit coverage in `crates/iris-platform/src/keyboard.rs` for cross-platform key normalization, AltGr modifier normalization, and terminal byte encoding behavior for special and modified keys.
+- Added best-effort Linux font discovery in `crates/iris-platform/src/fonts.rs` via `fc-list --format=%{family}\\n`, with deterministic fallback to the built-in catalog when discovery is unavailable or returns no families.
+- Included `crates/iris-platform/src/fonts.rs` unit coverage for `fc-list` output parsing, family extraction, deduplication, and blank-entry filtering behavior.
 
 #### Changed
 

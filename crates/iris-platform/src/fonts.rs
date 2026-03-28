@@ -1,4 +1,6 @@
 use crate::error::Result;
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+use std::collections::HashSet;
 
 /// Minimal font metadata surfaced by the platform layer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,7 +31,7 @@ impl PlatformFontProvider {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            catalog: platform_font_catalog(),
+            catalog: discover_platform_font_catalog().unwrap_or_else(platform_font_catalog),
         }
     }
 
@@ -135,6 +137,56 @@ fn platform_font_catalog() -> Vec<FontInfo> {
     Vec::new()
 }
 
+fn discover_platform_font_catalog() -> Option<Vec<FontInfo>> {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        use std::process::Command;
+
+        let output = Command::new("fc-list")
+            .args(["--format=%{family}\\n"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let stdout = std::str::from_utf8(&output.stdout).ok()?;
+        let parsed = parse_fc_list_families(stdout);
+        if parsed.is_empty() {
+            None
+        } else {
+            Some(parsed)
+        }
+    }
+
+    #[cfg(any(not(unix), target_os = "macos"))]
+    {
+        None
+    }
+}
+
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+fn parse_fc_list_families(output: &str) -> Vec<FontInfo> {
+    let mut seen = HashSet::new();
+    let mut fonts = Vec::new();
+
+    for line in output.lines() {
+        for family in line.split(',') {
+            let trimmed = family.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let normalized = trimmed.to_ascii_lowercase();
+            if seen.insert(normalized) {
+                fonts.push(font(trimmed));
+            }
+        }
+    }
+
+    fonts
+}
+
 const fn preferred_monospace_families() -> &'static [&'static str] {
     &[
         "Cascadia Mono",
@@ -188,7 +240,7 @@ fn is_emoji(character: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{FontInfo, FontProvider, PlatformFontProvider};
+    use super::{parse_fc_list_families, FontInfo, FontProvider, PlatformFontProvider};
 
     fn custom_provider() -> PlatformFontProvider {
         PlatformFontProvider::with_catalog(vec![
@@ -251,5 +303,23 @@ mod tests {
         }]);
         let fallback = provider.fallback_for('A').unwrap().unwrap();
         assert_eq!(fallback.family, "Custom Font");
+    }
+
+    #[test]
+    fn parse_fc_list_families_extracts_and_deduplicates_family_names() {
+        let output = "DejaVu Sans Mono\nNoto Sans Mono, Noto Sans Mono CJK SC\nDejaVu Sans Mono\n";
+        let parsed = parse_fc_list_families(output);
+        assert_eq!(parsed.len(), 3);
+        assert_eq!(parsed[0].family, "DejaVu Sans Mono");
+        assert_eq!(parsed[1].family, "Noto Sans Mono");
+        assert_eq!(parsed[2].family, "Noto Sans Mono CJK SC");
+    }
+
+    #[test]
+    fn parse_fc_list_families_ignores_blank_entries() {
+        let output = " \n, ,\nNoto Color Emoji\n";
+        let parsed = parse_fc_list_families(output);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].family, "Noto Color Emoji");
     }
 }
