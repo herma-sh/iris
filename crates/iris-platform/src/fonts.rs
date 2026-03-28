@@ -170,16 +170,20 @@ fn font(family: &str) -> FontInfo {
 
 fn is_cjk(character: char) -> bool {
     let cp = character as u32;
-    (0x3400..=0x4DBF).contains(&cp)
+    (0x3000..=0x303F).contains(&cp)
+        || (0x3400..=0x4DBF).contains(&cp)
         || (0x4E00..=0x9FFF).contains(&cp)
         || (0xF900..=0xFAFF).contains(&cp)
+        || (0xFF00..=0xFFEF).contains(&cp)
         || (0x3040..=0x30FF).contains(&cp)
         || (0xAC00..=0xD7AF).contains(&cp)
 }
 
 fn is_emoji(character: char) -> bool {
     let cp = character as u32;
-    (0x1F300..=0x1FAFF).contains(&cp) || (0x2600..=0x27BF).contains(&cp)
+    (0x1F300..=0x1FAFF).contains(&cp)
+        || (0x1F1E6..=0x1F1FF).contains(&cp)
+        || (0x2600..=0x27BF).contains(&cp)
 }
 
 #[cfg(test)]
@@ -223,6 +227,20 @@ mod tests {
         let provider = custom_provider();
         let fallback = provider.fallback_for('\u{6F22}').unwrap().unwrap();
         assert_eq!(fallback.family, "Noto Sans CJK SC");
+    }
+
+    #[test]
+    fn platform_provider_treats_fullwidth_forms_as_cjk() {
+        let provider = custom_provider();
+        let fallback = provider.fallback_for('\u{FF01}').unwrap().unwrap();
+        assert_eq!(fallback.family, "Noto Sans CJK SC");
+    }
+
+    #[test]
+    fn platform_provider_treats_regional_indicators_as_emoji() {
+        let provider = custom_provider();
+        let fallback = provider.fallback_for('\u{1F1FA}').unwrap().unwrap();
+        assert_eq!(fallback.family, "Noto Color Emoji");
     }
 
     #[test]

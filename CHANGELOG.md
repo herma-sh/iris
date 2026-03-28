@@ -23,9 +23,10 @@ Work window: `2026-03-28` to present
 
 #### Changed
 
-- Extended the `ImeHandler` trait in `crates/iris-platform/src/ime.rs` from position/active-only behavior to full composition lifecycle handling.
+- Extended the `ImeHandler` trait in `crates/iris-platform/src/ime.rs` from position/active-only behavior to full composition lifecycle handling (source-breaking for downstream `ImeHandler` implementers).
 - Updated `NoopImeHandler` in `crates/iris-platform/src/ime.rs` to track active composition text and cursor state.
 - Updated crate exports in `crates/iris-platform/src/lib.rs` to surface `DpiScale`, `BASELINE_DPI`, `PlatformFontProvider`, and `ImeComposition`.
+- Migration note: downstream crates that implement `ImeHandler` must add the new required methods in `crates/iris-platform/src/ime.rs`, or switch to the provided `NoopImeHandler`/defaults and adopt the exported `DpiScale`, `BASELINE_DPI`, `PlatformFontProvider`, and `ImeComposition` types from `crates/iris-platform/src/lib.rs`.
 
 ## 0.4.0 (In Progress)
 

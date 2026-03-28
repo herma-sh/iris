@@ -14,8 +14,24 @@ pub struct ImePosition {
 pub struct ImeComposition {
     /// Current composition text.
     pub text: String,
-    /// Cursor offset within `text`.
+    ///
+    /// This index is a Unicode-scalar (`char`) position, not a UTF-8 byte
+    /// offset.
     pub cursor: usize,
+}
+
+impl ImeComposition {
+    /// Returns the UTF-8 byte offset for `cursor`.
+    ///
+    /// When `cursor` exceeds the number of Unicode scalars in `text`, this
+    /// returns `text.len()`.
+    #[must_use]
+    pub fn cursor_byte_offset(&self) -> usize {
+        self.text
+            .char_indices()
+            .nth(self.cursor)
+            .map_or(self.text.len(), |(byte_offset, _)| byte_offset)
+    }
 }
 
 /// IME abstraction owned by the platform layer.
@@ -27,6 +43,8 @@ pub trait ImeHandler {
     fn start_composition(&mut self) -> Result<()>;
 
     /// Updates IME composition text and cursor.
+    ///
+    /// `cursor` is a Unicode-scalar (`char`) index, not a UTF-8 byte offset.
     fn update_composition(&mut self, text: &str, cursor: usize) -> Result<()>;
 
     /// Commits the current composition and returns committed text.
@@ -73,7 +91,13 @@ impl ImeHandler for NoopImeHandler {
     }
 
     fn end_composition(&mut self) -> Result<Option<String>> {
-        let committed = self.composition.take().map(|composition| composition.text);
+        let committed = self.composition.take().and_then(|composition| {
+            if composition.text.is_empty() {
+                None
+            } else {
+                Some(composition.text)
+            }
+        });
         self.active = false;
         Ok(committed)
     }
@@ -95,7 +119,7 @@ impl ImeHandler for NoopImeHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::{ImeHandler, ImePosition, NoopImeHandler};
+    use super::{ImeComposition, ImeHandler, ImePosition, NoopImeHandler};
 
     #[test]
     fn noop_ime_tracks_position_and_composition_lifecycle() {
@@ -127,5 +151,34 @@ mod tests {
         assert!(ime.composition().is_none());
         let committed = ime.end_composition().unwrap();
         assert_eq!(committed, None);
+    }
+
+    #[test]
+    fn noop_ime_end_composition_without_update_does_not_commit_empty_text() {
+        let mut ime = NoopImeHandler::default();
+        ime.start_composition().unwrap();
+
+        let committed = ime.end_composition().unwrap();
+        assert_eq!(committed, None);
+        assert!(!ime.active());
+        assert!(ime.composition().is_none());
+    }
+
+    #[test]
+    fn ime_composition_cursor_byte_offset_maps_char_index_to_utf8_boundary() {
+        let composition = ImeComposition {
+            text: "a\u{1F600}b".to_string(),
+            cursor: 2,
+        };
+        assert_eq!(composition.cursor_byte_offset(), 5);
+    }
+
+    #[test]
+    fn ime_composition_cursor_byte_offset_clamps_to_text_len_when_out_of_bounds() {
+        let composition = ImeComposition {
+            text: "abc".to_string(),
+            cursor: 99,
+        };
+        assert_eq!(composition.cursor_byte_offset(), 3);
     }
 }
