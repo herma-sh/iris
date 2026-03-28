@@ -20,6 +20,8 @@ Work window: `2026-03-26` to present
 #### Changed
 
 - Updated benchmark documentation in `docs/benchmarks.md` to include the new scrollback benchmark workflow, command, and development target thresholds for retained memory and search latency.
+- Optimized regex search match indexing in `iris-core::scrollback::search` by reusing precomputed char-byte offsets per line instead of repeatedly rescanning prefix slices for every regex match.
+- Added Unicode wide-cell regex coverage in `crates/iris-core/src/test/scrollback/tests.rs` to verify display-column and length mapping for multibyte matches.
 
 ### 2026-03-27
 
