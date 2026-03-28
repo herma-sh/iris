@@ -29,6 +29,8 @@ Work window: `2026-03-26` to present
 - `SearchEngine::set_wrap` now preserves cached navigation match sets when only wrap behavior changes, because wrap toggles affect traversal policy but not the underlying match set.
 - `Scrollback` now carries a stable `instance_id` assigned at construction and used in search navigation cache keys to avoid cross-buffer cache contamination and pointer-identity ABA edge cases.
 - Added rollover-specific navigation regression coverage in `crates/iris-core/src/test/scrollback/tests.rs` for fixed-capacity scrollback where retained length stays constant while `total_lines_seen` increases.
+- `iris-render-wgpu::TerminalRenderer` search highlighting now tracks the currently visible viewport row composition (scrollback + live rows) so detached or mixed scrollback viewports continue to receive search highlights instead of being skipped.
+- Updated `docs/phases/04.md` with a live progress snapshot, refreshed coverage checklist, and acceptance-status tracking aligned with the implemented scrollback/search feature set.
 
 ### 2026-03-27
 
