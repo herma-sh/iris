@@ -337,6 +337,21 @@ fn search_engine_regex_honors_whole_word_boundaries() {
 }
 
 #[test]
+fn search_engine_regex_reports_wide_multibyte_match_columns() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("a🙂b🙂c"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_use_regex(true);
+    engine.set_pattern("🙂c");
+
+    let results = engine.search(&scrollback);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].column, 4);
+    assert_eq!(results[0].length, 3);
+}
+
+#[test]
 fn scrollback_equality_ignores_line_timestamps() {
     let mut left = Scrollback::new(ScrollbackConfig::default());
     let mut right = Scrollback::new(ScrollbackConfig::default());

@@ -293,11 +293,16 @@ fn search_line_regex(line: &Line, regex: &Regex, whole_word: bool) -> Vec<(usize
     }
 
     let searchable: String = units.iter().map(|unit| unit.character).collect();
+    let byte_offsets = char_byte_offsets(&searchable);
     let mut results = Vec::new();
 
     for candidate in regex.find_iter(&searchable) {
-        let start_char = searchable[..candidate.start()].chars().count();
-        let end_char = searchable[..candidate.end()].chars().count();
+        let Some(start_char) = byte_offset_to_char_index(&byte_offsets, candidate.start()) else {
+            continue;
+        };
+        let Some(end_char) = byte_offset_to_char_index(&byte_offsets, candidate.end()) else {
+            continue;
+        };
         if end_char <= start_char || start_char >= units.len() || end_char > units.len() {
             continue;
         }
@@ -312,6 +317,19 @@ fn search_line_regex(line: &Line, regex: &Regex, whole_word: bool) -> Vec<(usize
     }
 
     results
+}
+
+fn char_byte_offsets(text: &str) -> Vec<usize> {
+    let mut offsets = Vec::with_capacity(text.chars().count().saturating_add(1));
+    for (byte_offset, _) in text.char_indices() {
+        offsets.push(byte_offset);
+    }
+    offsets.push(text.len());
+    offsets
+}
+
+fn byte_offset_to_char_index(offsets: &[usize], byte_offset: usize) -> Option<usize> {
+    offsets.binary_search(&byte_offset).ok()
 }
 
 fn searchable_units(line: &Line) -> Vec<SearchUnit> {
