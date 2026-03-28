@@ -7,7 +7,10 @@ use iris_core::{Cell, Line, Scrollback, ScrollbackConfig, SearchConfig, SearchEn
 const RETAINED_LINES: usize = 100_000;
 const LINE_WIDTH: usize = 64;
 const MATCH_INTERVAL: usize = 97;
+const MEMORY_GATE_LINES: usize = 1_000_000;
+const MEMORY_GATE_LINE_WIDTH: usize = 32;
 const TARGET_MAX_MEMORY_MIB: f64 = 200.0;
+const TARGET_MAX_MEMORY_1M_MIB: f64 = 500.0;
 const TARGET_MAX_SEARCH_MILLIS: f64 = 500.0;
 const TARGET_MAX_NAVIGATION_STEP_MICROS: f64 = 500.0;
 const THRESHOLD_ENFORCEMENT_ENV: &str = "IRIS_SCROLLBACK_BENCH_ASSERT";
@@ -30,6 +33,7 @@ struct BenchResult {
 
 struct ScrollbackBenchMetrics {
     retained_mib: f64,
+    retained_1m_mib: f64,
     search_millis: f64,
     navigation_step_micros: f64,
 }
@@ -68,6 +72,24 @@ fn main() {
     println!(
         "retained_memory_100k_lines: {:.2} MiB (~{:.0} bytes/line, dense-cell floor {:.2} MiB)",
         retained_mib, bytes_per_line, dense_cell_mib
+    );
+
+    let memory_gate_line = Line::from_text(
+        &build_line_text_with_width("memory ", MEMORY_GATE_LINE_WIDTH),
+        false,
+    );
+    let million_line_scrollback = build_uniform_scrollback(memory_gate_line, MEMORY_GATE_LINES);
+    let retained_1m_mib = bytes_to_mib(million_line_scrollback.memory_bytes());
+    let retained_1m_bytes_per_line =
+        million_line_scrollback.memory_bytes() as f64 / million_line_scrollback.len().max(1) as f64;
+    let dense_1m_cell_mib = bytes_to_mib(
+        MEMORY_GATE_LINES
+            .saturating_mul(MEMORY_GATE_LINE_WIDTH)
+            .saturating_mul(size_of::<Cell>()),
+    );
+    println!(
+        "retained_memory_1m_lines_32_cols: {:.2} MiB (~{:.0} bytes/line, dense-cell floor {:.2} MiB)",
+        retained_1m_mib, retained_1m_bytes_per_line, dense_1m_cell_mib
     );
 
     let search_config = SearchConfig {
@@ -118,12 +140,16 @@ fn main() {
     );
 
     println!(
-        "targets: retained memory <= {:.0} MiB, search <= {:.0} ms/query, navigation <= {:.0} us/step",
-        TARGET_MAX_MEMORY_MIB, TARGET_MAX_SEARCH_MILLIS, TARGET_MAX_NAVIGATION_STEP_MICROS
+        "targets: retained memory (100k) <= {:.0} MiB, retained memory (1m) <= {:.0} MiB, search <= {:.0} ms/query, navigation <= {:.0} us/step",
+        TARGET_MAX_MEMORY_MIB,
+        TARGET_MAX_MEMORY_1M_MIB,
+        TARGET_MAX_SEARCH_MILLIS,
+        TARGET_MAX_NAVIGATION_STEP_MICROS
     );
 
     let metrics = ScrollbackBenchMetrics {
         retained_mib,
+        retained_1m_mib,
         search_millis: per_search_ms,
         navigation_step_micros: per_navigation_step_us,
     };
@@ -148,13 +174,28 @@ fn build_scrollback(templates: &LineTemplates) -> Scrollback {
 }
 
 fn build_line_text(prefix: &str) -> String {
-    let mut text = String::with_capacity(LINE_WIDTH);
+    build_line_text_with_width(prefix, LINE_WIDTH)
+}
+
+fn build_line_text_with_width(prefix: &str, width: usize) -> String {
+    let mut text = String::with_capacity(width);
     text.push_str(prefix);
-    while text.len() < LINE_WIDTH {
+    while text.len() < width {
         text.push('x');
     }
-    text.truncate(LINE_WIDTH);
+    text.truncate(width);
     text
+}
+
+fn build_uniform_scrollback(line: Line, lines: usize) -> Scrollback {
+    let mut scrollback = Scrollback::new(ScrollbackConfig {
+        max_lines: lines,
+        max_memory_bytes: None,
+    });
+    for _ in 0..lines {
+        scrollback.push(line.clone());
+    }
+    scrollback
 }
 
 fn match_line_count(total_lines: usize, interval: usize) -> usize {
@@ -243,8 +284,15 @@ fn enforce_thresholds_if_requested(metrics: &ScrollbackBenchMetrics) {
         );
     }
 
+    if metrics.retained_1m_mib > TARGET_MAX_MEMORY_1M_MIB {
+        panic!(
+            "scrollback benchmark 1m-memory threshold exceeded: retained_1m={:.2} MiB target<={:.2} MiB",
+            metrics.retained_1m_mib, TARGET_MAX_MEMORY_1M_MIB
+        );
+    }
+
     println!(
-        "threshold_check: pass (env {THRESHOLD_ENFORCEMENT_ENV} set; retained={:.2} MiB, search={:.2} ms, navigation={:.2} us/step)",
-        metrics.retained_mib, metrics.search_millis, metrics.navigation_step_micros
+        "threshold_check: pass (env {THRESHOLD_ENFORCEMENT_ENV} set; retained_100k={:.2} MiB, retained_1m={:.2} MiB, search={:.2} ms, navigation={:.2} us/step)",
+        metrics.retained_mib, metrics.retained_1m_mib, metrics.search_millis, metrics.navigation_step_micros
     );
 }
