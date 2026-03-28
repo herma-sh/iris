@@ -5,6 +5,7 @@ pub mod dpi;
 pub mod error;
 pub mod fonts;
 pub mod ime;
+pub mod keyboard;
 pub mod platform;
 pub mod pty;
 pub mod selection_input;
@@ -20,6 +21,10 @@ pub use dpi::{DpiScale, BASELINE_DPI};
 pub use error::{ClipboardError, Error, FontError, ImeError, PtyError, Result};
 pub use fonts::{FontInfo, FontProvider, NoopFontProvider, PlatformFontProvider};
 pub use ime::{ImeComposition, ImeHandler, ImePosition, NoopImeHandler};
+pub use keyboard::{
+    encode_terminal_key_input, normalize_keyboard_event, KeyModifiers, KeyboardPlatform,
+    NormalizedKey, NormalizedKeyboardEvent, PlatformKeyCode, PlatformKeyboardEvent,
+};
 pub use pty::{PortablePtyBackend, PtyBackend, PtyConfig};
 pub use selection_input::{
     SelectionDirection, SelectionEventFlow, SelectionEventFlowConfig, SelectionEventFlowOutcome,
