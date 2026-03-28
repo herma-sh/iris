@@ -34,6 +34,12 @@ impl PlatformFontProvider {
     /// This prefers runtime discovery via `discover_platform_font_catalog()`
     /// and falls back to `platform_font_catalog()` when discovery is
     /// unavailable or returns no families.
+    ///
+    /// Discovery through `discover_platform_font_catalog()` is cached after
+    /// the first call, so subsequent providers reuse the same discovery
+    /// outcome. Newly installed fonts are not detected until process restart,
+    /// at which point discovery/fallback (`platform_font_catalog()`) is
+    /// evaluated again.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -191,7 +197,7 @@ fn parse_fc_list_families(output: &str) -> Vec<FontInfo> {
                 continue;
             }
 
-            let normalized = trimmed.to_ascii_lowercase();
+            let normalized = trimmed.to_lowercase();
             if seen.insert(normalized) {
                 fonts.push(font(trimmed));
             }
@@ -335,5 +341,13 @@ mod tests {
         let parsed = parse_fc_list_families(output);
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].family, "Noto Color Emoji");
+    }
+
+    #[test]
+    fn parse_fc_list_families_deduplicates_non_ascii_case_variants() {
+        let output = "Ångström Mono\nångström mono\n";
+        let parsed = parse_fc_list_families(output);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].family, "Ångström Mono");
     }
 }
