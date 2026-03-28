@@ -402,6 +402,38 @@ fn search_engine_setters_noop_on_equal_values() {
 }
 
 #[test]
+fn search_engine_navigation_refreshes_results_after_scrollback_growth() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("alpha-0"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("alpha");
+
+    let first = engine.search_forward(&scrollback, 0, 0).unwrap();
+    assert_eq!(first.line_number, 0);
+
+    scrollback.push(line("alpha-1"));
+
+    let next = engine.search_forward(&scrollback, 0, 0).unwrap();
+    assert_eq!(next.line_number, 1);
+}
+
+#[test]
+fn search_engine_navigation_refreshes_results_after_scrollback_clear() {
+    let mut scrollback = Scrollback::new(ScrollbackConfig::default());
+    scrollback.push(line("alpha-0"));
+
+    let mut engine = SearchEngine::new();
+    engine.set_pattern("alpha");
+    assert!(engine.search_forward(&scrollback, 0, 0).is_some());
+
+    scrollback.clear();
+
+    assert!(engine.search_forward(&scrollback, 0, 0).is_none());
+    assert!(engine.search_backward(&scrollback, 0, 0).is_none());
+}
+
+#[test]
 fn scrollback_retains_expected_window_after_100k_ingest() {
     const TOTAL_LINES: usize = 100_000;
     const RETAINED_LINES: usize = 10_000;
