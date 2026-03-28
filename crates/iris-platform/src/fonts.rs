@@ -1,6 +1,7 @@
 use crate::error::Result;
 #[cfg(any(test, all(unix, not(target_os = "macos"))))]
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 /// Minimal font metadata surfaced by the platform layer.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,7 +28,12 @@ pub struct PlatformFontProvider {
 }
 
 impl PlatformFontProvider {
-    /// Creates a platform-font provider using the built-in platform catalog.
+    /// Creates a platform-font provider using discovered platform fonts when
+    /// available.
+    ///
+    /// This prefers runtime discovery via `discover_platform_font_catalog()`
+    /// and falls back to `platform_font_catalog()` when discovery is
+    /// unavailable or returns no families.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -137,7 +143,15 @@ fn platform_font_catalog() -> Vec<FontInfo> {
     Vec::new()
 }
 
+static DISCOVERED_PLATFORM_FONT_CATALOG: OnceLock<Option<Vec<FontInfo>>> = OnceLock::new();
+
 fn discover_platform_font_catalog() -> Option<Vec<FontInfo>> {
+    DISCOVERED_PLATFORM_FONT_CATALOG
+        .get_or_init(detect_platform_font_catalog)
+        .clone()
+}
+
+fn detect_platform_font_catalog() -> Option<Vec<FontInfo>> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         use std::process::Command;
@@ -307,7 +321,7 @@ mod tests {
 
     #[test]
     fn parse_fc_list_families_extracts_and_deduplicates_family_names() {
-        let output = "DejaVu Sans Mono\nNoto Sans Mono, Noto Sans Mono CJK SC\nDejaVu Sans Mono\n";
+        let output = "DejaVu Sans Mono\nNoto Sans Mono, Noto Sans Mono CJK SC\nnOtO Sans Mono\nDejaVu Sans Mono\n";
         let parsed = parse_fc_list_families(output);
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0].family, "DejaVu Sans Mono");
