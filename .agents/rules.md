@@ -111,7 +111,7 @@ See:
 - Keep branch scope reviewable; avoid mixing unrelated changes.
 - Open or update a PR to `dev` for every meaningful change set.
 - PR descriptions must use `./.github/PULL_REQUEST_TEMPLATE.md` with all required sections completed (or marked `N/A` with a reason).
-- If a PR cannot be opened due environment constraints (for example missing GitHub auth), document the blocker and provide exact follow-up commands.
+- If a PR cannot be opened due to environment constraints (for example missing GitHub auth), document the blocker and provide exact follow-up commands.
 
 ## Logging Rules
 
